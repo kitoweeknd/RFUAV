@@ -1,0 +1,52 @@
+train: E:\Drone_dataset\RFUAV\augmentation_exp2_allDrone\dataset_aug\train  # 数据集路径
+val: E:\Drone_dataset\RFUAV\augmentation_exp2_allDrone\dataset_aug\valid  # 数据集路径
+save_path: E:\Drone_dataset\RFUAV\augmentation_exp2_allDrone\exp\8.vit_b_16
+model : vit_b_32
+weights: None
+batch_size: 32
+image_size: 224
+num_classes: 37
+class_names: [
+        'DAUTEL EVO nano',
+        'DEVENTION DEVO',
+        'DJI AVATA2',
+        'DJI FPV COMBO',
+        'DJI MAVIC3 PRO',
+        'DJI MINI3',
+        'DJI MINI4 PRO',
+        'FLYSKY EL 18',
+        'FLYSKY FS 16X',
+        'FLYSKY NV 14',
+        'FRSKY-X9DP2019',
+        'FRSKY-X14',
+        'FRSKY-X20R',
+        'FUTABA-T10J',
+        'FUTABA-T145G',
+        'FUTABA-T16IZ',
+        'FUTABA-T18SZ',
+        'Herelink-Hx4',
+        'JR PROPO XG7',
+        'JR PROPO XG14',
+        'JUMPER-T14',
+        'JUMPER-TProV2',
+        'Radiolink AT9S Pro',
+        'Radiolink AT10 II',
+        'RadioMaster BOXER',
+        'RadioMaster TX16S',
+        'SIYI FT24',
+        'SIYI MK15',
+        'SIYI MK32',
+        'SKYDROID-H12',
+        'SKYDROID-T10',
+        'WFLY ET10',
+        'WFLY ET16S',
+        'WFLY WFTO9SII',
+        'YunZhuo-H12',
+        'YunZhuo-H16',
+        'YunZhuo-H30',
+]
+device: 'cuda'
+num_epochs: 150
+shuffle: True
+lr: 0.00001
+optimizer: None
