@@ -211,7 +211,19 @@ The benchmark includes drone images under various SNRs, while the training set o
                       methods=method)
 
 ## 3.Notice 
-### 3.1 Raw data parameter description
+### 3.1 About Dataset
+The dataset public available now is only a subset, which includes 37 drone raw data clip and image data used for our experiment.
+The parameters of the USRP configured during data acquisition for each drone type, are documented in a corresponding (`.xml`) file.
+
+In `.xml` file, `DeviceType` represents the acquisition device type, Drone represents the drone type,
+`SerialNumber` represents the serial number of the drone data pack,
+`DataType` represents the data type of raw data,
+`ReferenceSNRLevel` represents the signal-to-noise ratio of the drone data pack,
+`CenterFrequency` represents the center frequency of the drone data pack,
+`SampleRate` represents the sampling rate of the drone data pack,
+`IFBandwidth` represents the bandwidth of the drone data pack,
+`ScaleFactor` represents the hardware power amplification scale used when collecting signals, in dB. 
+
 
 ### 3.2 Dataset file Structure
 Your dataset file structure should be organized as follows, if you are using the provided dataloader.  
@@ -228,6 +240,15 @@ Dataset
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── imgs  
 ## 4.Dataset download
 
-## 5.Experiment
 
 ## Citation
+
+    @misc{shi2025rfuavbenchmarkdatasetunmanned,
+          title={RFUAV: A Benchmark Dataset for Unmanned Aerial Vehicle Detection and Identification}, 
+          author={Rui Shi and Xiaodong Yu and Shengming Wang and Yijia Zhang and Lu Xu and Peng Pan and Chunlai Ma},
+          year={2025},
+          eprint={2503.09033},
+          archivePrefix={arXiv},
+          primaryClass={cs.RO},
+          url={https://arxiv.org/abs/2503.09033}, 
+    }
