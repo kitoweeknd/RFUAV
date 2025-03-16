@@ -23,7 +23,7 @@ With the RFUAV you can achieve drone signal detect and drone identification on t
 
 ## 1.Quick start
 <details>
-<summary>Installtion</summary>
+<summary>Installation</summary>
 
     pip install -r requirements.txt
 
