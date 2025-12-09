@@ -317,9 +317,6 @@ class Classify_Model(nn.Module):
 
         if not os.path.exists(save_path):
             os.mkdir(save_path)
-        #根据得到映射关系写下面的，我得到的是★ 最佳映射 pred → gt: {0: 2, 1: 1, 2: 3, 3: 4, 4: 0}
-        #MAP_P2G=torch.tensor([2,1,3,4,0],device=self.cfg['device'])
-        #INV_MAP=torch.argsort(MAP_P2G)
         with torch.no_grad():
             for snr in snrs:
                 CMS = os.listdir(os.path.join(data_path, snr))
@@ -380,14 +377,13 @@ class Classify_Model(nn.Module):
 
                 print(f'{CM} Done!')
             print(f'{snr} Done!')
-        row_ind, col_ind = linear_sum_assignment(-cm_raw)   # 取负→最大化对角线
+        row_ind, col_ind = linear_sum_assignment(-cm_raw)
         mapping_pred2gt = {int(r): int(c) for r, c in zip(row_ind, col_ind)}
-        print("\n★ 最佳映射 pred → gt:", mapping_pred2gt)
+        print("\n★ pred → gt:", mapping_pred2gt)
         
-        # 若要保存下来以后用：
         import json
         json.dump(mapping_pred2gt, open('class_to_idx_pred2gt.json', 'w'))
-        print("映射已保存到 class_to_idx_pred2gt.json")
+        print("saved to class_to_idx_pred2gt.json")
 
 class Detection_Model:
 

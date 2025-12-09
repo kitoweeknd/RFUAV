@@ -9,21 +9,30 @@ class colorful_logger:
         init(autoreset=True)
 
         self.logger = logging.getLogger(name)
+        
+        # 防止消息向上传播到root logger，避免重复输出
+        self.logger.propagate = False
+        
+        # 如果logger已经有handler，不再重复添加
+        if self.logger.handlers:
+            return
 
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(message)s')
 
+        # 为Train类型添加文件handler
         if self.name == 'Train' and logfile:
             filehandler = logging.FileHandler(logfile)
             filehandler.setLevel(logging.INFO)
             filehandler.setFormatter(formatter)
             self.logger.addHandler(filehandler)
+        
+        # 为所有类型添加控制台handler（包括Train）
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(formatter)
+        self.logger.addHandler(console_handler)
 
         self.logger.setLevel(logging.INFO)
-
-        if self.name != 'Train':
-            handler = logging.StreamHandler()
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
 
     def log_with_color(self, message=None, color=Fore.WHITE):
 

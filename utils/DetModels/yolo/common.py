@@ -590,7 +590,6 @@ class PatchEmbed(nn.Module):
         _, _, H, W = x.shape
 
         # padding
-        # 如果输入图片的H，W不是patch_size的整数倍，需要进行padding
         pad_input = (H % self.patch_size[0] != 0) or (W % self.patch_size[1] != 0)
         if pad_input:
             # to pad the last 3 dimensions,
@@ -599,7 +598,6 @@ class PatchEmbed(nn.Module):
                           0, self.patch_size[0] - H % self.patch_size[0],
                           0, 0))
 
-        # 下采样patch_size倍
         x = self.proj(x)
         B, C, H, W = x.shape
         # flatten: [B, C, H, W] -> [B, C, HW]
@@ -637,12 +635,10 @@ class PatchMerging(nn.Module):
         # x = x.view(B, H*W, C)
 
         # padding
-        # 如果输入feature map的H，W不是2的整数倍，需要进行padding
         pad_input = (H % 2 == 1) or (W % 2 == 1)
         if pad_input:
             # to pad the last 3 dimensions, starting from the last dimension and moving forward.
             # (C_front, C_back, W_left, W_right, H_top, H_bottom)
-            # 注意这里的Tensor通道是[B, H, W, C]，所以会和官方文档有些不同
             x = F.pad(x, (0, 0, 0, W % 2, 0, H % 2))
 
         x0 = x[:, 0::2, 0::2, :]  # [B, H/2, W/2, C]
@@ -706,7 +702,6 @@ class SwinTransformerBlock(nn.Module):
         x = x.view(B, H, W, C)
 
         # pad feature maps to multiples of window size
-        # 把feature map给pad到window size的整数倍
         pad_l = pad_t = 0
         pad_r = (self.window_size - W % self.window_size) % self.window_size
         pad_b = (self.window_size - H % self.window_size) % self.window_size
@@ -738,7 +733,6 @@ class SwinTransformerBlock(nn.Module):
             x = shifted_x
 
         if pad_r > 0 or pad_b > 0:
-            # 把前面pad的数据移除掉
             x = x[:, :H, :W, :].contiguous()
 
         x = x.view(B, H * W, C)

@@ -560,7 +560,6 @@ def threaded(func):
     return wrapper
 
 
-#ToDo 写一个自动往网上下数据集的
 def yolo_init(known=False):
 
     ROOT = os.path.dirname(os.path.abspath(__file__))

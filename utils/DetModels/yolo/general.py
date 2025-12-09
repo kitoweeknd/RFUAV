@@ -268,8 +268,57 @@ def check_font(font=FONT, progress=False):
 def check_dataset(data, autodownload=True):
     # Download, check and/or unzip dataset if not found locally
 
-    # Download (optional)
+    # Download from Roboflow if data is empty
     extract_dir = ''
+    if not data or (isinstance(data, str) and not data.strip()) or (isinstance(data, (list, dict)) and len(data) == 0):
+        # 如果输入data为空，则从Roboflow下载数据集
+        roboflow_url = 'https://app.roboflow.com/rui-shi/drone-signal-detect-few-shot/6/download/yolov5'
+        dataset_name = 'drone-signal-detect-few-shot'
+        cache_dir = DATASETS_DIR / dataset_name
+        
+        LOGGER.info(f'\n检测到data参数为空，开始从Roboflow下载数据集...')
+        LOGGER.info(f'下载地址: {roboflow_url}')
+        LOGGER.info(f'缓存目录: {cache_dir}')
+        
+        # 创建缓存目录
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 检查是否已经下载过
+        yaml_files = list(cache_dir.rglob('*.yaml'))
+        if yaml_files:
+            LOGGER.info(f'发现已缓存的数据集，使用缓存路径: {yaml_files[0]}')
+            data = str(yaml_files[0])
+            extract_dir, autodownload = Path(data).parent, False
+        else:
+            # 下载数据集
+            zip_file = cache_dir / f'{dataset_name}.zip'
+            LOGGER.info(f'正在下载数据集到: {zip_file}...')
+            t = time.time()
+            
+            try:
+                torch.hub.download_url_to_file(roboflow_url, str(zip_file), progress=True)
+                LOGGER.info(f'下载完成，耗时: {round(time.time() - t, 1)}s')
+                
+                # 解压数据集
+                LOGGER.info(f'正在解压数据集...')
+                unzip_file(zip_file, path=cache_dir)
+                zip_file.unlink()  # 删除zip文件
+                LOGGER.info(f'解压完成')
+                
+                # 查找yaml文件
+                yaml_files = list(cache_dir.rglob('*.yaml'))
+                if yaml_files:
+                    data = str(yaml_files[0])
+                    extract_dir, autodownload = Path(data).parent, False
+                    LOGGER.info(f'数据集已保存到缓存目录: {extract_dir}')
+                    LOGGER.info(f'将使用缓存路径进行训练: {data}')
+                else:
+                    raise Exception(f'解压后未找到yaml文件 ❌')
+            except Exception as e:
+                LOGGER.error(f'下载数据集失败: {e} ❌')
+                raise Exception(f'无法从Roboflow下载数据集，请检查网络连接或手动下载 ❌')
+    
+    # Download (optional)
     if isinstance(data, (str, Path)) and (is_zipfile(data) or is_tarfile(data)):
         download(data, dir=f'{DATASETS_DIR}/{Path(data).stem}', unzip=True, delete=False, curl=False, threads=1)
         data = next((DATASETS_DIR / Path(data).stem).rglob('*.yaml'))

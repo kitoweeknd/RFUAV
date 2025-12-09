@@ -4,11 +4,15 @@ import glob
 import torch
 from PIL import Image
 import cv2
-from graphic.RawDataProcessor import waterfall_spectrogram
+from graphic.RawDataProcessor import waterfall_spectrogram_optimized
 from logger import colorful_logger
 import json
 import numpy as np
 from benchmark import Classify_Model, Detection_Model, is_valid_file, raw_data_ext, image_ext
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
+from threading import Lock, Event
+from collections import OrderedDict
 
 
 class TwoStagesDetector:
@@ -118,32 +122,115 @@ class TwoStagesDetector:
                 else:
                     return res
 
-    def RawdataProcess(self, source):
-
+    def RawdataProcess(self, source, fft_size=256, fs=100e6, time_scale=39062, 
+                       target_frame_gap=150, num_workers=4, fps=30):
         """
-        Transforming raw data into a video and performing inference on video.
+        优化的原始数据处理流程：流水线处理、并行、不阻塞。
+        
+        处理流程：
+        1. 输入整段原始信号
+        2. 根据视频帧切分数据生成目标帧
+        3. 对每一帧做FFT（数据复用）
+        4. 并行生成时频图
+        5. 一旦有时频图生成，立即用二阶段模型处理
+        6. 按时间顺序重组为视频文件
 
         Parameters:
-        - source (str): Path to the raw data.
+        - source (str): 原始数据路径
+        - fft_size (int): FFT窗口大小
+        - fs (float): 采样率
+        - time_scale (int): 时间尺度
+        - target_frame_gap (int): 目标帧间隔
+        - num_workers (int): 并行工作线程数
+        - fps (int): 输出视频帧率
         """
-
-        test_times = 0
-        images = waterfall_spectrogram(source, fft_size=256, fs=100e6, location='buffer', time_scale=39062)
         name = os.path.splitext(os.path.basename(source))
+        
+        # 使用优化的瀑布图生成函数，返回带时间顺序的时频图
+        self.logger.log_with_color(f"开始处理原始数据: {name[0]}")
+        self.logger.log_with_color(f"正在生成时频图（并行处理，数据复用）...")
+        
+        # 生成时频图（并行、数据复用）
+        images_list = waterfall_spectrogram_optimized(
+            source, fft_size=fft_size, fs=fs, location='buffer', 
+            time_scale=time_scale, target_frame_gap=target_frame_gap, 
+            num_workers=num_workers
+        )
+        
+        if not images_list:
+            self.logger.log_with_color(f"警告: 未生成任何时频图")
+            return
+        
+        self.logger.log_with_color(f"生成了 {len(images_list)} 个时频图，开始模型推理...")
+        
+        # 处理结果缓存（带时间顺序的哈希表）
+        processed_results = OrderedDict()
+        results_lock = Lock()
+        video_initialized = False
+        video = None
+        
+        def process_single_image(frame_idx, image_buffer):
+            """处理单个时频图"""
+            try:
+                result = self.ImgProcessor(image_buffer, save=False)
+                return frame_idx, result
+            except Exception as e:
+                self.logger.log_with_color(f"处理帧 {frame_idx} 时出错: {e}")
+                return frame_idx, None
+        
+        # 并行处理所有时频图（不阻塞）
         with torch.no_grad():
-            while images:
-                test_times += 1
-                _ = self.ImgProcessor(images[0], save=False)
-
-                if test_times == 1:
-                    height, width, layers = _.shape
-                    video_name = name[0] + '_output.avi'
-                    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                    video = cv2.VideoWriter(os.path.join(self.save_path, video_name), fourcc, 30, (width, height))
-                video.write(_)
-                del images[0]
-        video.release()
-        self.logger.log_with_color(f"Finished processing {name[0]}.")
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                # 提交所有任务（images_list已经按时间顺序排列）
+                futures = {executor.submit(process_single_image, idx, img): idx 
+                          for idx, img in enumerate(images_list)}
+                
+                # 按完成顺序收集结果（但保持时间顺序）
+                completed_count = 0
+                next_expected_frame = 0  # 下一个期望的帧索引
+                
+                for future in as_completed(futures):
+                    frame_idx, result = future.result()
+                    
+                    if result is not None:
+                        with results_lock:
+                            processed_results[frame_idx] = result
+                            completed_count += 1
+                            
+                            # 初始化视频写入器（在第一次获得结果时）
+                            if not video_initialized:
+                                height, width, layers = result.shape
+                                video_name = name[0] + '_output.avi'
+                                fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                                video_path = os.path.join(self.save_path, video_name)
+                                video = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
+                                video_initialized = True
+                                self.logger.log_with_color(f"视频写入器已初始化: {width}x{height}, {fps}fps")
+                            
+                            # 一旦有新结果，立即写入视频（按时间顺序）
+                            if video_initialized:
+                                # 检查是否可以写入连续帧（从next_expected_frame开始）
+                                while next_expected_frame in processed_results:
+                                    video.write(processed_results[next_expected_frame])
+                                    del processed_results[next_expected_frame]
+                                    next_expected_frame += 1
+                            
+                            if completed_count % 10 == 0:
+                                self.logger.log_with_color(f"已处理 {completed_count}/{len(images_list)} 帧，已写入 {next_expected_frame} 帧到视频")
+        
+        # 写入剩余的结果（按时间顺序）
+        if video_initialized:
+            for frame_idx in sorted(processed_results.keys()):
+                if frame_idx >= next_expected_frame:
+                    video.write(processed_results[frame_idx])
+                    next_expected_frame = frame_idx + 1
+        
+        # 释放视频写入器
+        if video_initialized and video is not None:
+            video.release()
+            self.logger.log_with_color(f"视频已保存: {os.path.join(self.save_path, name[0] + '_output.avi')}")
+        
+        self.logger.log_with_color(f"完成处理 {name[0]}，共处理 {len(images_list)} 帧")
 
     def DroneDetector(self, cfg):
 
