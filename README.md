@@ -1,4 +1,122 @@
+<!-- 深色主题切换功能 -->
+<div style="position: fixed; top: 20px; right: 20px; z-index: 1000;">
+  <button id="theme-toggle" style="padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; background-color: #f0f0f0; color: #333333; font-size: 14px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+    ☀️ Switch to Light Mode
+  </button>
+</div>
+
+<div id="theme-notice" style="position: fixed; top: 70px; right: 20px; z-index: 999; background-color: #1e3a5f; color: #b3d9ff; padding: 12px 16px; border-radius: 5px; border-left: 4px solid #4a9eff; max-width: 300px; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: none;">
+  💡 <strong>Tip:</strong> Currently in dark mode for the best viewing experience!
+</div>
+
+<style>
+  :root {
+    --bg-color: #1e1e1e;
+    --text-color: #d4d4d4;
+    --code-bg: #2d2d2d;
+    --code-text: #ce9178;
+    --border-color: #3e3e3e;
+    --blockquote-bg: #252526;
+    --link-color: #4ec9b0;
+  }
+
+  [data-theme="light"] {
+    --bg-color: #ffffff;
+    --text-color: #333333;
+    --code-bg: #f4f4f4;
+    --code-text: #e83e8c;
+    --border-color: #e1e4e8;
+    --blockquote-bg: #f6f8fa;
+    --link-color: #0366d6;
+  }
+
+  html {
+    background-color: var(--bg-color);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  pre, code {
+    background-color: var(--code-bg) !important;
+    color: var(--code-text) !important;
+  }
+
+  a {
+    color: var(--link-color);
+  }
+
+  blockquote {
+    background-color: var(--blockquote-bg);
+    border-left-color: var(--border-color);
+  }
+
+  #theme-notice[data-theme="light"] {
+    background-color: #fff3cd;
+    color: #856404;
+    border-left-color: #ffc107;
+  }
+</style>
+
+<script>
+  (function() {
+    // 默认使用深色模式
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    
+    // 应用主题
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('theme', theme);
+      
+      const button = document.getElementById('theme-toggle');
+      const notice = document.getElementById('theme-notice');
+      
+      if (theme === 'dark') {
+        button.textContent = '☀️ 切换到浅色模式';
+        button.style.backgroundColor = '#f0f0f0';
+        button.style.color = '#333333';
+      } else {
+        button.textContent = '🌙 切换到深色模式';
+        button.style.backgroundColor = '#2d2d2d';
+        button.style.color = '#ffffff';
+      }
+      
+      notice.setAttribute('data-theme', theme);
+    }
+    
+    // 初始化主题
+    applyTheme(savedTheme);
+    
+    // 切换主题
+    document.getElementById('theme-toggle').addEventListener('click', function() {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      applyTheme(newTheme);
+    });
+    
+    // 显示提示（仅在首次访问时）
+    if (!localStorage.getItem('theme-notice-shown')) {
+      setTimeout(function() {
+        const notice = document.getElementById('theme-notice');
+        notice.style.display = 'block';
+        setTimeout(function() {
+          notice.style.display = 'none';
+          localStorage.setItem('theme-notice-shown', 'true');
+        }, 5000);
+      }, 1000);
+    }
+  })();
+</script>
+
 <h1 style="text-align:center;"> The RFUAV DATASET </h1>
+
+<div style="text-align: center; margin: 10px 0;">
+  <a href="README_zh.md" style="text-decoration: none; color: var(--link-color); font-size: 16px;">📖 中文版 / Chinese Version</a>
+</div>
 
 ## Abstract
 
