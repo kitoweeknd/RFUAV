@@ -83,12 +83,34 @@ class Basetrainer:
                  batch_size: int = 8,
                  shuffle: bool = False,
                  image_size: int = 224,
-                 lr: float = 0.0001
+                 lr: float = 0.0001,
+                 num_workers: int = 4,
+                 pin_memory: bool = True,
+                 amp: bool = False,
+                 val_interval: int = 1,
+                 metrics_interval: int = 1,
+                 cudnn_benchmark: bool = True,
+                 compile_model: bool = False,
+                 grad_accum_steps: int = 1,
+                 grad_clip_norm: float = 0.0,
+                 ema_decay: float = 0.0,
+                 prefetch_factor: int = 2
                  ):
 
         self.batch_size = batch_size
         self.image_size = image_size
         self.shuffle = shuffle
+        self.num_workers = num_workers
+        self.pin_memory = pin_memory
+        self.amp = amp
+        self.val_interval = max(1, int(val_interval))
+        self.metrics_interval = max(1, int(metrics_interval))
+        self.cudnn_benchmark = cudnn_benchmark
+        self.compile_model = compile_model
+        self.grad_accum_steps = max(1, int(grad_accum_steps))
+        self.grad_clip_norm = float(grad_clip_norm)
+        self.ema_decay = float(ema_decay)
+        self.prefetch_factor = max(1, int(prefetch_factor))
         self.num_class = num_class
         self.save_path = save_path
         self.best_acc = 0
@@ -117,12 +139,14 @@ class Basetrainer:
 
         self.logger.log_with_color(f"Loading model: {model}")
 
-        if os.path.exists(weight_path):
+        if weight_path and os.path.exists(weight_path):
             pretrained = False
 
-        if not os.path.exists(pretrained):
-            self.logger.log_with_color("Pretrained model not found, using default weight")
+        if not isinstance(pretrained, bool):
+            self.logger.log_with_color("Invalid pretrained flag, fallback to True")
             pretrained = True
+
+        torch.backends.cudnn.benchmark = self.cudnn_benchmark
 
         self.model = model_init_(model_name=model, num_class=self.num_class, pretrained=pretrained)
 
@@ -131,6 +155,8 @@ class Basetrainer:
             self.logger.log_with_color(f"Loading pretrained weights from: {weight_path}")
 
         self.model.to(self.device)
+        if self.compile_model and hasattr(torch, "compile"):
+            self.model = torch.compile(self.model)
         self.logger.log_with_color(f"{model} loaded onto device: {self.device}")
 
         # initializing the dataset
@@ -140,16 +166,36 @@ class Basetrainer:
             transforms.ToTensor(),
         ]))
 
-        self.train_set = DataLoader(_train_set, batch_size=self.batch_size, shuffle=self.shuffle)
+        self.train_set = DataLoader(
+            _train_set,
+            batch_size=self.batch_size,
+            shuffle=self.shuffle,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.num_workers > 0,
+            prefetch_factor=self.prefetch_factor if self.num_workers > 0 else None,
+        )
 
         _val_set = datasets.ImageFolder(root=val_path, transform=transforms.Compose([
             transforms.Resize((self.image_size, self.image_size)),
             transforms.ToTensor(),
         ]))
-        self.val_set = DataLoader(_val_set, batch_size=self.batch_size, shuffle=self.shuffle)
+        self.val_set = DataLoader(
+            _val_set,
+            batch_size=self.batch_size,
+            shuffle=self.shuffle,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.num_workers > 0,
+            prefetch_factor=self.prefetch_factor if self.num_workers > 0 else None,
+        )
 
         # initializing optimizer
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+        self.grad_scaler = torch.cuda.amp.GradScaler(enabled=self.amp)
+        self.ema = None
+        if self.ema_decay > 0:
+            self.ema = ModelEMA(self.model, decay=self.ema_decay)
 
     @abstractmethod
     def train(self, num_epochs):
@@ -159,35 +205,73 @@ class Basetrainer:
             running_loss = 0.0
             correct = 0
             total = 0
-            for images, labels in self.train_set:
-                images, labels = images.to(self.device), labels.to(self.device)
-                self.optimizer.zero_grad()
+            self.optimizer.zero_grad(set_to_none=True)
+            for batch_idx, (images, labels) in enumerate(self.train_set):
+                images = images.to(self.device, non_blocking=True)
+                labels = labels.to(self.device, non_blocking=True)
 
                 # forward
-                outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
+                with torch.cuda.amp.autocast(enabled=self.amp):
+                    outputs = self.model(images)
+                    raw_loss = self.criterion(outputs, labels)
+                    loss = raw_loss / self.grad_accum_steps
 
                 # backward
-                loss.backward()
-                self.optimizer.step()
+                if self.amp:
+                    self.grad_scaler.scale(loss).backward()
+                else:
+                    loss.backward()
+
+                if (batch_idx + 1) % self.grad_accum_steps == 0:
+                    if self.amp:
+                        self.grad_scaler.unscale_(self.optimizer)
+                    if self.grad_clip_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
+                    if self.amp:
+                        self.grad_scaler.step(self.optimizer)
+                        self.grad_scaler.update()
+                    else:
+                        self.optimizer.step()
+                    self.optimizer.zero_grad(set_to_none=True)
+                    if self.ema is not None:
+                        self.ema.update(self.model)
 
                 # acc & loss
-                running_loss += loss.item()
+                running_loss += raw_loss.item()
                 _, predicted = outputs.max(1)
                 total += labels.size(0)
                 correct += predicted.eq(labels).sum().item()
+
+            if (batch_idx + 1) % self.grad_accum_steps != 0:
+                if self.amp:
+                    self.grad_scaler.unscale_(self.optimizer)
+                if self.grad_clip_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
+                if self.amp:
+                    self.grad_scaler.step(self.optimizer)
+                    self.grad_scaler.update()
+                else:
+                    self.optimizer.step()
+                self.optimizer.zero_grad(set_to_none=True)
+                if self.ema is not None:
+                    self.ema.update(self.model)
             train_loss = running_loss / len(self.train_set)
             train_acc = 100 * correct / total
             self.logger.log_with_color(
                 f'Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.2f}%')
-            metrics = self.val
-            self.logger.log_with_color(f'Validation Loss: {metrics["loss"]:.4f}, Validation Accuracy: {metrics["acc"]:.2f}%')
-            self.save_model(metrics['acc'], epoch)
+            if (epoch + 1) % self.val_interval == 0:
+                metrics = self.val
+                self.logger.log_with_color(
+                    f'Validation Loss: {metrics["total_loss"]:.4f}, Validation Accuracy: {metrics["acc"]:.2f}%')
+                if (epoch + 1) % self.metrics_interval != 0:
+                    metrics = {"acc": metrics["acc"], "total_loss": metrics["total_loss"]}
+                self.save_model(metrics, epoch)
 
     @property
     def val(self):
         self.logger.log_with_color("Starting validation...")
-        self.model.eval()
+        eval_model = self.ema.ema if self.ema is not None else self.model
+        eval_model.eval()
         val_loss = 0.0
         val_correct = 0
         val_total = 0
@@ -195,21 +279,23 @@ class Basetrainer:
         val_total_labels = []
         with torch.no_grad():
             for val_images, val_labels in self.val_set:
-                val_images, val_labels = val_images.to(self.device), val_labels.to(self.device)
-                val_outputs = self.model(val_images)
-                for val_output in val_outputs:
-                    val_probabilities.append(list(torch.softmax(val_output, dim=0)))
-                val_loss += self.criterion(val_outputs, val_labels).item()
+                val_images = val_images.to(self.device, non_blocking=True)
+                val_labels = val_labels.to(self.device, non_blocking=True)
+                with torch.cuda.amp.autocast(enabled=self.amp):
+                    val_outputs = eval_model(val_images)
+                    val_loss += self.criterion(val_outputs, val_labels).item()
+                val_probabilities.append(torch.softmax(val_outputs, dim=1))
                 _, val_predicted = val_outputs.max(1)
                 val_total += val_labels.size(0)
                 val_correct += val_predicted.eq(val_labels).sum().item()
                 val_total_labels.append(val_labels)
-        _val_total_labels = torch.concat(val_total_labels, dim=0)
-        _val_probabilities = torch.tensor(val_probabilities)
+        _val_total_labels = torch.cat(val_total_labels, dim=0)
+        _val_probabilities = torch.cat(val_probabilities, dim=0)
+        tasks = ('f1', 'precision', 'CM') if self.metrics_interval == 1 else ('f1', 'precision')
         metrics = EVAMetric(preds=_val_probabilities.to(self.device),
                             labels=_val_total_labels,
                             num_classes=self.num_class,
-                            tasks=('f1', 'precision'),
+                            tasks=tasks,
                             topk=(1, 3, 5),
                             save_path=self.save_path,
                             classes_name=self.train_set.dataset.classes)
@@ -218,23 +304,24 @@ class Basetrainer:
         metrics['total_loss'] = val_loss / len(self.val_set)
         return metrics
 
-    def save_model(self, val_acc, epoch):
+    def save_model(self, metrics, epoch):
 
         """
         Save the model after each epoch and track the best model based on validation accuracy.
         """
 
         checkpoint_path = os.path.join(self.save_path, f'{self.model._get_name()}_epoch_{epoch + 1}.pth')
-        self.logger.log_with_color(f'Model saved at {checkpoint_path} (Validation Accuracy: {val_acc["acc"]:.2f}%)')
+        self.logger.log_with_color(
+            f'Model saved at {checkpoint_path} (Validation Accuracy: {metrics["acc"]:.2f}%)')
         torch.save(self.model.state_dict(), checkpoint_path)
 
         # Save the best model if current validation accuracy is higher than the best recorded one
-        if val_acc["acc"] > self.best_acc:
-            self.best_acc = val_acc["acc"]
+        if metrics["acc"] > self.best_acc:
+            self.best_acc = metrics["acc"]
             self.best_model = self.model.state_dict()
             best_model_path = os.path.join(self.save_path, 'best_model.pth')
             torch.save(self.best_model, best_model_path)
-            self.logger.log_with_color(f'New best model saved with Accuracy: {val_acc["acc"]:.2f}%')
+            self.logger.log_with_color(f'New best model saved with Accuracy: {metrics["acc"]:.2f}%')
 
     def set_logger(self, log_file):
 
@@ -657,6 +744,17 @@ class CustomTrainer(Basetrainer):
                 shuffle=self.parameters['shuffle'],
                 image_size=self.parameters['image_size'],
                 lr=self.parameters['lr'],
+                num_workers=self.parameters.get('num_workers', 4),
+                pin_memory=self.parameters.get('pin_memory', True),
+                amp=self.parameters.get('amp', False),
+                val_interval=self.parameters.get('val_interval', 1),
+                metrics_interval=self.parameters.get('metrics_interval', 1),
+                cudnn_benchmark=self.parameters.get('cudnn_benchmark', True),
+                compile_model=self.parameters.get('compile_model', False),
+                grad_accum_steps=self.parameters.get('grad_accum_steps', 1),
+                grad_clip_norm=self.parameters.get('grad_clip_norm', 0.0),
+                ema_decay=self.parameters.get('ema_decay', 0.0),
+                prefetch_factor=self.parameters.get('prefetch_factor', 2),
             )
         else:
             super().__init__(Basetrainer)
@@ -673,7 +771,6 @@ class CustomTrainer(Basetrainer):
             yaml.dump(self.parameters, file, allow_unicode=True)
         return True
 
-    @property
     def train(self):
         num_epochs = self.parameters['num_epochs']
 
@@ -683,17 +780,24 @@ class CustomTrainer(Basetrainer):
             running_loss = 0.0
             correct = 0
             total = 0
+            self.optimizer.zero_grad(set_to_none=True)
             for images, labels in self.train_set:
-                images, labels = images.to(self.device), labels.to(self.device)
-                self.optimizer.zero_grad()
+                images = images.to(self.device, non_blocking=True)
+                labels = labels.to(self.device, non_blocking=True)
 
                 # forward propagation
-                outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
+                with torch.cuda.amp.autocast(enabled=self.amp):
+                    outputs = self.model(images)
+                    loss = self.criterion(outputs, labels)
 
                 # backward propagation
-                loss.backward()
-                self.optimizer.step()
+                if self.amp:
+                    self.grad_scaler.scale(loss).backward()
+                    self.grad_scaler.step(self.optimizer)
+                    self.grad_scaler.update()
+                else:
+                    loss.backward()
+                    self.optimizer.step()
 
                 # acc & loss
                 running_loss += loss.item()
@@ -704,15 +808,19 @@ class CustomTrainer(Basetrainer):
             train_acc = 100 * correct / total
             self.logger.log_with_color(
                 f'Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.2f}%')
-            metrics = self.val
-            self.logger.log_with_color(f' Validation Loss: {metrics["total_loss"]:.4f},')
-            self.logger.log_with_color(f' Validation Accuracy: {metrics["acc"]:.2f}%,')
-            self.logger.log_with_color(f' Validation macro_F1: {metrics["f1"]["macro_f1"]}')
-            self.logger.log_with_color(f' Validation micro_F1: {metrics["f1"]["micro_f1"]}')
-            self.logger.log_with_color(f' Validation mAP: {metrics["mAP"]["mAP"]}')
-            self.logger.log_with_color(f' Validation Top-k Accuracy: {metrics["Top-k"]}')
+            if (epoch + 1) % self.val_interval == 0:
+                metrics = self.val
+                self.logger.log_with_color(f' Validation Loss: {metrics["total_loss"]:.4f},')
+                self.logger.log_with_color(f' Validation Accuracy: {metrics["acc"]:.2f}%,')
+                if (epoch + 1) % self.metrics_interval == 0:
+                    self.logger.log_with_color(f' Validation macro_F1: {metrics["f1"]["macro_f1"]}')
+                    self.logger.log_with_color(f' Validation micro_F1: {metrics["f1"]["micro_f1"]}')
+                    self.logger.log_with_color(f' Validation mAP: {metrics["mAP"]["mAP"]}')
+                    self.logger.log_with_color(f' Validation Top-k Accuracy: {metrics["Top-k"]}')
+                else:
+                    metrics = {"acc": metrics["acc"], "total_loss": metrics["total_loss"]}
 
-            self.save_model(metrics, epoch)
+                self.save_model(metrics, epoch)
 
 
 class DetTrainer:
@@ -724,6 +832,7 @@ class DetTrainer:
             self.train = self.yolo_train
 
     def yolo_train(self, save_dir):
+        logger = colorful_logger('Train')
         opt = yolo_init(known=True)  # modify the args in yolo_init if you need to train a custom model
         hyp = opt.hyp
         callbacks = Callbacks()
@@ -746,7 +855,7 @@ class DetTrainer:
         if isinstance(hyp, str):
             with open(hyp, errors='ignore') as f:
                 hyp = yaml.safe_load(f)  # load hyps dict
-        print(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
+        logger.log_with_color(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
         opt.hyp = hyp.copy()  # for saving hyps to checkpoints
 
         # Save run settings
@@ -775,7 +884,7 @@ class DetTrainer:
             v.requires_grad = True  # train all layers
             # v.register_hook(lambda x: torch.nan_to_num(x))  # NaN to 0 (commented for erratic training results)
             if any(x in k for x in freeze):
-                print(f'freezing {k}')
+                logger.log_with_color(f'freezing {k}')
                 v.requires_grad = False
 
         # Image size
@@ -859,10 +968,10 @@ class DetTrainer:
         stopper, stop = EarlyStopping(patience=opt.patience), False
         compute_loss = ComputeLoss(model)  # init loss class
         callbacks.run('on_train_start')
-        print(f'Image sizes {imgsz} train, {imgsz} val\n'
-                    f'Using {train_loader.num_workers} dataloader workers\n'
-                    f"Logging results to {colorstr('bold', save_dir)}\n"
-                    f'Starting training for {epochs} epochs...')
+        logger.log_with_color(f'Image sizes {imgsz} train, {imgsz} val\n'
+                               f'Using {train_loader.num_workers} dataloader workers\n'
+                               f"Logging results to {colorstr('bold', save_dir)}\n"
+                               f'Starting training for {epochs} epochs...')
 
         for epoch in range(start_epoch, epochs):  # epoch --------------------------------------------------------------
             callbacks.run('on_train_epoch_start')
@@ -881,7 +990,7 @@ class DetTrainer:
             mloss = torch.zeros(3, device=device)  # mean losses
 
             pbar = enumerate(train_loader)
-            print(
+            logger.log_with_color(
                 ('\n' + '%11s' * 7) % ('Epoch', 'GPU_mem', 'box_loss', 'obj_loss', 'cls_loss', 'Instances', 'Size'))
             pbar = tqdm(pbar, total=nb, bar_format=TQDM_BAR_FORMAT)  # progress bar
 
@@ -994,7 +1103,8 @@ class DetTrainer:
             if stop:
                 break  # must break all DDP ranks
 
-        print(f'\n{epoch - start_epoch + 1} epochs completed in {(time.time() - t0) / 3600:.3f} hours.')
+        logger.log_with_color(
+            f'\n{epoch - start_epoch + 1} epochs completed in {(time.time() - t0) / 3600:.3f} hours.')
         callbacks.run('on_train_end', last, best, epoch, results)
 
         torch.cuda.empty_cache()
