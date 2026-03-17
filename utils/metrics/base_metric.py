@@ -129,7 +129,7 @@ class EVAMetric:
 
             if task == 'f1':
                 from .f1 import F1Score
-                print('start computing the f1')
+                logger.log_with_color('start computing the f1')
                 _preds = []
                 for _ in preds:
                     _preds.append(_.argmax())
@@ -143,13 +143,13 @@ class EVAMetric:
 
             elif task == 'precision':
                 _labels = labels.unsqueeze(1)
-                print('start computing the precision')
+                logger.log_with_color('start computing the precision')
                 from .precision import AveragePrecision
                 ap = AveragePrecision()
                 res['mAP'] = ap(preds, labels)
 
             elif task == 'CM':
-                print('start plotting the confusion matrix')
+                logger.log_with_color('start plotting the confusion matrix')
                 from .confusionmatrix import ConfusionMatrix
                 cm = ConfusionMatrix(nc=num_classes, pic_name=pic_name)
                 cm.process_cls_preds(preds, labels)
@@ -157,7 +157,7 @@ class EVAMetric:
                     cm.plot(normalize=_, save_dir=save_path, names=classes_name)
 
         from topk import Accuracy
-        print('start computing the Top-k')
+        logger.log_with_color('start computing the Top-k')
         acc = Accuracy(topk=(1, 2, 3))
         res['Top-k'] = acc(preds, labels)
 

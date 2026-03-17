@@ -36,7 +36,7 @@ try:
 except ImportError:
     pass
 
-from logger import colorful_logger
+from utils.logger import colorful_logger
 
 
 # Supported image and raw data extensions
@@ -330,7 +330,7 @@ class Classify_Model(nn.Module):
                         transforms.ToTensor(),])
                     )
                     dataset = DataLoader(_dataset, batch_size=self.cfg['batch_size'], shuffle=self.cfg['shuffle'])
-                    print("Starting Benchmark...")
+                    self.logger.log_with_color("Starting Benchmark...")
 
                     correct = 0
                     total = 0
@@ -375,15 +375,15 @@ class Classify_Model(nn.Module):
                     with open(txt_path, 'a') as file:
                         file.write(s)
 
-                print(f'{CM} Done!')
-            print(f'{snr} Done!')
+                self.logger.log_with_color(f'{CM} Done!')
+            self.logger.log_with_color(f'{snr} Done!')
         row_ind, col_ind = linear_sum_assignment(-cm_raw)
         mapping_pred2gt = {int(r): int(c) for r, c in zip(row_ind, col_ind)}
-        print("\n★ pred → gt:", mapping_pred2gt)
-        
+        self.logger.log_with_color(f"\n★ pred → gt: {mapping_pred2gt}")
+
         import json
         json.dump(mapping_pred2gt, open('class_to_idx_pred2gt.json', 'w'))
-        print("saved to class_to_idx_pred2gt.json")
+        self.logger.log_with_color("saved to class_to_idx_pred2gt.json")
 
 class Detection_Model:
 
@@ -548,7 +548,7 @@ class Detection_Model:
                         del im0  # Release memory after saving
 
             # Print results
-            print(f"Results saved to {colorstr('bold', save_dir)}")
+            self.logger.log_with_color(f"Results saved to {colorstr('bold', save_dir)}")
 
     #ToDo
     def faster_rcnn_detect(self,

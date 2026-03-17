@@ -1,4 +1,5 @@
 import logging
+import os
 from colorama import Fore, Style, init
 
 
@@ -8,13 +9,15 @@ class colorful_logger:
         self.name = name
         init(autoreset=True)
 
-        self.logger = logging.getLogger(name)
-        
+        logger_name = f"{name}:{os.getpid()}"
+        self.logger = logging.getLogger(logger_name)
+
         # 防止消息向上传播到root logger，避免重复输出
         self.logger.propagate = False
-        
-        # 如果logger已经有handler，不再重复添加
+
+        # 如果logger已经有handler，去重后直接返回
         if self.logger.handlers:
+            self._deduplicate_handlers()
             return
 
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(message)s')
@@ -25,14 +28,24 @@ class colorful_logger:
             filehandler.setLevel(logging.INFO)
             filehandler.setFormatter(formatter)
             self.logger.addHandler(filehandler)
-        
+
         # 为所有类型添加控制台handler（包括Train）
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
         console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)
 
+        self._deduplicate_handlers()
         self.logger.setLevel(logging.INFO)
+
+    def _deduplicate_handlers(self):
+        unique = {}
+        for handler in list(self.logger.handlers):
+            key = (type(handler), getattr(handler, 'baseFilename', None))
+            if key in unique:
+                self.logger.removeHandler(handler)
+            else:
+                unique[key] = handler
 
     def log_with_color(self, message=None, color=Fore.WHITE):
 

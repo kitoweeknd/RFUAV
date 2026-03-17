@@ -23,7 +23,8 @@ def check_cfg(cfg: str):
     if not os.path.exists(opt['val']):
         raise ValueError("Validation data path does not exist: {}".format(opt['val']))
     if not os.path.exists(opt['save_path']):
-        raise ValueError("Save path does not exist: {}".format(opt['save_path']))
+        os.makedirs(opt['save_path'], exist_ok=True)
+        logging.info("Save path does not exist, created: {}".format(opt['save_path']))
     if not isinstance(opt['model'], str) or opt['model'].lower() not in Model_list:
         raise ValueError("The model you specified is not available")
     if not isinstance(opt['num_classes'], int):
