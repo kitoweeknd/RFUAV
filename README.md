@@ -172,7 +172,20 @@ We provide custom training code for drone identification tasks based on the PyTo
 
 **Training**
 
-To customize the training, create or modify a configuration file with the `.yaml` extension and specify its path in the training code. You can adjust the arguments in `utils.trainer.CustomTrainer()` to achieve the desired training setup:
+To customize the training, create or modify a configuration file with the `.yaml` extension and specify its path in the training code. You can adjust the arguments in `utils.trainer.CustomTrainer()` to achieve the desired training setup. The following performance options are supported in the config:
+
+- `amp`: enable automatic mixed precision
+- `val_interval`: validation frequency (epochs)
+- `metrics_interval`: full metrics frequency (epochs)
+- `grad_accum_steps`: gradient accumulation steps
+- `grad_clip_norm`: gradient clipping max norm
+- `ema_decay`: EMA decay factor (0 to disable)
+- `num_workers`: DataLoader workers
+- `pin_memory`: DataLoader pin memory
+- `prefetch_factor`: DataLoader prefetch factor
+- `cudnn_benchmark`: enable cuDNN benchmark
+- `compile_model`: enable `torch.compile` (PyTorch 2.x)
+
 
 ```python
 from utils.trainer import CustomTrainer

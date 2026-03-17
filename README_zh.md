@@ -174,7 +174,20 @@ snr_esti = snrEsti(dataIQ, fs, NFFT, f1, f2, idx1, idx2, idx3, idx4);
 
 **训练**
 
-要自定义训练，请创建或修改扩展名为 `.yaml` 的配置文件，并在训练代码中指定其路径。您可以调整 `utils.trainer.CustomTrainer()` 中的参数以实现所需的训练设置：
+要自定义训练，请创建或修改扩展名为 `.yaml` 的配置文件，并在训练代码中指定其路径。您可以调整 `utils.trainer.CustomTrainer()` 中的参数以实现所需的训练设置。以下为训练性能相关配置项：
+
+- `amp`：自动混合精度开关
+- `val_interval`：验证频率（epoch）
+- `metrics_interval`：完整指标频率（epoch）
+- `grad_accum_steps`：梯度累积步数
+- `grad_clip_norm`：梯度裁剪最大范数
+- `ema_decay`：EMA 衰减系数（为 0 时关闭）
+- `num_workers`：DataLoader 线程数
+- `pin_memory`：DataLoader 固定内存
+- `prefetch_factor`：DataLoader 预取因子
+- `cudnn_benchmark`：开启 cuDNN benchmark
+- `compile_model`：开启 `torch.compile`（PyTorch 2.x）
+
 
 ```python
 from utils.trainer import CustomTrainer
