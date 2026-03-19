@@ -1,8 +1,8 @@
 """generate the label for yolo
 """
-import shutil
 import os
 import random
+import shutil
 
 
 # label table

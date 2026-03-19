@@ -2,12 +2,13 @@
 origin: https://github.com/open-mmlab/mmeval
 """
 from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from typing import Union, Sequence
-from base_metric import BaseMetric
-from typing import Tuple, Optional, List, Iterable, Dict
+
+from utils.metrics.base_metric import BaseMetric
 
 
 class Accuracy(BaseMetric):

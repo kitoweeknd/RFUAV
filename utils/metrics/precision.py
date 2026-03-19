@@ -1,8 +1,10 @@
 # origin: https://github.com/open-mmlab/mmeval
-from typing import (Dict, List, Optional, Sequence, Union)
-from base_metric import BaseMetric
 import warnings
+from typing import Dict, List, Optional, Sequence, Union
+
 import torch
+
+from utils.metrics.base_metric import BaseMetric
 
 
 class MultiLabelMixin:

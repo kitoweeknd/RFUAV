@@ -1,18 +1,24 @@
-import os
-import glob
-
-import torch
-from PIL import Image
-import cv2
-from graphic.RawDataProcessor import waterfall_spectrogram_optimized
-from logger import colorful_logger
-import json
-import numpy as np
-from benchmark import Classify_Model, Detection_Model, is_valid_file, raw_data_ext, image_ext
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Queue
-from threading import Lock, Event
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+import glob
+import json
+import os
+
+import cv2
+import numpy as np
+from PIL import Image
+import torch
+
+from graphic.RawDataProcessor import waterfall_spectrogram_optimized
+from .benchmark import (
+    ClassifyModel,
+    DetectionModel,
+    image_ext,
+    is_valid_file,
+    raw_data_ext,
+)
+from .logger import colorful_logger
 
 
 class TwoStagesDetector:
@@ -240,7 +246,7 @@ class TwoStagesDetector:
             cfg: Configuration for the detector model.
         """
 
-        self.S1 = Detection_Model(cfg)
+        self.S1 = DetectionModel(cfg)
 
     def DroneClassifier(self, cfg, weight_path, save=True):
 
@@ -252,7 +258,7 @@ class TwoStagesDetector:
             save (bool): Whether to save the model.
         """
 
-        self.S2model = Classify_Model(cfg=cfg, weight_path=weight_path)
+        self.S2model = ClassifyModel(cfg=cfg, weight_path=weight_path)
 
     @property
     def set_logger(self):

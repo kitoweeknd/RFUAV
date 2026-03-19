@@ -1,7 +1,9 @@
 from abc import ABCMeta, abstractmethod
-import torch
 from typing import Any, Dict, List, Optional
+
+import torch
 from torch import Tensor
+
 from utils.logger import colorful_logger
 
 
@@ -156,7 +158,7 @@ class EVAMetric:
                 for _ in True, False:
                     cm.plot(normalize=_, save_dir=save_path, names=classes_name)
 
-        from topk import Accuracy
+        from utils.metrics.topk import Accuracy
         logger.log_with_color('start computing the Top-k')
         acc = Accuracy(topk=(1, 2, 3))
         res['Top-k'] = acc(preds, labels)

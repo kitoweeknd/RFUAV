@@ -1,49 +1,44 @@
+import glob
+import os
+import time
+
+import cv2
+import imageio
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 import torch
 import torch.nn as nn
-from utils.trainer import model_init_
-from utils.build import check_cfg, build_from_cfg
-import os
-import glob
-from torchvision import transforms, datasets
-from PIL import Image, ImageDraw, ImageFont
-import time
-from graphic.RawDataProcessor import generate_images
-import imageio
-import sys
-import cv2
-import numpy as np
 from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+
+from graphic.RawDataProcessor import generate_images
+from .build import build_from_cfg, check_cfg
+from .logger import colorful_logger
+from .metrics.base_metric import EVAMetric
+from .trainer import model_init_
 
 try:
-    from DetModels import YOLOV5S
-    from DetModels.yolo.basic import LoadImages, Profile, Path, non_max_suppression, Annotator, scale_boxes, colorstr, \
-        Colors, letterbox
-
+    from .DetModels import YOLOV5S
+    from .DetModels.yolo.basic import (
+        LoadImages,
+        Profile,
+        Path,
+        non_max_suppression,
+        Annotator,
+        scale_boxes,
+        colorstr,
+        Colors,
+        letterbox,
+    )
 except ImportError:
-    pass
-
-
-# Current directory and metric directory
-current_dir = os.path.dirname(os.path.abspath(__file__))
-METRIC = os.path.join(current_dir, './metrics')
-
-sys.path.append(METRIC)
-sys.path.append(current_dir)
-sys.path.append('utils/DetModels/yolo')
-
-try:
-    from .metrics.base_metric import EVAMetric
-except ImportError:
-    pass
-
-from utils.logger import colorful_logger
+    YOLOV5S = None
 
 
 # Supported image and raw data extensions
 image_ext = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff']
 raw_data_ext = ['.iq', '.dat']
 
-class Classify_Model(nn.Module):
+class ClassifyModel(nn.Module):
     """
     A class representing a classification model for performing inference and benchmarking using a pre-trained model.
 
@@ -63,7 +58,7 @@ class Classify_Model(nn.Module):
                  ):
 
         """
-        Initializes the Classify_Model.
+        Initializes the ClassifyModel.
 
         Parameters:
         - cfg (str): Path to configuration dictionary.
@@ -385,7 +380,7 @@ class Classify_Model(nn.Module):
         json.dump(mapping_pred2gt, open('class_to_idx_pred2gt.json', 'w'))
         self.logger.log_with_color("saved to class_to_idx_pred2gt.json")
 
-class Detection_Model:
+class DetectionModel:
 
     """
     A common interface for initializing and running different detection models.
@@ -643,7 +638,7 @@ def main():
 
     source = ''
     save_path = ''
-    test = Classify_Model(cfg=cfg, weight_path=weight_path)
+    test = ClassifyModel(cfg=cfg, weight_path=weight_path)
 
     test.inference(source=source, save_path=save_path)
     # test.benchmark()
@@ -653,9 +648,14 @@ def main():
     source = ''
     weight_path = ''
     save_dir = ''
-    test = Detection_Model(model_name='yolov5', weight_path=weight_path)
+    test = DetectionModel(model_name='yolov5', weight_path=weight_path)
     test.yolov5_detect(source=source, save_dir=save_dir,)
     """
+
+
+# Backward-compatible aliases
+Classify_Model = ClassifyModel
+Detection_Model = DetectionModel
 
 
 if __name__ == '__main__':

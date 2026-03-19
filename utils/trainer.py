@@ -1,47 +1,56 @@
 """
 The base trainer class `Basetrainer` and a custom trainer class `CustomTrainer` for training and validating image classification models.
 """
-from torch.utils.data import DataLoader
-from torchvision import transforms, datasets
+from abc import abstractmethod
+from copy import deepcopy
+from datetime import datetime
+import math
+import os
+import random
+import time
+from pathlib import Path
+
+import cv2
+import numpy as np
 import torch
 import torch.nn as nn
-from torchvision import models
 import torch.optim as optim
-import os
-import yaml
-from utils.build import build_from_cfg, check_cfg
-from utils.logger import colorful_logger
-import cv2
-from abc import abstractmethod
-from .metrics.base_metric import EVAMetric
-import sys
-
-from tqdm import tqdm
-from pathlib import Path
-from utils.DetModels.yolo import DetectionModel
-import numpy as np
 from torch.optim import lr_scheduler
-import random
-import math
-import time
-from datetime import datetime
-from copy import deepcopy
-from utils.DetModels.yolo.general import (yaml_save, init_seeds, check_dataset,check_suffix,
-                                          check_img_size, labels_to_class_weights, labels_to_image_weights)
-from utils.DetModels.yolo.basic import colorstr, yolo_init
-from utils.DetModels.yolo.torch_utils import (torch_distributed_zero_first,smart_optimizer,
-                                              de_parallel, EarlyStopping, ModelEMA, select_device)
-from utils.DetModels.yolo.dataloader import create_dataloader
-from utils.DetModels.yolo.autoanchor import check_anchors
-from utils.DetModels.yolo.loss import ComputeLoss
-import utils.DetModels.yolo.val as validate
-from utils.DetModels.yolo.metrics import fitness
-from utils.DetModels.yolo.callbacks import Callbacks
+from torch.utils.data import DataLoader
+from torchvision import datasets, models, transforms
+from tqdm import tqdm
+import yaml
+
+from .build import build_from_cfg, check_cfg
+from .logger import colorful_logger
+from .metrics.base_metric import EVAMetric
+from .DetModels.yolo import DetectionModel
+from .DetModels.yolo.autoanchor import check_anchors
+from .DetModels.yolo.basic import colorstr, yolo_init
+from .DetModels.yolo.callbacks import Callbacks
+from .DetModels.yolo.dataloader import create_dataloader
+from .DetModels.yolo.general import (
+    yaml_save,
+    init_seeds,
+    check_dataset,
+    check_suffix,
+    check_img_size,
+    labels_to_class_weights,
+    labels_to_image_weights,
+)
+from .DetModels.yolo.loss import ComputeLoss
+from .DetModels.yolo.metrics import fitness
+from .DetModels.yolo.torch_utils import (
+    torch_distributed_zero_first,
+    smart_optimizer,
+    de_parallel,
+    EarlyStopping,
+    ModelEMA,
+    select_device,
+)
+from .DetModels.yolo import val as validate
 
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-METRIC = os.path.join(current_dir, './metrics')
-sys.path.append(METRIC)
 TQDM_BAR_FORMAT = '{l_bar}{bar:10}{r_bar}'
 
 

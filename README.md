@@ -39,7 +39,7 @@ pip install -r requirements.txt
 <summary>Run inference for drone classification</summary>
 
 ```bash
-python inference.py
+python inference.py --task classify --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --source path/to/data --save-path ./res/
 ```
 
 </details>
@@ -48,12 +48,31 @@ python inference.py
 <summary>Quick training using ResNet50 on a small dataset</summary>
 
 ```bash
-python train.py
+python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
 ```
 
 </details>
 
 ## 2. Usage
+
+### 2.0 CLI Entrypoints (Recommended)
+
+The project now provides unified CLI entrypoints for training, inference, and benchmark evaluation:
+
+```bash
+# Classification training
+python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
+
+# Detection training
+python train.py --task detect --det-model yolo --dataset-dir path/to/dataset --det-save-dir runs/det
+
+# Two-stage inference
+python inference.py --task two_stage --two-stage-cfg example/two_stage/sample.json
+
+# Benchmark evaluation
+python benchmark.py --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --data-path path/to/benchmark --save-path ./benchmark_res
+```
+
 
 ### SDR Playback
 Since our data was directly collected using USRP devices, it is fully compatible with USRP and GNU Radio for signal replay. You can use our raw data to broadcast signals through radio equipment to achieve your desired outcomes. Additionally, we provide the replay results observed during our experiments using an oscilloscope for reference.
@@ -220,9 +239,9 @@ trainer.train(num_epochs=100)
 We provide an inference pipeline that allows you to run inference on either spectrogram images or binary raw frequency data. When processing binary raw frequency data, the results are automatically packaged into a video with identification results displayed on the spectrogram. **Note:** When inferring on binary raw frequency data, you must use a model weight trained on the spectrogram dataset.
 
 ```python
-from utils.benchmark import Classify_Model
+from utils.benchmark import ClassifyModel
 
-test = Classify_Model(cfg='Your configuration file path',
+test = ClassifyModel(cfg='Your configuration file path',
                       weight_path='Your weights path')
 
 test.inference(source='Your target data path',
@@ -240,8 +259,8 @@ You can train the YOLOv5 model for drone detection using the following code:
 ```python
 from utils.trainer import DetTrainer
 
-model = DetTrainer(cfg='Your configuration file path', dataset_dir = "Your dataset file path")
-model.train()
+model = DetTrainer(model_name='yolo', dataset_dir='Your dataset file path')
+model.train(save_dir='Your save path')
 ```
 
 **Inference**
@@ -249,12 +268,11 @@ model.train()
 The inference pipeline allows you to run your model on either spectrogram images or binary raw frequency data. When processing binary raw frequency data, the results are automatically packaged into a video with detection results displayed on the spectrogram. **Note:** When inferring on binary raw frequency data, you must use a model weight trained on the spectrogram dataset.
 
 ```python
-from utils.benchmark import Detection_Model
+from utils.benchmark import DetectionModel
 
-test = Detection_Model(cfg='Your configuration file path',
-                       weight_path='Your weights path')
-test.inference(source='Your target data path',
-               save_dir='Your target save path')
+test = DetectionModel(model_name='yolov5', weight_path='Your weights path')
+test.yolov5_detect(source='Your target data path',
+                   save_dir='Your target save path')
 ```
 
 ### 2.5 Two-Stage Detection and Classification
@@ -275,12 +293,13 @@ TwoStagesDetector(cfg=cfg_path)
 You can evaluate your model on the benchmark using metrics such as mAP, Top-K Accuracy, F1 score (macro and micro), and the Confusion Matrix. The evaluation is performed separately on datasets with SNR levels ranging from -20 dB to 20 dB, and the final model performance is reported across different signal-to-noise ratios.
 
 ```python
-from utils.benchmark import Classify_Model
+from utils.benchmark import ClassifyModel
 
-test = Classify_Model(cfg='Your configuration file path',
-                      weight_path='Your weights path')
+test = ClassifyModel(cfg='Your configuration file path',
+                     weight_path='Your weights path')
 
-test.benchmark()
+test.benchmark(data_path='Your benchmark data path',
+               save_path='Your benchmark result path')
 ```
 
 ### 2.7 Useful Tools for Dataset Processing

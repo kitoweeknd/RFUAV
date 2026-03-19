@@ -1,5 +1,4 @@
-"""A script to evaluate the trained classify model on the benchmark dataset.
-
+"""A script to evaluate the trained classify model on benchmark dataset.
 Args:
     source (str): The path to the benchmark dataset. Notice that the dataset should be organized like this:
         source
@@ -20,25 +19,30 @@ Args:
         └──...
     cfg (str): The path to the configuration file.
     weight_path (str): The path to the weights file.
-
-Returns:
-    the evaluation metrics including accuracy, top-k accuracy, F1 score, and confusion matrix will be saved to the source path.
 """
+import argparse
 
-from utils.benchmark import Classify_Model
+
+
+from utils.benchmark import ClassifyModel
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='RFUAV benchmark entrypoint')
+    parser.add_argument('--cfg', type=str, default='', help='classification config yaml path')
+    parser.add_argument('--weight-path', type=str, default='', help='classification model weight path')
+    parser.add_argument('--data-path', type=str, default='', help='benchmark dataset path')
+    parser.add_argument('--save-path', type=str, default=None, help='benchmark result output path')
+    return parser.parse_args()
 
 
 def main():
-    source = ''
-    test = Classify_Model(cfg='',
-                          weight_path='')
-    # test.inference(source=source, save_path='./res/')  # for inference test
-    test.benchmark(data_path=source)  # for benchmark test
+    args = parse_args()
 
-    """ Two-stage detector test 
-    cfg_path = '../example/two_stage/sample.json'
-    TwoStagesDetector(cfg=cfg_path)
-    """
+    if not args.cfg or not args.weight_path or not args.data_path:
+        raise ValueError('`--cfg`, `--weight-path`, and `--data-path` are required for benchmark.')
+
+    test = ClassifyModel(cfg=args.cfg, weight_path=args.weight_path)
+    test.benchmark(data_path=args.data_path, save_path=args.save_path)
 
 
 if __name__ == '__main__':

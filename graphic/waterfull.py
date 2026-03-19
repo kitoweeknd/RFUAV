@@ -1,9 +1,10 @@
-import numpy as np
-import os
-import matplotlib.pyplot as plt
-from scipy.fft import fft
-import cv2
 from io import BytesIO
+import os
+
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.fft import fft
 
 
 def plot_waterfall_spectrogram(iq_data,

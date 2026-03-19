@@ -1,6 +1,7 @@
 # Merge the data of two drones
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+
 from graphic.RawDataProcessor import STFT
 
 

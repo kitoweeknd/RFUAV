@@ -1,9 +1,10 @@
 """build from CFG
 """
-import yaml
 import logging
 import os
+
 import torch
+import yaml
 
 DefaultConfig = '../configs/config.yaml'
 Model_list = [

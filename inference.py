@@ -1,19 +1,36 @@
-# A script to do the inference on the spectrogram image or binary raw frequency data pack using trained classify model or two-stage detector model.
+# A script to run inference on spectrogram images or raw frequency data.
+import argparse
 
-from utils.benchmark import Classify_Model
+from utils.benchmark import ClassifyModel
 from utils.TwoStagesDetector import TwoStagesDetector
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='RFUAV inference entrypoint')
+    parser.add_argument(
+        '--task',
+        choices=['classify', 'two_stage'],
+        default='classify',
+        help='inference task type',
+    )
+    parser.add_argument('--cfg', type=str, default='', help='classification config yaml path')
+    parser.add_argument('--weight-path', type=str, default='', help='classification model weight path')
+    parser.add_argument('--source', type=str, default='', help='input source path')
+    parser.add_argument('--save-path', type=str, default='./res/', help='inference output directory')
+    parser.add_argument('--two-stage-cfg', type=str, default='../example/two_stage/sample.json', help='two-stage json cfg path')
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
 
-     # doing a inference on spectrogram image or binary raw frequency data pack using the trained classify model
-    source = ''
-    test = Classify_Model(cfg='',
-                          weight_path='')
-    test.inference(source=source, save_path='./res/')  # for inference test
-
-    # doing a two-stage detector inference on the binary raw frequency data pack using the trained detector and classify model
-    cfg_path = '../example/two_stage/sample.json'
-    TwoStagesDetector(cfg=cfg_path)
+    if args.task == 'classify':
+        if not args.cfg or not args.weight_path:
+            raise ValueError('`--cfg` and `--weight-path` are required for classify inference.')
+        test = ClassifyModel(cfg=args.cfg, weight_path=args.weight_path)
+        test.inference(source=args.source, save_path=args.save_path)
+    else:
+        TwoStagesDetector(cfg=args.two_stage_cfg)
 
 
 if __name__ == '__main__':

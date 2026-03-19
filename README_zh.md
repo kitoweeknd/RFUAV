@@ -40,7 +40,7 @@ pip install -r requirements.txt
 <summary>运行无人机分类推理</summary>
 
 ```bash
-python inference.py
+python inference.py --task classify --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --source path/to/data --save-path ./res/
 ```
 
 </details>
@@ -49,12 +49,31 @@ python inference.py
 <summary>使用ResNet50在小数据集上进行快速训练</summary>
 
 ```bash
-python train.py
+python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
 ```
 
 </details>
 
 ## 2. 使用说明
+
+### 2.0 统一命令行入口（推荐）
+
+项目已提供统一 CLI 入口用于训练、推理和基准评估：
+
+```bash
+# 分类训练
+python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
+
+# 检测训练
+python train.py --task detect --det-model yolo --dataset-dir path/to/dataset --det-save-dir runs/det
+
+# 两阶段推理
+python inference.py --task two_stage --two-stage-cfg example/two_stage/sample.json
+
+# 基准评估
+python benchmark.py --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --data-path path/to/benchmark --save-path ./benchmark_res
+```
+
 
 ### SDR 回放
 
@@ -222,9 +241,9 @@ trainer.train(num_epochs=100)
 我们提供了一个推理流水线，允许您在频谱图图像或二进制原始频率数据上运行推理。处理二进制原始频率数据时，结果会自动打包成视频，并在频谱图上显示识别结果。**注意：** 在二进制原始频率数据上进行推理时，必须使用在频谱图数据集上训练的模型权重。
 
 ```python
-from utils.benchmark import Classify_Model
+from utils.benchmark import ClassifyModel
 
-test = Classify_Model(cfg='您的配置文件路径',
+test = ClassifyModel(cfg='您的配置文件路径',
                       weight_path='您的权重路径')
 
 test.inference(source='您的目标数据路径',
@@ -242,8 +261,8 @@ test.inference(source='您的目标数据路径',
 ```python
 from utils.trainer import DetTrainer
 
-model = DetTrainer(cfg='您的配置文件路径', dataset_dir="您的数据集文件路径")
-model.train()
+model = DetTrainer(model_name='yolo', dataset_dir='您的数据集文件路径')
+model.train(save_dir='您的保存路径')
 ```
 
 **推理**
@@ -251,12 +270,11 @@ model.train()
 推理流水线允许您在频谱图图像或二进制原始频率数据上运行模型。处理二进制原始频率数据时，结果会自动打包成视频，并在频谱图上显示检测结果。**注意：** 在二进制原始频率数据上进行推理时，必须使用在频谱图数据集上训练的模型权重。
 
 ```python
-from utils.benchmark import Detection_Model
+from utils.benchmark import DetectionModel
 
-test = Detection_Model(cfg='您的配置文件路径',
-                       weight_path='您的权重路径')
-test.inference(source='您的目标数据路径',
-               save_dir='您的目标保存路径')
+test = DetectionModel(model_name='yolov5', weight_path='您的权重路径')
+test.yolov5_detect(source='您的目标数据路径',
+                   save_dir='您的目标保存路径')
 ```
 
 ### 2.5 两阶段检测和分类
@@ -277,12 +295,13 @@ TwoStagesDetector(cfg=cfg_path)
 您可以使用mAP、Top-K准确率、F1分数（宏平均和微平均）和混淆矩阵等指标在基准测试上评估您的模型。评估分别在SNR级别从-20 dB到20 dB的数据集上进行，最终模型性能在不同信噪比下报告。
 
 ```python
-from utils.benchmark import Classify_Model
+from utils.benchmark import ClassifyModel
 
-test = Classify_Model(cfg='您的配置文件路径',
-                      weight_path='您的权重路径')
+test = ClassifyModel(cfg='您的配置文件路径',
+                     weight_path='您的权重路径')
 
-test.benchmark()
+test.benchmark(data_path='您的基准数据路径',
+               save_path='您的评估结果保存路径')
 ```
 
 ### 2.7 数据集处理的有用工具
