@@ -21,9 +21,6 @@ Args:
     weight_path (str): The path to the weights file.
 """
 import argparse
-
-
-
 from utils.benchmark import ClassifyModel
 
 def parse_args():

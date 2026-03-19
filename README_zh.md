@@ -56,9 +56,7 @@ python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
 
 ## 2. 使用说明
 
-### 2.0 统一命令行入口（推荐）
-
-项目已提供统一 CLI 入口用于训练、推理和基准评估：
+### 统一命令行入口（推荐）
 
 ```bash
 # 分类训练
