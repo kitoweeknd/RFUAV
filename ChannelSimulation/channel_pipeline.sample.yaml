@@ -1,0 +1,43 @@
+# ChannelSimulation 配置示例
+# 使用方式：
+# python -m ChannelSimulation.channel_pipeline --config ChannelSimulation/channel_pipeline.sample.yaml
+
+# -----------------------------
+# 输入模式（二选一）
+# -----------------------------
+# 单文件模式：启用 input，注释 input_dir
+input: data/input.iq
+# input_dir: data/iq_batch
+
+# 批处理文件匹配（仅 input_dir 模式生效）
+input_glob: "*.iq"
+
+# -----------------------------
+# 基础输出配置
+# -----------------------------
+fs: 100000000
+out_dir: ChannelSimulation/results
+
+# 单文件模式输出（仅 input 模式生效）
+output_iq: ChannelSimulation/results/processed.iq
+meta_json: ChannelSimulation/results/run_meta.json
+
+# -----------------------------
+# 信道参数
+# -----------------------------
+fading: rayleigh   # rayleigh 或 rician
+k_factor: 5.0      # rician 时有效
+cfo_hz: 15000
+phase_std: 0.002
+iq_gain_db: 1.0
+iq_phase_deg: 3.0
+snr_db: 15.0
+seed: 42
+
+# -----------------------------
+# Pipeline 执行控制
+# -----------------------------
+# all 或逗号分隔：
+# original,fading,multipath,cfo,phase_noise,iq_imbalance,awgn,crop_time_shift
+stages: all
+show_progress: true
