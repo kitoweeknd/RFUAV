@@ -55,9 +55,7 @@ python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
 
 ## 2. Usage
 
-### 2.0 CLI Entrypoints (Recommended)
-
-The project now provides unified CLI entrypoints for training, inference, and benchmark evaluation:
+### CLI Entrypoints
 
 ```bash
 # Classification training
