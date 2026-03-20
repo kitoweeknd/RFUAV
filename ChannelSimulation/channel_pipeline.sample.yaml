@@ -1,15 +1,12 @@
-# ChannelSimulation 配置示例
+# ChannelSimulation 配置示例（method + params 多算法接口）
 # 使用方式：
 # python -m ChannelSimulation.channel_pipeline --config ChannelSimulation/channel_pipeline.sample.yaml
 
 # -----------------------------
 # 输入模式（二选一）
 # -----------------------------
-# 单文件模式：启用 input，注释 input_dir
 input: data/input.iq
 # input_dir: data/iq_batch
-
-# 批处理文件匹配（仅 input_dir 模式生效）
 input_glob: "*.iq"
 
 # -----------------------------
@@ -17,16 +14,23 @@ input_glob: "*.iq"
 # -----------------------------
 fs: 100000000
 out_dir: ChannelSimulation/results
-
-# 单文件模式输出（仅 input 模式生效）
 output_iq: ChannelSimulation/results/processed.iq
 meta_json: ChannelSimulation/results/run_meta.json
 
 # -----------------------------
-# 信道参数
+# Pipeline 执行控制
 # -----------------------------
-fading: rayleigh   # rayleigh 或 rician
-k_factor: 5.0      # rician 时有效
+stages: all
+# 或列表形式：
+# stages: [original, fading, multipath, cfo, phase_noise, iq_imbalance, awgn, crop_time_shift]
+show_progress: true
+
+# -----------------------------
+# 向后兼容旧参数（可选）
+# 如同时设置 stage_configs，会被 stage_configs 覆盖
+# -----------------------------
+fading: rayleigh
+k_factor: 5.0
 cfo_hz: 15000
 phase_std: 0.002
 iq_gain_db: 1.0
@@ -35,9 +39,46 @@ snr_db: 15.0
 seed: 42
 
 # -----------------------------
-# Pipeline 执行控制
+# 新版统一接口：stage_configs
+# 每个环节: method + params
 # -----------------------------
-# all 或逗号分隔：
-# original,fading,multipath,cfo,phase_noise,iq_imbalance,awgn,crop_time_shift
-stages: all
-show_progress: true
+stage_configs:
+  fading:
+    method: rayleigh  # rayleigh / rician
+    params:
+      k_factor: 5.0
+      block_size: 256
+
+  multipath:
+    method: tdl
+    params:
+      max_delay_samp: 20
+      n_paths: 4
+      exp_decay: 0.35
+
+  cfo:
+    method: constant
+    params:
+      cfo_hz: 15000
+
+  phase_noise:
+    method: wiener
+    params:
+      phase_std_per_sample: 0.002
+
+  iq_imbalance:
+    method: widely_linear
+    params:
+      gain_imbalance_db: 1.0
+      phase_imbalance_deg: 3.0
+
+  awgn:
+    method: gaussian
+    params:
+      snr_db: 15.0
+
+  crop_time_shift:
+    method: basic
+    params:
+      min_keep_ratio: 0.7
+      max_shift: 300

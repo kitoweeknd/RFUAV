@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
@@ -43,9 +44,16 @@ STAGE_ORDER = [
 ]
 
 
-def parse_enabled_stages(stage_spec: str) -> list[str]:
-    """解析命令行阶段选择参数。支持 all 或逗号分隔阶段名。"""
-    spec = stage_spec.strip().lower()
+def parse_enabled_stages(stage_spec: str | list[str]) -> list[str]:
+    """解析阶段选择参数。支持 all、逗号分隔字符串或列表。"""
+    if isinstance(stage_spec, list):
+        picked = [str(x).strip().lower() for x in stage_spec if str(x).strip()]
+        invalid = [x for x in picked if x not in STAGE_ORDER]
+        if invalid:
+            raise ValueError(f"非法 stages: {invalid}，可选: {STAGE_ORDER} 或 all")
+        return [s for s in STAGE_ORDER if s in set(picked)]
+
+    spec = str(stage_spec).strip().lower()
     if spec == "all":
         return STAGE_ORDER.copy()
 
@@ -64,17 +72,165 @@ def _print_stage_progress(enabled_stages: list[str], stage: str, prefix: str = "
     print(f"{lead}进度 {idx}/{total}: {stage}")
 
 
+def _stage_fading_rayleigh(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
+    return apply_rayleigh_or_rician_fading(
+        x,
+        fading_type="rayleigh",
+        k_factor=float(params.get("k_factor", 4.0)),
+        block_size=int(params.get("block_size", 256)),
+        rng=rng,
+    )
+
+
+def _stage_fading_rician(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
+    return apply_rayleigh_or_rician_fading(
+        x,
+        fading_type="rician",
+        k_factor=float(params.get("k_factor", 5.0)),
+        block_size=int(params.get("block_size", 256)),
+        rng=rng,
+    )
+
+
+def _stage_multipath_tdl(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
+    return apply_multipath(
+        x,
+        max_delay_samp=int(params.get("max_delay_samp", 20)),
+        n_paths=int(params.get("n_paths", 4)),
+        exp_decay=float(params.get("exp_decay", 0.35)),
+        rng=rng,
+    )
+
+
+def _stage_cfo_constant(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
+    return apply_cfo(x, fs=fs, cfo_hz=float(params.get("cfo_hz", 15e3)))
+
+
+def _stage_phase_noise_wiener(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
+    return apply_phase_noise(x, phase_std_per_sample=float(params.get("phase_std_per_sample", 2e-3)), rng=rng)
+
+
+def _stage_iq_imbalance_widely_linear(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
+    return apply_iq_imbalance(
+        x,
+        gain_imbalance_db=float(params.get("gain_imbalance_db", 1.0)),
+        phase_imbalance_deg=float(params.get("phase_imbalance_deg", 3.0)),
+    )
+
+
+def _stage_awgn_gaussian(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
+    return apply_awgn(x, snr_db=float(params.get("snr_db", 15.0)), rng=rng)
+
+
+def _stage_crop_shift_basic(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
+    return apply_random_crop_and_time_shift(
+        x,
+        min_keep_ratio=float(params.get("min_keep_ratio", 0.7)),
+        max_shift=int(params.get("max_shift", 300)),
+        rng=rng,
+    )
+
+
+STAGE_REGISTRY: dict[str, dict[str, Callable[..., np.ndarray]]] = {
+    "fading": {
+        "rayleigh": _stage_fading_rayleigh,
+        "rician": _stage_fading_rician,
+    },
+    "multipath": {
+        "tdl": _stage_multipath_tdl,
+    },
+    "cfo": {
+        "constant": _stage_cfo_constant,
+    },
+    "phase_noise": {
+        "wiener": _stage_phase_noise_wiener,
+    },
+    "iq_imbalance": {
+        "widely_linear": _stage_iq_imbalance_widely_linear,
+    },
+    "awgn": {
+        "gaussian": _stage_awgn_gaussian,
+    },
+    "crop_time_shift": {
+        "basic": _stage_crop_shift_basic,
+    },
+}
+
+
+def default_stage_configs() -> dict[str, dict[str, object]]:
+    return {
+        "fading": {"method": "rayleigh", "params": {"k_factor": 5.0, "block_size": 256}},
+        "multipath": {"method": "tdl", "params": {"max_delay_samp": 20, "n_paths": 4, "exp_decay": 0.35}},
+        "cfo": {"method": "constant", "params": {"cfo_hz": 15e3}},
+        "phase_noise": {"method": "wiener", "params": {"phase_std_per_sample": 2e-3}},
+        "iq_imbalance": {"method": "widely_linear", "params": {"gain_imbalance_db": 1.0, "phase_imbalance_deg": 3.0}},
+        "awgn": {"method": "gaussian", "params": {"snr_db": 15.0}},
+        "crop_time_shift": {"method": "basic", "params": {"min_keep_ratio": 0.7, "max_shift": 300}},
+    }
+
+
+def _merge_dict(base: dict, updates: dict) -> dict:
+    out = dict(base)
+    for k, v in updates.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _merge_dict(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def _normalize_stage_configs(stage_configs: dict[str, object]) -> dict[str, dict[str, object]]:
+    out: dict[str, dict[str, object]] = {}
+    for stage, cfg in stage_configs.items():
+        if stage not in STAGE_REGISTRY:
+            continue
+        if not isinstance(cfg, dict):
+            raise ValueError(f"stage_configs.{stage} 必须是字典")
+        method = str(cfg.get("method", "")).strip().lower()
+        params = cfg.get("params", {})
+        if not isinstance(params, dict):
+            raise ValueError(f"stage_configs.{stage}.params 必须是字典")
+        if method not in STAGE_REGISTRY[stage]:
+            allowed = list(STAGE_REGISTRY[stage].keys())
+            raise ValueError(f"stage {stage} method={method} 不支持，可选: {allowed}")
+        out[stage] = {"method": method, "params": params}
+    return out
+
+
+def _build_stage_configs(
+    cfg: dict[str, object],
+    fading: str,
+    k_factor: float,
+    cfo_hz: float,
+    phase_std: float,
+    iq_gain_db: float,
+    iq_phase_deg: float,
+    snr_db: float,
+) -> dict[str, dict[str, object]]:
+    result = default_stage_configs()
+
+    result["fading"]["method"] = "rician" if str(fading).lower() == "rician" else "rayleigh"
+    result["fading"]["params"]["k_factor"] = float(k_factor)
+    result["cfo"]["params"]["cfo_hz"] = float(cfo_hz)
+    result["phase_noise"]["params"]["phase_std_per_sample"] = float(phase_std)
+    result["iq_imbalance"]["params"]["gain_imbalance_db"] = float(iq_gain_db)
+    result["iq_imbalance"]["params"]["phase_imbalance_deg"] = float(iq_phase_deg)
+    result["awgn"]["params"]["snr_db"] = float(snr_db)
+
+    cfg_stage_configs = cfg.get("stage_configs", {})
+    if cfg_stage_configs:
+        if not isinstance(cfg_stage_configs, dict):
+            raise ValueError("stage_configs 必须是字典")
+        result = _merge_dict(result, cfg_stage_configs)
+
+    return _normalize_stage_configs(result)
+
+
 def run_channel_pipeline(
     iq: np.ndarray,
     fs: float,
     out_dir: str | Path,
-    fading_type: str = "rayleigh",
-    k_factor: float = 5.0,
-    cfo_hz: float = 15e3,
-    phase_std_per_sample: float = 2e-3,
-    gain_imbalance_db: float = 1.0,
-    phase_imbalance_deg: float = 3.0,
-    snr_db: float = 15.0,
+    stage_configs: dict[str, dict[str, object]],
     seed: int = 42,
     enabled_stages: list[str] | None = None,
     show_progress: bool = False,
@@ -91,47 +247,25 @@ def run_channel_pipeline(
             _print_stage_progress(enabled_stages, "original", prefix=progress_prefix)
         plot_time_frequency(x, fs, "stage0_original", out_dir)
 
-    if "fading" in enabled_stages:
+    for stage in ["fading", "multipath", "cfo", "phase_noise", "iq_imbalance", "awgn", "crop_time_shift"]:
+        if stage not in enabled_stages:
+            continue
         if show_progress:
-            _print_stage_progress(enabled_stages, "fading", prefix=progress_prefix)
-        x = apply_rayleigh_or_rician_fading(x, fading_type=fading_type, k_factor=k_factor, rng=rng)
-        plot_time_frequency(x, fs, "stage1_fading", out_dir)
+            _print_stage_progress(enabled_stages, stage, prefix=progress_prefix)
 
-    if "multipath" in enabled_stages:
-        if show_progress:
-            _print_stage_progress(enabled_stages, "multipath", prefix=progress_prefix)
-        x = apply_multipath(x, max_delay_samp=20, n_paths=4, exp_decay=0.35, rng=rng)
-        plot_time_frequency(x, fs, "stage2_multipath", out_dir)
+        stage_cfg = stage_configs.get(stage, {})
+        method = str(stage_cfg.get("method", "")).lower()
+        params = stage_cfg.get("params", {})
+        if not isinstance(params, dict):
+            raise ValueError(f"stage_configs.{stage}.params 必须是字典")
 
-    if "cfo" in enabled_stages:
-        if show_progress:
-            _print_stage_progress(enabled_stages, "cfo", prefix=progress_prefix)
-        x = apply_cfo(x, fs=fs, cfo_hz=cfo_hz)
-        plot_time_frequency(x, fs, "stage3_cfo", out_dir)
+        fn = STAGE_REGISTRY[stage].get(method)
+        if fn is None:
+            allowed = list(STAGE_REGISTRY[stage].keys())
+            raise ValueError(f"stage {stage} method={method} 不支持，可选: {allowed}")
 
-    if "phase_noise" in enabled_stages:
-        if show_progress:
-            _print_stage_progress(enabled_stages, "phase_noise", prefix=progress_prefix)
-        x = apply_phase_noise(x, phase_std_per_sample=phase_std_per_sample, rng=rng)
-        plot_time_frequency(x, fs, "stage4_phase_noise", out_dir)
-
-    if "iq_imbalance" in enabled_stages:
-        if show_progress:
-            _print_stage_progress(enabled_stages, "iq_imbalance", prefix=progress_prefix)
-        x = apply_iq_imbalance(x, gain_imbalance_db=gain_imbalance_db, phase_imbalance_deg=phase_imbalance_deg)
-        plot_time_frequency(x, fs, "stage5_iq_imbalance", out_dir)
-
-    if "awgn" in enabled_stages:
-        if show_progress:
-            _print_stage_progress(enabled_stages, "awgn", prefix=progress_prefix)
-        x = apply_awgn(x, snr_db=snr_db, rng=rng)
-        plot_time_frequency(x, fs, "stage6_awgn", out_dir)
-
-    if "crop_time_shift" in enabled_stages:
-        if show_progress:
-            _print_stage_progress(enabled_stages, "crop_time_shift", prefix=progress_prefix)
-        x = apply_random_crop_and_time_shift(x, min_keep_ratio=0.7, max_shift=300, rng=rng)
-        plot_time_frequency(x, fs, "stage7_crop_time_shift", out_dir)
+        x = fn(x, fs, rng, **params)
+        plot_time_frequency(x, fs, f"stage{STAGE_ORDER.index(stage)}_{stage}", out_dir)
 
     return x
 
@@ -141,17 +275,11 @@ def process_one_file(
     fs: float,
     out_dir: str | Path,
     output_iq: str | Path,
-    fading: str,
-    k_factor: float,
-    cfo_hz: float,
-    phase_std: float,
-    iq_gain_db: float,
-    iq_phase_deg: float,
-    snr_db: float,
     seed: int,
     metadata_path: str | Path,
     enabled_stages: list[str],
     show_progress: bool,
+    stage_configs: dict[str, dict[str, object]],
     progress_prefix: str = "",
 ) -> None:
     iq = read_interleaved_iq(input_path)
@@ -159,13 +287,7 @@ def process_one_file(
         iq,
         fs=fs,
         out_dir=out_dir,
-        fading_type=fading,
-        k_factor=k_factor,
-        cfo_hz=cfo_hz,
-        phase_std_per_sample=phase_std,
-        gain_imbalance_db=iq_gain_db,
-        phase_imbalance_deg=iq_phase_deg,
-        snr_db=snr_db,
+        stage_configs=stage_configs,
         seed=seed,
         enabled_stages=enabled_stages,
         show_progress=show_progress,
@@ -179,16 +301,17 @@ def process_one_file(
         output_iq=output_iq,
         image_dir=out_dir,
         fs=fs,
-        fading=fading,
-        k_factor=k_factor,
-        cfo_hz=cfo_hz,
-        phase_std=phase_std,
-        iq_gain_db=iq_gain_db,
-        iq_phase_deg=iq_phase_deg,
-        snr_db=snr_db,
+        fading=str(stage_configs["fading"]["method"]),
+        k_factor=float(stage_configs["fading"].get("params", {}).get("k_factor", 0.0)),
+        cfo_hz=float(stage_configs["cfo"].get("params", {}).get("cfo_hz", 0.0)),
+        phase_std=float(stage_configs["phase_noise"].get("params", {}).get("phase_std_per_sample", 0.0)),
+        iq_gain_db=float(stage_configs["iq_imbalance"].get("params", {}).get("gain_imbalance_db", 0.0)),
+        iq_phase_deg=float(stage_configs["iq_imbalance"].get("params", {}).get("phase_imbalance_deg", 0.0)),
+        snr_db=float(stage_configs["awgn"].get("params", {}).get("snr_db", 0.0)),
         seed=seed,
     )
     metadata["enabled_stages"] = enabled_stages
+    metadata["stage_configs"] = stage_configs
     write_json(metadata_path, metadata)
 
     print(f"处理完成: {input_path}")
@@ -238,6 +361,7 @@ def main() -> None:
     parser.add_argument("--output-iq", type=str, default=None, help="单文件模式下最终退化后 IQ 输出")
     parser.add_argument("--meta-json", type=str, default=None, help="单文件模式下参数记录 JSON 输出")
 
+    # 兼容旧参数（会被 stage_configs 覆盖）
     parser.add_argument("--fading", type=str, choices=["rayleigh", "rician"], default=None)
     parser.add_argument("--k-factor", type=float, default=None, help="Rician K 因子")
     parser.add_argument("--cfo-hz", type=float, default=None)
@@ -252,7 +376,7 @@ def main() -> None:
         type=str,
         default=None,
         help=(
-            "选择执行阶段。all 或逗号分隔列表："
+            "执行阶段。all 或逗号分隔列表："
             "original,fading,multipath,cfo,phase_noise,iq_imbalance,awgn,crop_time_shift"
         ),
     )
@@ -285,7 +409,17 @@ def main() -> None:
     if fs is None:
         raise ValueError("缺少 fs，请通过 --fs 或 YAML 配置提供")
 
-    enabled_stages = parse_enabled_stages(str(stages_spec))
+    enabled_stages = parse_enabled_stages(stages_spec)
+    stage_configs = _build_stage_configs(
+        cfg,
+        fading=str(fading),
+        k_factor=float(k_factor),
+        cfo_hz=float(cfo_hz),
+        phase_std=float(phase_std),
+        iq_gain_db=float(iq_gain_db),
+        iq_phase_deg=float(iq_phase_deg),
+        snr_db=float(snr_db),
+    )
 
     if (input_path is None and input_dir is None) or (input_path is not None and input_dir is not None):
         raise ValueError("请仅指定一种输入：单文件 input 或批处理 input_dir")
@@ -296,17 +430,11 @@ def main() -> None:
             fs=float(fs),
             out_dir=out_dir,
             output_iq=output_iq,
-            fading=str(fading),
-            k_factor=float(k_factor),
-            cfo_hz=float(cfo_hz),
-            phase_std=float(phase_std),
-            iq_gain_db=float(iq_gain_db),
-            iq_phase_deg=float(iq_phase_deg),
-            snr_db=float(snr_db),
             seed=int(seed),
             metadata_path=meta_json,
             enabled_stages=enabled_stages,
             show_progress=show_progress,
+            stage_configs=stage_configs,
             progress_prefix=Path(str(input_path)).name,
         )
         return
@@ -327,6 +455,7 @@ def main() -> None:
         "input_glob": str(input_glob),
         "total_files": len(files),
         "enabled_stages": enabled_stages,
+        "stage_configs": stage_configs,
         "runs": [],
     }
 
@@ -345,17 +474,11 @@ def main() -> None:
             fs=float(fs),
             out_dir=sample_img_dir,
             output_iq=sample_iq,
-            fading=str(fading),
-            k_factor=float(k_factor),
-            cfo_hz=float(cfo_hz),
-            phase_std=float(phase_std),
-            iq_gain_db=float(iq_gain_db),
-            iq_phase_deg=float(iq_phase_deg),
-            snr_db=float(snr_db),
             seed=int(seed) + idx,
             metadata_path=sample_meta,
             enabled_stages=enabled_stages,
             show_progress=show_progress,
+            stage_configs=stage_configs,
             progress_prefix=file_path.name,
         )
 
