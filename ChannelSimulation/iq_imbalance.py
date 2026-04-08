@@ -4,7 +4,7 @@ import numpy as np
 
 try:
     from .common import normalize_power
-except ImportError:  # 兼容直接脚本方式
+except ImportError:  # Compatible with direct script execution
     from common import normalize_power
 
 
@@ -13,7 +13,7 @@ def apply_iq_imbalance(
     gain_imbalance_db: float = 1.0,
     phase_imbalance_deg: float = 3.0,
 ) -> np.ndarray:
-    """广义 IQ 不平衡模型：y = alpha*x + beta*conj(x)。"""
+    """Generalized IQ imbalance model: y = alpha*x + beta*conj(x)."""
     g = 10 ** (gain_imbalance_db / 20.0)
     phi = np.deg2rad(phase_imbalance_deg)
 

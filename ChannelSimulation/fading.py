@@ -4,7 +4,7 @@ import numpy as np
 
 try:
     from .common import normalize_power
-except ImportError:  # 兼容直接脚本方式
+except ImportError:  # Compatible with direct script execution
     from common import normalize_power
 
 
@@ -15,7 +15,7 @@ def apply_rayleigh_or_rician_fading(
     block_size: int = 256,
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
-    """平坦衰落：支持 Rayleigh / Rician（块衰落近似）。"""
+    """Flat fading: supports Rayleigh / Rician (block fading approximation)."""
     if rng is None:
         rng = np.random.default_rng()
 
@@ -32,7 +32,7 @@ def apply_rayleigh_or_rician_fading(
     elif fading_type.lower() == "rayleigh":
         h_blocks = h_nlos
     else:
-        raise ValueError("fading_type 仅支持 'rayleigh' 或 'rician'")
+        raise ValueError("fading_type only supports 'rayleigh' or 'rician'")
 
     h = np.repeat(h_blocks, block_size)[:n]
     y = x * h

@@ -194,15 +194,15 @@ def crop_and_save_image(image,
         Returns:
             None
     """
-    # 截取矩形窗
+    # Crop rectangular window
     cropped_image = image[y:y+height, x:x+width]
 
-    # 创建输出目录（如果不存在）
+    # Create output directory (if not exists)
     output_dir = os.path.dirname(output_path)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # 保存截取的图像
+    # Save cropped image
     cv2.imwrite(output_path, cropped_image)
     print(f"Cropped image saved to {output_path}")
 
@@ -250,9 +250,9 @@ def check_folder(folder_path):
     """
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
-        print(f"folder '{folder_path}' created。")
+        print(f"folder '{folder_path}' created.")
     else:
-        print(f"folder '{folder_path}' existed。")
+        print(f"folder '{folder_path}' existed.")
 
 
 # Usage---------------------------------------------------------------------------------------------------------------

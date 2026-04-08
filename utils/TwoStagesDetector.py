@@ -131,32 +131,32 @@ class TwoStagesDetector:
     def RawdataProcess(self, source, fft_size=256, fs=100e6, time_scale=39062, 
                        target_frame_gap=150, num_workers=4, fps=30):
         """
-        优化的原始数据处理流程：流水线处理、并行、不阻塞。
+        Optimized raw data processing pipeline: pipelined processing, parallel, non-blocking.
         
-        处理流程：
-        1. 输入整段原始信号
-        2. 根据视频帧切分数据生成目标帧
-        3. 对每一帧做FFT（数据复用）
-        4. 并行生成时频图
-        5. 一旦有时频图生成，立即用二阶段模型处理
-        6. 按时间顺序重组为视频文件
+        Processing flow:
+        1. Input entire raw signal segment
+        2. Generate target frames based on video frame segmentation
+        3. Perform FFT on each frame (data reuse)
+        4. Generate spectrograms in parallel
+        5. Once spectrogram is generated, immediately process with two-stage model
+        6. Reassemble into video file in chronological order
 
         Parameters:
-        - source (str): 原始数据路径
-        - fft_size (int): FFT窗口大小
-        - fs (float): 采样率
-        - time_scale (int): 时间尺度
-        - target_frame_gap (int): 目标帧间隔
-        - num_workers (int): 并行工作线程数
-        - fps (int): 输出视频帧率
+        - source (str): Raw data path
+        - fft_size (int): FFT window size
+        - fs (float): Sampling rate
+        - time_scale (int): Time scale
+        - target_frame_gap (int): Target frame gap
+        - num_workers (int): Number of parallel worker threads
+        - fps (int): Output video frame rate
         """
         name = os.path.splitext(os.path.basename(source))
         
-        # 使用优化的瀑布图生成函数，返回带时间顺序的时频图
-        self.logger.log_with_color(f"开始处理原始数据: {name[0]}")
-        self.logger.log_with_color(f"正在生成时频图（并行处理，数据复用）...")
+        # Use optimized waterfall spectrogram generation function, returns time-ordered spectrograms
+        self.logger.log_with_color(f"Starting to process raw data: {name[0]}")
+        self.logger.log_with_color(f"Generating spectrograms (parallel processing, data reuse)...")
         
-        # 生成时频图（并行、数据复用）
+        # Generate spectrograms (parallel, data reuse)
         images_list = waterfall_spectrogram_optimized(
             source, fft_size=fft_size, fs=fs, location='buffer', 
             time_scale=time_scale, target_frame_gap=target_frame_gap, 
@@ -164,36 +164,36 @@ class TwoStagesDetector:
         )
         
         if not images_list:
-            self.logger.log_with_color(f"警告: 未生成任何时频图")
+            self.logger.log_with_color(f"Warning: No spectrograms generated")
             return
         
-        self.logger.log_with_color(f"生成了 {len(images_list)} 个时频图，开始模型推理...")
+        self.logger.log_with_color(f"Generated {len(images_list)} spectrograms, starting model inference...")
         
-        # 处理结果缓存（带时间顺序的哈希表）
+        # Result cache (hash table maintaining time order)
         processed_results = OrderedDict()
         results_lock = Lock()
         video_initialized = False
         video = None
         
         def process_single_image(frame_idx, image_buffer):
-            """处理单个时频图"""
+            """Process single spectrogram"""
             try:
                 result = self.ImgProcessor(image_buffer, save=False)
                 return frame_idx, result
             except Exception as e:
-                self.logger.log_with_color(f"处理帧 {frame_idx} 时出错: {e}")
+                self.logger.log_with_color(f"Error processing frame {frame_idx}: {e}")
                 return frame_idx, None
         
-        # 并行处理所有时频图（不阻塞）
+        # Process all spectrograms in parallel (non-blocking)
         with torch.no_grad():
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                # 提交所有任务（images_list已经按时间顺序排列）
+                # Submit all tasks (images_list is already sorted by time order)
                 futures = {executor.submit(process_single_image, idx, img): idx 
                           for idx, img in enumerate(images_list)}
                 
-                # 按完成顺序收集结果（但保持时间顺序）
+                # Collect results in completion order (but maintain time order)
                 completed_count = 0
-                next_expected_frame = 0  # 下一个期望的帧索引
+                next_expected_frame = 0  # Next expected frame index
                 
                 for future in as_completed(futures):
                     frame_idx, result = future.result()
@@ -203,7 +203,7 @@ class TwoStagesDetector:
                             processed_results[frame_idx] = result
                             completed_count += 1
                             
-                            # 初始化视频写入器（在第一次获得结果时）
+                            # Initialize video writer (when first result is obtained)
                             if not video_initialized:
                                 height, width, layers = result.shape
                                 video_name = name[0] + '_output.avi'
@@ -211,32 +211,32 @@ class TwoStagesDetector:
                                 video_path = os.path.join(self.save_path, video_name)
                                 video = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
                                 video_initialized = True
-                                self.logger.log_with_color(f"视频写入器已初始化: {width}x{height}, {fps}fps")
+                                self.logger.log_with_color(f"Video writer initialized: {width}x{height}, {fps}fps")
                             
-                            # 一旦有新结果，立即写入视频（按时间顺序）
+                            # Once new result arrives, write to video immediately (in time order)
                             if video_initialized:
-                                # 检查是否可以写入连续帧（从next_expected_frame开始）
+                                # Check if consecutive frames can be written (starting from next_expected_frame)
                                 while next_expected_frame in processed_results:
                                     video.write(processed_results[next_expected_frame])
                                     del processed_results[next_expected_frame]
                                     next_expected_frame += 1
                             
                             if completed_count % 10 == 0:
-                                self.logger.log_with_color(f"已处理 {completed_count}/{len(images_list)} 帧，已写入 {next_expected_frame} 帧到视频")
+                                self.logger.log_with_color(f"Processed {completed_count}/{len(images_list)} frames, written {next_expected_frame} frames to video")
         
-        # 写入剩余的结果（按时间顺序）
+        # Write remaining results (in time order)
         if video_initialized:
             for frame_idx in sorted(processed_results.keys()):
                 if frame_idx >= next_expected_frame:
                     video.write(processed_results[frame_idx])
                     next_expected_frame = frame_idx + 1
         
-        # 释放视频写入器
+        # Release video writer
         if video_initialized and video is not None:
             video.release()
-            self.logger.log_with_color(f"视频已保存: {os.path.join(self.save_path, name[0] + '_output.avi')}")
+            self.logger.log_with_color(f"Video saved: {os.path.join(self.save_path, name[0] + '_output.avi')}")
         
-        self.logger.log_with_color(f"完成处理 {name[0]}，共处理 {len(images_list)} 帧")
+        self.logger.log_with_color(f"Completed processing {name[0]}, processed {len(images_list)} frames")
 
     def DroneDetector(self, cfg):
 
@@ -313,8 +313,8 @@ def put_res_on_img(img,
         Image with added text.
     """
 
-    # 在图片上添加文字
-    cv2.putText(img=img,
+        # Add text on image
+        cv2.putText(img=img,
                 text=text + f" {probability:.2f}%",
                 org=position,
                 fontFace=cv2.FONT_HERSHEY_SIMPLEX,

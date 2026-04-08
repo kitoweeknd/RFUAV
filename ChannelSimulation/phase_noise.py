@@ -8,7 +8,7 @@ def apply_phase_noise(
     phase_std_per_sample: float = 2e-3,
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
-    """相位噪声：离散 Wiener 过程（随机游走）。"""
+    """Phase noise: discrete Wiener process (random walk)."""
     if rng is None:
         rng = np.random.default_rng()
 

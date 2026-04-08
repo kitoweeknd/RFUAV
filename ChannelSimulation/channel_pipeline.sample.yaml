@@ -1,16 +1,16 @@
-# ChannelSimulation 配置示例（method + params 多算法接口）
-# 使用方式：
+# ChannelSimulation Configuration Example (method + params multi-algorithm interface)
+# Usage:
 # python -m ChannelSimulation.channel_pipeline --config ChannelSimulation/channel_pipeline.sample.yaml
 
 # -----------------------------
-# 输入模式（二选一）
+# Input Mode (choose one)
 # -----------------------------
 input: data/input.iq
 # input_dir: data/iq_batch
 input_glob: "*.iq"
 
 # -----------------------------
-# 基础输出配置
+# Basic Output Configuration
 # -----------------------------
 fs: 100000000
 out_dir: ChannelSimulation/results
@@ -18,16 +18,16 @@ output_iq: ChannelSimulation/results/processed.iq
 meta_json: ChannelSimulation/results/run_meta.json
 
 # -----------------------------
-# Pipeline 执行控制
+# Pipeline Execution Control
 # -----------------------------
 stages: all
-# 或列表形式：
+# Or as a list:
 # stages: [original, fading, multipath, cfo, phase_noise, iq_imbalance, awgn, crop_time_shift]
 show_progress: true
 
 # -----------------------------
-# 向后兼容旧参数（可选）
-# 如同时设置 stage_configs，会被 stage_configs 覆盖
+# Backward Compatibility with Legacy Parameters (optional)
+# If both set, stage_configs takes precedence
 # -----------------------------
 fading: rayleigh
 k_factor: 5.0
@@ -39,8 +39,8 @@ snr_db: 15.0
 seed: 42
 
 # -----------------------------
-# 新版统一接口：stage_configs
-# 每个环节: method + params
+# New Unified Interface: stage_configs
+# Each stage: method + params
 # -----------------------------
 stage_configs:
   fading:

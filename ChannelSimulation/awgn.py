@@ -4,12 +4,12 @@ import numpy as np
 
 try:
     from .common import EPS
-except ImportError:  # 兼容直接脚本方式
+except ImportError:  # Compatible with direct script execution
     from common import EPS
 
 
 def apply_awgn(x: np.ndarray, snr_db: float, rng: np.random.Generator | None = None) -> np.ndarray:
-    """按目标 SNR 加复高斯白噪声。"""
+    """Add complex Gaussian white noise at target SNR."""
     if rng is None:
         rng = np.random.default_rng()
 

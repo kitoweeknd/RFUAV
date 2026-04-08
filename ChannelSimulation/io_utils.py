@@ -6,10 +6,10 @@ import numpy as np
 
 
 def read_interleaved_iq(file_path: str | Path, dtype=np.float32) -> np.ndarray:
-    """读取二进制交织 IQ 数据：I0,Q0,I1,Q1,..."""
+    """Read binary interleaved IQ data: I0,Q0,I1,Q1,..."""
     raw = np.fromfile(file_path, dtype=dtype)
     if raw.size < 2:
-        raise ValueError(f"文件数据过短: {file_path}")
+        raise ValueError(f"File data too short: {file_path}")
     if raw.size % 2 == 1:
         raw = raw[:-1]
     return raw[0::2] + 1j * raw[1::2]

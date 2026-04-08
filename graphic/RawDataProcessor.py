@@ -1,6 +1,6 @@
 # Tool to process raw data
 import matplotlib
-matplotlib.use('Agg')  # 使用非交互式后端，避免多线程问题
+matplotlib.use('Agg')  # Use non-interactive backend to avoid multi-threading issues
 import matplotlib.pyplot as plt
 from scipy.signal import stft, windows
 import numpy as np
@@ -72,8 +72,7 @@ class RawDataProcessor:
                         Middle_Frequency: float = 2400e6,
                         file_type=np.float32
                         ):
-        """tool used to observe the spectrograms from a local datapack
-        :param save_path: the target dir path to save the image result.
+        """Tool used to observe the spectrograms from a local datapack
         :param data_path: the input raw data file path.
         :param sample_rate: the simple rate when collect the raw frequency data using USRP, ref: https://en.wikipedia.org/wiki/Sampling_(signal_processing)
         :param stft_point: the STFT points using in STFT transformation, you better set this to 2**n (n is a Non-negative integer). ref: https://en.wikipedia.org/wiki/Short-time_Fourier_transform#Inverse_STFT
@@ -97,7 +96,7 @@ def generate_images(datapack: str = None,
                     fs: int = 100e6,
                     stft_point: int = 1024,
                     duration_time: float = 0.1,
-                    ratio: int = 1,  # 控制产生图片时间间隔的倍率，默认为1生成视频的倍率
+                    ratio: int = 1,  # Controls the time interval ratio for generating images, default is 1
                     location: str = 'buffer',
                     file_type=np.float32
                     ):
@@ -160,7 +159,7 @@ def save_as_video(datapack: str,
                   fs: int = 100e6,
                   stft_point: int = 1024,
                   duration_time: float = 0.1,
-                  fps: int = 5,  # 视频帧率
+                  fps: int = 5,  # Video frame rate
                   file_type=np.float32
                   ):
     """
@@ -255,7 +254,7 @@ def show_half_only(datapack: str = '',
         f_I, t_I, Zxx_I = STFT(dataI, fs=fs, stft_point=stft_point, duration_time=duration_time)
         f_Q, t_Q, Zxx_Q = STFT(dataQ, fs=fs, stft_point=stft_point, duration_time=duration_time)
 
-        # I部分數據的時頻圖
+        # I component spectrogram
         print('Drawing')
         plt.figure()
         aug_I = 10 * np.log10(np.abs(Zxx_I))
@@ -267,7 +266,7 @@ def show_half_only(datapack: str = '',
         plt.show()
         print("figure I done")
 
-        # Q部分數據的時頻圖
+        # Q component spectrogram
         plt.figure()
         aug_Q = 10 * np.log10(np.abs(Zxx_Q))
         plt.pcolormesh(t_Q, f_Q, np.abs(aug_Q), cmap='jet')
@@ -388,31 +387,31 @@ def STFT(data,
 
 def _compute_fft_frame(data_segment, fft_size, window, frame_idx, fft_cache, cache_lock):
     """
-    计算单个帧的FFT，支持数据复用缓存。
+    Computes FFT for a single frame with data reuse caching.
     
     Parameters:
-    - data_segment: 数据段
-    - fft_size: FFT窗口大小
-    - window: 窗函数
-    - frame_idx: 帧索引
-    - fft_cache: FFT结果缓存字典
-    - cache_lock: 缓存锁
+    - data_segment: Data segment
+    - fft_size: FFT window size
+    - window: Window function
+    - frame_idx: Frame index
+    - fft_cache: FFT result cache dictionary
+    - cache_lock: Cache lock
     
     Returns:
-    - frame_idx: 帧索引
-    - magnitude: FFT幅度谱
+    - frame_idx: Frame index
+    - magnitude: FFT magnitude spectrum
     """
-    # 检查缓存
+    # Check cache
     cache_key = (frame_idx, fft_size)
     with cache_lock:
         if cache_key in fft_cache:
             return frame_idx, fft_cache[cache_key]
     
-    # 计算FFT
+    # Compute FFT
     frame_data = data_segment * window
     magnitude = np.abs(np.fft.fftshift(fft(frame_data)))
     
-    # 存入缓存
+    # Store in cache
     with cache_lock:
         fft_cache[cache_key] = magnitude
     
@@ -421,18 +420,18 @@ def _compute_fft_frame(data_segment, fft_size, window, frame_idx, fft_cache, cac
 
 def _generate_spectrogram_image(spectrogram_data, fs, fft_size, num_frames, frame_id):
     """
-    生成时频图（颜色映射）。
+    Generates spectrogram image with color mapping.
     
     Parameters:
-    - spectrogram_data: 频谱数据
-    - fs: 采样率
-    - fft_size: FFT大小
-    - num_frames: 总帧数
-    - frame_id: 帧ID
+    - spectrogram_data: Spectrogram data
+    - fs: Sampling rate
+    - fft_size: FFT size
+    - num_frames: Total number of frames
+    - frame_id: Frame ID
     
     Returns:
-    - frame_id: 帧ID
-    - image_buffer: 图像缓冲区
+    - frame_id: Frame ID
+    - image_buffer: Image buffer
     """
     plt.figure(figsize=(10, 6))
     plt.imshow(np.log10(spectrogram_data.T), aspect='auto', cmap='jet', origin='lower',
@@ -451,21 +450,21 @@ def _generate_spectrogram_image(spectrogram_data, fs, fft_size, num_frames, fram
 def waterfall_spectrogram_optimized(datapack, fft_size, fs, location, time_scale, 
                                      target_frame_gap=150, num_workers=4):
     """
-    优化的瀑布图生成函数，支持数据复用、并行处理和不阻塞流水线。
+    Optimized waterfall spectrogram generation with data reuse, parallel processing, and non-blocking pipeline.
 
     Parameters:
-    - datapack: 原始数据路径或numpy数组
-    - fft_size: FFT窗口大小
-    - fs: 采样率
-    - location: 保存位置，'buffer'表示内存，否则为文件路径
-    - time_scale: 时间尺度，控制何时开始滚动
-    - target_frame_gap: 目标帧之间的间隔（小帧数）
-    - num_workers: 并行工作线程数
+    - datapack: Raw data path or numpy array
+    - fft_size: FFT window size
+    - fs: Sampling rate
+    - location: Save location, 'buffer' for memory, otherwise file path
+    - time_scale: Time scale controlling when to start scrolling
+    - target_frame_gap: Gap between target frames (in small frames)
+    - num_workers: Number of parallel worker threads
 
     Returns:
-    - images: 图像列表（当location='buffer'时）或None
+    - images: List of images (when location='buffer') or None
     """
-    # 加载整段原始信号
+    # Load the entire raw signal
     if isinstance(datapack, str):
         data = np.fromfile(datapack, dtype=np.float32)
         data = data[::2] + data[1::2] * 1j
@@ -477,12 +476,12 @@ def waterfall_spectrogram_optimized(datapack, fft_size, fs, location, time_scale
     window = np.hanning(fft_size)
     num_small_frames = len(data) // fft_size
     
-    # 计算目标帧（视频帧）的切分点
+    # Calculate target frame (video frame) split points
     target_frame_indices = []
     if num_small_frames > time_scale:
-        # 第一个目标帧在time_scale处
+        # First target frame at time_scale
         target_frame_indices.append(time_scale)
-        # 后续目标帧每隔target_frame_gap个小帧
+        # Subsequent target frames every target_frame_gap small frames
         current = time_scale + target_frame_gap
         while current < num_small_frames:
             target_frame_indices.append(current)
@@ -491,7 +490,7 @@ def waterfall_spectrogram_optimized(datapack, fft_size, fs, location, time_scale
     if not target_frame_indices:
         return [] if location == 'buffer' else None
     
-    # 创建保存目录
+    # Create save directory
     if location != 'buffer':
         if not os.path.exists(location):
             os.makedirs(location)
@@ -499,19 +498,19 @@ def waterfall_spectrogram_optimized(datapack, fft_size, fs, location, time_scale
     else:
         images = []
     
-    # FFT结果缓存（带时间顺序的哈希表）
+    # FFT result cache (ordered by time)
     fft_cache = {}
     fft_cache_lock = Lock()
-    fft_results = OrderedDict()  # 维护时间顺序
+    fft_results = OrderedDict()  # Maintain time order
     
-    # 时频图结果缓存（带时间顺序的哈希表）
+    # Spectrogram image cache (ordered by time)
     spectrogram_images = OrderedDict()
     spectrogram_lock = Lock()
     
-    # 并行处理FFT
+    # Parallel FFT processing
     def process_fft_for_target_frame(target_frame_idx):
-        """为目标帧计算所需的FFT结果"""
-        # 计算该目标帧需要的所有小帧的FFT
+        """Calculate FFT results needed for a target frame"""
+        # Compute FFT for all small frames required by this target frame
         start_frame = max(0, target_frame_idx - time_scale)
         end_frame = target_frame_idx + 1
         
@@ -522,41 +521,41 @@ def waterfall_spectrogram_optimized(datapack, fft_size, fs, location, time_scale
                                              small_frame_idx, fft_cache, fft_cache_lock)
             frame_ffts.append(magnitude)
         
-        # 组装成频谱图
+        # Assemble into spectrogram
         spectrogram = np.array(frame_ffts)
         return target_frame_idx, spectrogram
     
-    # 使用线程池并行处理所有目标帧的FFT
+    # Use thread pool to process all target frame FFTs in parallel
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         fft_futures = {executor.submit(process_fft_for_target_frame, idx): idx 
                       for idx in target_frame_indices}
         
-        # 收集FFT结果
+        # Collect FFT results
         for future in as_completed(fft_futures):
             target_frame_idx, spectrogram = future.result()
             fft_results[target_frame_idx] = spectrogram
     
-    # 并行生成时频图（颜色映射）
+    # Parallel spectrogram image generation with color mapping
     def generate_image_for_frame(target_frame_idx):
-        """为目标帧生成时频图"""
+        """Generate spectrogram image for a target frame"""
         spectrogram = fft_results[target_frame_idx]
         _, image_buffer = _generate_spectrogram_image(
             spectrogram, fs, fft_size, num_small_frames, target_frame_idx
         )
         return target_frame_idx, image_buffer
     
-    # 并行生成所有时频图
+    # Generate all spectrogram images in parallel
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         image_futures = {executor.submit(generate_image_for_frame, idx): idx 
                         for idx in target_frame_indices}
         
-        # 收集时频图结果（按完成顺序，但保持时间顺序）
+        # Collect spectrogram results (in completion order but maintain time order)
         for future in as_completed(image_futures):
             target_frame_idx, image_buffer = future.result()
             with spectrogram_lock:
                 spectrogram_images[target_frame_idx] = image_buffer
     
-    # 按时间顺序重组结果
+    # Reassemble results in time order
     if location == 'buffer':
         images = [spectrogram_images[idx] for idx in sorted(spectrogram_images.keys())]
         return images
@@ -571,17 +570,17 @@ def waterfall_spectrogram_optimized(datapack, fft_size, fs, location, time_scale
 
 def waterfall_spectrogram(datapack, fft_size, fs, location, time_scale):
     """
-    生成瀑布图（保持向后兼容的接口，内部调用优化版本）。
+    Generates waterfall spectrogram (backward compatible interface, internally calls optimized version).
     
     Parameters:
-    - datapack: 原始数据路径或numpy数组
-    - fft_size: FFT窗口大小
-    - fs: 采样率
-    - location: 保存位置
-    - time_scale: 时间尺度
+    - datapack: Raw data path or numpy array
+    - fft_size: FFT window size
+    - fs: Sampling rate
+    - location: Save location
+    - time_scale: Time scale
     
     Returns:
-    - images: 图像列表或None
+    - images: List of images or None
     """
     return waterfall_spectrogram_optimized(datapack, fft_size, fs, location, time_scale)
 

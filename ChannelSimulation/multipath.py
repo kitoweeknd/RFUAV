@@ -4,7 +4,7 @@ import numpy as np
 
 try:
     from .common import EPS, normalize_power
-except ImportError:  # 兼容直接脚本方式
+except ImportError:  # Compatible with direct script execution
     from common import EPS, normalize_power
 
 
@@ -15,7 +15,7 @@ def apply_multipath(
     exp_decay: float = 0.35,
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
-    """整数采样多径信道（随机时延 + 指数衰减 + 随机相位）。"""
+    """Integer-sample multipath channel (random delay + exponential decay + random phase)."""
     if rng is None:
         rng = np.random.default_rng()
 

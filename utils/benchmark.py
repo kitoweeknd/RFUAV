@@ -343,7 +343,7 @@ class ClassifyModel(nn.Module):
                         _, predicted = outputs.max(1)
                         for p, t in zip(predicted.cpu(), labels.cpu()):
                             cm_raw[p,t]+=1
-                        cm_raw[p, t] += 1   # 行 = pred, 列 = gt
+                        cm_raw[p, t] += 1   # Row = pred, Column = gt
                         total += labels.size(0)
                         correct += predicted.eq(labels).sum().item()
                         total_labels.append(labels)

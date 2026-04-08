@@ -9,7 +9,7 @@ def apply_random_crop_and_time_shift(
     max_shift: int = 300,
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
-    """随机裁剪 + 时间偏移，并保持输出长度不变（零填充）。"""
+    """Random crop + time shift, while maintaining output length (zero padding)."""
     if rng is None:
         rng = np.random.default_rng()
 

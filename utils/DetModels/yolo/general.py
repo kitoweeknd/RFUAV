@@ -271,52 +271,52 @@ def check_dataset(data, autodownload=True):
     # Download from Roboflow if data is empty
     extract_dir = ''
     if not data or (isinstance(data, str) and not data.strip()) or (isinstance(data, (list, dict)) and len(data) == 0):
-        # 如果输入data为空，则从Roboflow下载数据集
+        # If data is empty, download dataset from Roboflow
         roboflow_url = 'https://app.roboflow.com/rui-shi/drone-signal-detect-few-shot/6/download/yolov5'
         dataset_name = 'drone-signal-detect-few-shot'
         cache_dir = DATASETS_DIR / dataset_name
         
-        LOGGER.info(f'\n检测到data参数为空，开始从Roboflow下载数据集...')
-        LOGGER.info(f'下载地址: {roboflow_url}')
-        LOGGER.info(f'缓存目录: {cache_dir}')
+        LOGGER.info(f'\nData parameter is empty, starting to download dataset from Roboflow...')
+        LOGGER.info(f'Download URL: {roboflow_url}')
+        LOGGER.info(f'Cache directory: {cache_dir}')
         
-        # 创建缓存目录
+        # Create cache directory
         cache_dir.mkdir(parents=True, exist_ok=True)
         
-        # 检查是否已经下载过
+        # Check if already downloaded
         yaml_files = list(cache_dir.rglob('*.yaml'))
         if yaml_files:
-            LOGGER.info(f'发现已缓存的数据集，使用缓存路径: {yaml_files[0]}')
+            LOGGER.info(f'Found cached dataset, using cache path: {yaml_files[0]}')
             data = str(yaml_files[0])
             extract_dir, autodownload = Path(data).parent, False
         else:
-            # 下载数据集
+            # Download dataset
             zip_file = cache_dir / f'{dataset_name}.zip'
-            LOGGER.info(f'正在下载数据集到: {zip_file}...')
+            LOGGER.info(f'Downloading dataset to: {zip_file}...')
             t = time.time()
             
             try:
                 torch.hub.download_url_to_file(roboflow_url, str(zip_file), progress=True)
-                LOGGER.info(f'下载完成，耗时: {round(time.time() - t, 1)}s')
+                LOGGER.info(f'Download completed, time elapsed: {round(time.time() - t, 1)}s')
                 
-                # 解压数据集
-                LOGGER.info(f'正在解压数据集...')
+                # Extract dataset
+                LOGGER.info(f'Extracting dataset...')
                 unzip_file(zip_file, path=cache_dir)
-                zip_file.unlink()  # 删除zip文件
-                LOGGER.info(f'解压完成')
+                zip_file.unlink()  # Delete zip file
+                LOGGER.info(f'Extraction completed')
                 
-                # 查找yaml文件
+                # Find yaml file
                 yaml_files = list(cache_dir.rglob('*.yaml'))
                 if yaml_files:
                     data = str(yaml_files[0])
                     extract_dir, autodownload = Path(data).parent, False
-                    LOGGER.info(f'数据集已保存到缓存目录: {extract_dir}')
-                    LOGGER.info(f'将使用缓存路径进行训练: {data}')
+                    LOGGER.info(f'Dataset saved to cache directory: {extract_dir}')
+                    LOGGER.info(f'Will use cache path for training: {data}')
                 else:
-                    raise Exception(f'解压后未找到yaml文件 ❌')
+                    raise Exception(f'yaml file not found after extraction')
             except Exception as e:
-                LOGGER.error(f'下载数据集失败: {e} ❌')
-                raise Exception(f'无法从Roboflow下载数据集，请检查网络连接或手动下载 ❌')
+                LOGGER.error(f'Failed to download dataset: {e}')
+                raise Exception(f'Unable to download dataset from Roboflow, please check network connection or download manually')
     
     # Download (optional)
     if isinstance(data, (str, Path)) and (is_zipfile(data) or is_tarfile(data)):

@@ -12,24 +12,24 @@ class colorful_logger:
         logger_name = f"{name}:{os.getpid()}"
         self.logger = logging.getLogger(logger_name)
 
-        # 防止消息向上传播到root logger，避免重复输出
+        # Prevent messages from propagating to root logger to avoid duplicate output
         self.logger.propagate = False
 
-        # 如果logger已经有handler，去重后直接返回
+        # If logger already has handlers, deduplicate and return directly
         if self.logger.handlers:
             self._deduplicate_handlers()
             return
 
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(message)s')
 
-        # 为Train类型添加文件handler
+        # Add file handler for Train type
         if self.name == 'Train' and logfile:
             filehandler = logging.FileHandler(logfile)
             filehandler.setLevel(logging.INFO)
             filehandler.setFormatter(formatter)
             self.logger.addHandler(filehandler)
 
-        # 为所有类型添加控制台handler（包括Train）
+        # Add console handler for all types (including Train)
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
         console_handler.setFormatter(formatter)

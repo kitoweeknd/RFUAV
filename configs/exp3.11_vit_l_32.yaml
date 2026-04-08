@@ -1,5 +1,5 @@
-train: E:\Drone_dataset\RFUAV\augmentation_exp2_allDrone\dataset_aug\train  # 数据集路径
-val: E:\Drone_dataset\RFUAV\augmentation_exp2_allDrone\dataset_aug\valid  # 数据集路径
+train: E:\Drone_dataset\RFUAV\augmentation_exp2_allDrone\dataset_aug\train  # Dataset path
+val: E:\Drone_dataset\RFUAV\augmentation_exp2_allDrone\dataset_aug\valid  # Dataset path
 save_path: E:\Drone_dataset\RFUAV\augmentation_exp2_allDrone\exp\10.vit_l_32
 model : vit_l_32
 weights: None

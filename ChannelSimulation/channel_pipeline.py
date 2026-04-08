@@ -18,7 +18,7 @@ try:
     from .multipath import apply_multipath
     from .phase_noise import apply_phase_noise
     from .visualization import plot_time_frequency
-except ImportError:  # 兼容直接脚本方式
+except ImportError:  # Compatible with direct script execution
     from awgn import apply_awgn
     from cfo import apply_cfo
     from common import normalize_power
@@ -45,12 +45,12 @@ STAGE_ORDER = [
 
 
 def parse_enabled_stages(stage_spec: str | list[str]) -> list[str]:
-    """解析阶段选择参数。支持 all、逗号分隔字符串或列表。"""
+    """Parse stage selection parameter. Supports all, comma-separated string or list."""
     if isinstance(stage_spec, list):
         picked = [str(x).strip().lower() for x in stage_spec if str(x).strip()]
         invalid = [x for x in picked if x not in STAGE_ORDER]
         if invalid:
-            raise ValueError(f"非法 stages: {invalid}，可选: {STAGE_ORDER} 或 all")
+            raise ValueError(f"Invalid stages: {invalid}, valid options: {STAGE_ORDER} or all")
         return [s for s in STAGE_ORDER if s in set(picked)]
 
     spec = str(stage_spec).strip().lower()
@@ -60,7 +60,7 @@ def parse_enabled_stages(stage_spec: str | list[str]) -> list[str]:
     picked = [x.strip().lower() for x in spec.split(",") if x.strip()]
     invalid = [x for x in picked if x not in STAGE_ORDER]
     if invalid:
-        raise ValueError(f"非法 stages: {invalid}，可选: {STAGE_ORDER} 或 all")
+        raise ValueError(f"Invalid stages: {invalid}, valid options: {STAGE_ORDER} or all")
 
     return [s for s in STAGE_ORDER if s in set(picked)]
 
@@ -69,7 +69,7 @@ def _print_stage_progress(enabled_stages: list[str], stage: str, prefix: str = "
     idx = enabled_stages.index(stage) + 1
     total = len(enabled_stages)
     lead = f"[{prefix}] " if prefix else ""
-    print(f"{lead}进度 {idx}/{total}: {stage}")
+    print(f"{lead}Progress {idx}/{total}: {stage}")
 
 
 def _stage_fading_rayleigh(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
@@ -185,14 +185,14 @@ def _normalize_stage_configs(stage_configs: dict[str, object]) -> dict[str, dict
         if stage not in STAGE_REGISTRY:
             continue
         if not isinstance(cfg, dict):
-            raise ValueError(f"stage_configs.{stage} 必须是字典")
+            raise ValueError(f"stage_configs.{stage} must be a dictionary")
         method = str(cfg.get("method", "")).strip().lower()
         params = cfg.get("params", {})
         if not isinstance(params, dict):
-            raise ValueError(f"stage_configs.{stage}.params 必须是字典")
+            raise ValueError(f"stage_configs.{stage}.params must be a dictionary")
         if method not in STAGE_REGISTRY[stage]:
             allowed = list(STAGE_REGISTRY[stage].keys())
-            raise ValueError(f"stage {stage} method={method} 不支持，可选: {allowed}")
+            raise ValueError(f"stage {stage} method={method} not supported, valid options: {allowed}")
         out[stage] = {"method": method, "params": params}
     return out
 
@@ -220,7 +220,7 @@ def _build_stage_configs(
     cfg_stage_configs = cfg.get("stage_configs", {})
     if cfg_stage_configs:
         if not isinstance(cfg_stage_configs, dict):
-            raise ValueError("stage_configs 必须是字典")
+            raise ValueError("stage_configs must be a dictionary")
         result = _merge_dict(result, cfg_stage_configs)
 
     return _normalize_stage_configs(result)
@@ -257,12 +257,12 @@ def run_channel_pipeline(
         method = str(stage_cfg.get("method", "")).lower()
         params = stage_cfg.get("params", {})
         if not isinstance(params, dict):
-            raise ValueError(f"stage_configs.{stage}.params 必须是字典")
+            raise ValueError(f"stage_configs.{stage}.params must be a dictionary")
 
         fn = STAGE_REGISTRY[stage].get(method)
         if fn is None:
             allowed = list(STAGE_REGISTRY[stage].keys())
-            raise ValueError(f"stage {stage} method={method} 不支持，可选: {allowed}")
+            raise ValueError(f"stage {stage} method={method} not supported, valid options: {allowed}")
 
         x = fn(x, fs, rng, **params)
         plot_time_frequency(x, fs, f"stage{STAGE_ORDER.index(stage)}_{stage}", out_dir)
@@ -314,10 +314,10 @@ def process_one_file(
     metadata["stage_configs"] = stage_configs
     write_json(metadata_path, metadata)
 
-    print(f"处理完成: {input_path}")
-    print(f"  图像目录: {out_dir}")
-    print(f"  输出IQ: {output_iq}")
-    print(f"  参数记录: {metadata_path}")
+    print(f"Processing complete: {input_path}")
+    print(f"  Image directory: {out_dir}")
+    print(f"  Output IQ: {output_iq}")
+    print(f"  Parameters record: {metadata_path}")
 
 
 def load_yaml_config(config_path: str | Path | None) -> dict[str, object]:
@@ -327,11 +327,11 @@ def load_yaml_config(config_path: str | Path | None) -> dict[str, object]:
     try:
         import yaml
     except ImportError as e:
-        raise ImportError("未安装 PyYAML，请先安装 pyyaml>=6.0.2") from e
+        raise ImportError("PyYAML not installed, please install pyyaml>=6.0.2") from e
 
     p = Path(config_path)
     if not p.exists() or not p.is_file():
-        raise ValueError(f"配置文件不存在或不是文件: {p}")
+        raise ValueError(f"Config file does not exist or is not a file: {p}")
 
     with open(p, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
@@ -339,7 +339,7 @@ def load_yaml_config(config_path: str | Path | None) -> dict[str, object]:
     if cfg is None:
         return {}
     if not isinstance(cfg, dict):
-        raise ValueError("YAML 顶层必须是字典")
+        raise ValueError("YAML top-level must be a dictionary")
     return cfg
 
 
@@ -348,24 +348,24 @@ def _pick(cli_value, cfg: dict[str, object], key: str, default):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ChannelSimulation: 完整信道退化 pipeline + 每步时频图")
+    parser = argparse.ArgumentParser(description="ChannelSimulation: Complete channel degradation pipeline + time-frequency plots for each stage")
 
-    parser.add_argument("input", nargs="?", type=str, default=None, help="输入 IQ 文件（float32 交织IQ）")
-    parser.add_argument("--config", type=str, default=None, help="YAML 配置文件路径")
+    parser.add_argument("input", nargs="?", type=str, default=None, help="Input IQ file (float32 interleaved IQ)")
+    parser.add_argument("--config", type=str, default=None, help="YAML config file path")
 
-    parser.add_argument("--input-dir", type=str, default=None, help="批处理输入目录（与 input 二选一）")
-    parser.add_argument("--input-glob", type=str, default=None, help="批处理文件匹配模式，默认 *.iq")
+    parser.add_argument("--input-dir", type=str, default=None, help="Batch processing input directory (mutually exclusive with input)")
+    parser.add_argument("--input-glob", type=str, default=None, help="Batch processing file matching pattern, default *.iq")
 
-    parser.add_argument("--fs", type=float, default=None, help="采样率（Hz）")
-    parser.add_argument("--out-dir", type=str, default=None, help="图像与输出保存根目录")
-    parser.add_argument("--output-iq", type=str, default=None, help="单文件模式下最终退化后 IQ 输出")
-    parser.add_argument("--meta-json", type=str, default=None, help="单文件模式下参数记录 JSON 输出")
+    parser.add_argument("--fs", type=float, default=None, help="Sampling rate (Hz)")
+    parser.add_argument("--out-dir", type=str, default=None, help="Root directory for images and output")
+    parser.add_argument("--output-iq", type=str, default=None, help="Final degraded IQ output in single-file mode")
+    parser.add_argument("--meta-json", type=str, default=None, help="Parameters record JSON output in single-file mode")
 
-    # 兼容旧参数（会被 stage_configs 覆盖）
+    # Backward compatibility with old parameters (will be overridden by stage_configs)
     parser.add_argument("--fading", type=str, choices=["rayleigh", "rician"], default=None)
-    parser.add_argument("--k-factor", type=float, default=None, help="Rician K 因子")
+    parser.add_argument("--k-factor", type=float, default=None, help="Rician K factor")
     parser.add_argument("--cfo-hz", type=float, default=None)
-    parser.add_argument("--phase-std", type=float, default=None, help="每采样相位增量标准差")
+    parser.add_argument("--phase-std", type=float, default=None, help="Standard deviation of phase increment per sample")
     parser.add_argument("--iq-gain-db", type=float, default=None)
     parser.add_argument("--iq-phase-deg", type=float, default=None)
     parser.add_argument("--snr-db", type=float, default=None)
@@ -376,11 +376,11 @@ def main() -> None:
         type=str,
         default=None,
         help=(
-            "执行阶段。all 或逗号分隔列表："
+            "Execution stages. all or comma-separated list: "
             "original,fading,multipath,cfo,phase_noise,iq_imbalance,awgn,crop_time_shift"
         ),
     )
-    parser.add_argument("--show-progress", action="store_true", default=None, help="显示每个阶段与批处理进度")
+    parser.add_argument("--show-progress", action="store_true", default=None, help="Show progress for each stage and batch processing")
 
     args = parser.parse_args()
     cfg = load_yaml_config(args.config)
@@ -407,7 +407,7 @@ def main() -> None:
     show_progress = bool(_pick(args.show_progress, cfg, "show_progress", False))
 
     if fs is None:
-        raise ValueError("缺少 fs，请通过 --fs 或 YAML 配置提供")
+        raise ValueError("Missing fs, please provide via --fs or YAML config")
 
     enabled_stages = parse_enabled_stages(stages_spec)
     stage_configs = _build_stage_configs(
@@ -422,7 +422,7 @@ def main() -> None:
     )
 
     if (input_path is None and input_dir is None) or (input_path is not None and input_dir is not None):
-        raise ValueError("请仅指定一种输入：单文件 input 或批处理 input_dir")
+        raise ValueError("Please specify only one input type: single file input or batch input_dir")
 
     if input_path is not None:
         process_one_file(
@@ -441,11 +441,11 @@ def main() -> None:
 
     input_dir_path = Path(str(input_dir))
     if not input_dir_path.exists() or not input_dir_path.is_dir():
-        raise ValueError(f"输入目录不存在或不是目录: {input_dir_path}")
+        raise ValueError(f"Input directory does not exist or is not a directory: {input_dir_path}")
 
     files = sorted(input_dir_path.glob(str(input_glob)))
     if not files:
-        raise ValueError(f"目录中未找到匹配文件: {input_dir_path} / {input_glob}")
+        raise ValueError(f"No matching files found in directory: {input_dir_path} / {input_glob}")
 
     out_root = Path(str(out_dir))
     out_root.mkdir(parents=True, exist_ok=True)
@@ -461,7 +461,7 @@ def main() -> None:
 
     for idx, file_path in enumerate(files):
         if show_progress:
-            print(f"文件进度 {idx + 1}/{len(files)}: {file_path.name}")
+            print(f"File progress {idx + 1}/{len(files)}: {file_path.name}")
 
         sample_name = file_path.stem
         sample_out = out_root / sample_name
@@ -493,7 +493,7 @@ def main() -> None:
 
     summary_path = out_root / "batch_summary.json"
     write_json(summary_path, summary)
-    print(f"批处理完成，共 {len(files)} 个文件。汇总: {summary_path}")
+    print(f"Batch processing complete, processed {len(files)} files. Summary: {summary_path}")
 
 
 if __name__ == "__main__":

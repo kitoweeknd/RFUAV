@@ -531,10 +531,10 @@ class SwinStage(nn.Module):
 
     def create_mask(self, x, H, W):
         # calculate attention mask for SW-MSA
-        # 保证Hp和Wp是window_size的整数倍
+        # Ensure Hp and Wp are integer multiples of window_size
         Hp = int(np.ceil(H / self.window_size)) * self.window_size
         Wp = int(np.ceil(W / self.window_size)) * self.window_size
-        # 拥有和feature map一样的通道排列顺序，方便后续window_partition
+        # Have the same channel arrangement as feature map for convenient window_partition
         img_mask = torch.zeros((1, Hp, Wp, 1), device=x.device)  # [1, Hp, Wp, 1]
         h_slices = (slice(0, -self.window_size),
                     slice(-self.window_size, -self.shift_size),
@@ -746,7 +746,7 @@ class SwinTransformerBlock(nn.Module):
 
 def window_partition(x, window_size: int):
     """
-    将feature map按照window_size划分成一个个没有重叠的window
+    Partition feature map into non-overlapping windows by window_size
     Args:
         x: (B, H, W, C)
         window_size (int): window size(M)
@@ -912,7 +912,7 @@ class Mlp(nn.Module):
 
 def window_reverse(windows, window_size: int, H: int, W: int):
     """
-    将一个个window还原成一个feature map
+    Restore windows back to feature map
     Args:
         windows: (num_windows*B, window_size, window_size, C)
         window_size (int): Window size(M)
