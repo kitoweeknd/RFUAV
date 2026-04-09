@@ -15,7 +15,11 @@ def apply_rayleigh_or_rician_fading(
     block_size: int = 256,
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
-    """Flat fading: supports Rayleigh / Rician (block fading approximation)."""
+    """Flat fading: supports Rayleigh / Rician (block fading approximation).
+
+    Uses block-wise scalars instead of full-length np.repeat to avoid allocating
+    an n-element copy of the block gain array.
+    """
     if rng is None:
         rng = np.random.default_rng()
 
@@ -34,6 +38,11 @@ def apply_rayleigh_or_rician_fading(
     else:
         raise ValueError("fading_type only supports 'rayleigh' or 'rician'")
 
-    h = np.repeat(h_blocks, block_size)[:n]
-    y = x * h
+    # Apply per-block gain: reshape to (n_blocks, block_size), broadcast over last axis
+    y = np.empty(n, dtype=np.complex128)
+    for i, gain in enumerate(h_blocks):
+        start = i * block_size
+        end = min(start + block_size, n)
+        y[start:end] = x[start:end] * gain
+
     return normalize_power(y)

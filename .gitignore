@@ -54,6 +54,8 @@ datasets/
 # Output & figures
 output/
 outputs/
+res/
+results/
 *.png
 *.jpg
 *.jpeg

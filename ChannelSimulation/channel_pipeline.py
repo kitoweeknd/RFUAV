@@ -12,7 +12,13 @@ try:
     from .common import normalize_power
     from .crop_shift import apply_random_crop_and_time_shift
     from .fading import apply_rayleigh_or_rician_fading
-    from .io_utils import read_interleaved_iq, save_interleaved_iq
+    from .io_utils import (
+        append_interleaved_iq,
+        count_complex_samples,
+        iter_iq_chunks,
+        read_interleaved_iq,
+        save_interleaved_iq,
+    )
     from .iq_imbalance import apply_iq_imbalance
     from .metadata import build_run_metadata, write_json
     from .multipath import apply_multipath
@@ -24,7 +30,13 @@ except ImportError:  # Compatible with direct script execution
     from common import normalize_power
     from crop_shift import apply_random_crop_and_time_shift
     from fading import apply_rayleigh_or_rician_fading
-    from io_utils import read_interleaved_iq, save_interleaved_iq
+    from io_utils import (
+        append_interleaved_iq,
+        count_complex_samples,
+        iter_iq_chunks,
+        read_interleaved_iq,
+        save_interleaved_iq,
+    )
     from iq_imbalance import apply_iq_imbalance
     from metadata import build_run_metadata, write_json
     from multipath import apply_multipath
@@ -42,6 +54,9 @@ STAGE_ORDER = [
     "awgn",
     "crop_time_shift",
 ]
+
+# Chunks that require the full signal (cannot be processed per-chunk independently)
+_STATEFUL_STAGES = frozenset({"crop_time_shift"})
 
 
 def parse_enabled_stages(stage_spec: str | list[str]) -> list[str]:
@@ -72,6 +87,9 @@ def _print_stage_progress(enabled_stages: list[str], stage: str, prefix: str = "
     print(f"{lead}Progress {idx}/{total}: {stage}")
 
 
+# ----------------------------------------------------------------------
+# Stage wrappers
+# ----------------------------------------------------------------------
 def _stage_fading_rayleigh(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
     return apply_rayleigh_or_rician_fading(
         x,
@@ -193,7 +211,11 @@ def _normalize_stage_configs(stage_configs: dict[str, object]) -> dict[str, dict
         if method not in STAGE_REGISTRY[stage]:
             allowed = list(STAGE_REGISTRY[stage].keys())
             raise ValueError(f"stage {stage} method={method} not supported, valid options: {allowed}")
-        out[stage] = {"method": method, "params": params}
+        out[stage] = {
+            "method": method,
+            "params": params,
+            "save": bool(cfg.get("save", False)),
+        }
     return out
 
 
@@ -226,6 +248,9 @@ def _build_stage_configs(
     return _normalize_stage_configs(result)
 
 
+# ----------------------------------------------------------------------
+# Pipeline: original (full-signal, for small files)
+# ----------------------------------------------------------------------
 def run_channel_pipeline(
     iq: np.ndarray,
     fs: float,
@@ -236,8 +261,18 @@ def run_channel_pipeline(
     show_progress: bool = False,
     progress_prefix: str = "",
 ) -> np.ndarray:
+    """Apply all channel stages to the full IQ signal in memory.
+
+    Each stage whose ``save`` flag is True will write its intermediate IQ to
+    ``out_dir / <stage_name>.iq`` immediately after the stage completes.
+    Suitable for files that fit comfortably in RAM.  For large files use
+    `run_channel_pipeline_streaming` instead.
+    """
     if enabled_stages is None:
         enabled_stages = STAGE_ORDER.copy()
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     rng = np.random.default_rng(seed)
     x = normalize_power(iq)
@@ -246,6 +281,8 @@ def run_channel_pipeline(
         if show_progress:
             _print_stage_progress(enabled_stages, "original", prefix=progress_prefix)
         plot_time_frequency(x, fs, "stage0_original", out_dir)
+        if _stage_save_flag(enabled_stages, stage_configs, "original"):
+            save_interleaved_iq(out_dir / "original.iq", x)
 
     for stage in ["fading", "multipath", "cfo", "phase_noise", "iq_imbalance", "awgn", "crop_time_shift"]:
         if stage not in enabled_stages:
@@ -267,9 +304,172 @@ def run_channel_pipeline(
         x = fn(x, fs, rng, **params)
         plot_time_frequency(x, fs, f"stage{STAGE_ORDER.index(stage)}_{stage}", out_dir)
 
+        if stage_cfg.get("save", False):
+            save_interleaved_iq(out_dir / f"{stage}.iq", x)
+
     return x
 
 
+def _stage_save_flag(
+    enabled_stages: list[str],
+    stage_configs: dict[str, dict[str, object]],
+    stage: str,
+) -> bool:
+    """Return True if a stage has save=True and is enabled."""
+    return stage in enabled_stages and bool(stage_configs.get(stage, {}).get("save", False))
+
+
+# ----------------------------------------------------------------------
+# Pipeline: streaming (chunk-by-chunk, bounded memory)
+# ----------------------------------------------------------------------
+def _run_stages_on_chunk(
+    chunk: np.ndarray,
+    fs: float,
+    rng: np.random.Generator,
+    enabled_stages: list[str],
+    stage_configs: dict[str, dict[str, object]],
+) -> np.ndarray:
+    """Apply all enabled stages (except stateful ones) to a single chunk."""
+    x = normalize_power(chunk)
+    for stage in enabled_stages:
+        if stage == "original" or stage in _STATEFUL_STAGES:
+            continue
+        stage_cfg = stage_configs.get(stage, {})
+        method = str(stage_cfg.get("method", "")).lower()
+        params = stage_cfg.get("params", {})
+        fn = STAGE_REGISTRY[stage].get(method)
+        if fn is None:
+            continue
+        x = fn(x, fs, rng, **params)
+    return x
+
+
+def run_channel_pipeline_streaming(
+    input_path: str | Path,
+    output_path: str | Path,
+    fs: float,
+    stage_configs: dict[str, dict[str, object]],
+    enabled_stages: list[str],
+    seed: int = 42,
+    chunk_size: int = 10_000_000,
+    show_progress: bool = False,
+    progress_prefix: str = "",
+    out_dir: str | Path | None = None,
+) -> None:
+    """Stream-process a large IQ file in bounded memory.
+
+    Each chunk is read, passed through all (non-stateful) stages, and written
+    to `output_path`.  Stateful stages (crop_time_shift) are deferred to a
+    single full-signal pass after all chunks are accumulated.
+
+    Stages with ``save=True`` in their config will additionally write their
+    intermediate IQ output to ``<out_dir> / <stage_name>.iq`` after processing
+    the full signal.  In streaming mode this requires accumulating the full
+    signal for those stages, so enable only when needed.
+
+    Parameters:
+    - input_path:  interleaved IQ file path.
+    - output_path:  output interleaved IQ file path.
+    - fs:           sampling rate in Hz.
+    - stage_configs: per-stage configuration dict (includes ``save`` flag).
+    - enabled_stages: which stages to apply.
+    - seed:         RNG seed (each chunk advances the RNG independently).
+    - chunk_size:   max complex samples per chunk (default 10 M ≈ 160 MB for complex128).
+    - show_progress: print progress messages.
+    - progress_prefix: prefix for progress messages.
+    """
+    total_samples = count_complex_samples(input_path)
+    n_chunks = (total_samples + chunk_size - 1) // chunk_size
+    rng = np.random.default_rng(seed)
+
+    # Stages that require full signal (cannot stream per chunk independently)
+    accumulate = "crop_time_shift" in enabled_stages
+
+    # Stages with save=True also need accumulation (full signal written to disk)
+    stages_to_save = [
+        stage for stage in enabled_stages
+        if _stage_save_flag(enabled_stages, stage_configs, stage)
+    ]
+    needs_accumulation = accumulate or bool(stages_to_save)
+
+    out_path = Path(output_path)
+    out_dir = Path(out_dir) if out_dir is not None else out_path.parent
+    if not needs_accumulation:
+        if out_path.exists():
+            out_path.unlink()
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    buf: list[np.ndarray] = []
+    # Track per-stage accumulated buffers for intermediate saves
+    stage_bufs: dict[str, list[np.ndarray]] = {s: [] for s in stages_to_save}
+    samples_written = 0
+
+    for i, chunk in enumerate(iter_iq_chunks(input_path, chunk_size)):
+        if show_progress:
+            print(f"{progress_prefix}  chunk {i + 1}/{n_chunks}  "
+                  f"({len(chunk):,} samples) ...")
+
+        processed = _run_stages_on_chunk(
+            chunk, fs, rng, enabled_stages, stage_configs,
+        )
+
+        if needs_accumulation:
+            buf.append(processed)
+            for stage in stages_to_save:
+                stage_out = _run_stages_on_chunk(
+                    chunk, fs, rng,
+                    [s for s in enabled_stages
+                     if enabled_stages.index(s) <= enabled_stages.index(stage)
+                     and s not in _STATEFUL_STAGES],
+                    stage_configs,
+                )
+                stage_bufs[stage].append(stage_out)
+        else:
+            append_interleaved_iq(output_path, processed)
+            samples_written += len(processed)
+
+    if needs_accumulation:
+        full_signal = normalize_power(np.concatenate(buf))
+        del buf
+
+        rng_acc = np.random.default_rng(seed)
+
+        # Write intermediate IQ for stages with save=True
+        for stage in stages_to_save:
+            if show_progress:
+                print(f"{progress_prefix}  saving intermediate: {stage}.iq ...")
+            stage_sig = normalize_power(np.concatenate(stage_bufs[stage]))
+            save_interleaved_iq(out_dir / f"{stage}.iq", stage_sig)
+
+        del stage_bufs
+
+        # Apply remaining stateful stages
+        if show_progress and accumulate:
+            print(f"{progress_prefix}  applying stateful stages ...")
+        for stage in enabled_stages:
+            if stage not in _STATEFUL_STAGES:
+                continue
+            stage_cfg = stage_configs.get(stage, {})
+            method = str(stage_cfg.get("method", "")).lower()
+            params = stage_cfg.get("params", {})
+            fn = STAGE_REGISTRY[stage].get(method)
+            if fn is None:
+                continue
+            full_signal = fn(full_signal, fs, rng_acc, **params)
+            if stage_cfg.get("save", False):
+                save_interleaved_iq(out_dir / f"{stage}.iq", full_signal)
+
+        if out_path.exists():
+            out_path.unlink()
+        save_interleaved_iq(output_path, full_signal)
+        samples_written = len(full_signal)
+
+    print(f"{progress_prefix}  done.  {samples_written:,} samples written → {output_path}")
+
+
+# ----------------------------------------------------------------------
+# Per-file processing
+# ----------------------------------------------------------------------
 def process_one_file(
     input_path: str | Path,
     fs: float,
@@ -281,20 +481,58 @@ def process_one_file(
     show_progress: bool,
     stage_configs: dict[str, dict[str, object]],
     progress_prefix: str = "",
+    chunk_size: int | None = None,
+    chunk_limit: int | None = None,
 ) -> None:
-    iq = read_interleaved_iq(input_path)
-    y = run_channel_pipeline(
-        iq,
-        fs=fs,
-        out_dir=out_dir,
-        stage_configs=stage_configs,
-        seed=seed,
-        enabled_stages=enabled_stages,
-        show_progress=show_progress,
-        progress_prefix=progress_prefix,
-    )
+    """Process one IQ file: decide streaming vs. full-signal automatically.
 
-    save_interleaved_iq(output_iq, y)
+    Streaming is triggered when:
+    - chunk_size > 0 is explicitly set (forced streaming), or
+    - chunk_limit > 0 and the file exceeds chunk_limit samples (auto-switch).
+    """
+    n_total = count_complex_samples(input_path)
+    auto_limit = chunk_limit if chunk_limit is not None else _auto_chunk_limit()
+    forced_chunk = chunk_size if chunk_size and chunk_size > 0 else None
+    use_streaming = forced_chunk is not None or (auto_limit > 0 and n_total > auto_limit)
+
+    if show_progress:
+        mode = "streaming" if use_streaming else "full-signal"
+        print(f"{progress_prefix}  mode: {mode}  ({n_total:,} complex samples)")
+
+    if use_streaming:
+        # Streaming: visualize first chunk only (full-signal visualization is too expensive)
+        first_chunk = next(iter_iq_chunks(input_path, auto_limit))
+        rng_preview = np.random.default_rng(seed)
+        x_preview = normalize_power(first_chunk)
+        if "original" in enabled_stages:
+            plot_time_frequency(x_preview, fs, "stage0_original", out_dir)
+        del first_chunk, x_preview
+
+        run_channel_pipeline_streaming(
+            input_path=input_path,
+            output_path=output_iq,
+            fs=fs,
+            stage_configs=stage_configs,
+            enabled_stages=enabled_stages,
+            seed=seed,
+            chunk_size=forced_chunk if forced_chunk is not None else auto_limit,
+            show_progress=show_progress,
+            progress_prefix=progress_prefix,
+            out_dir=out_dir,
+        )
+    else:
+        iq = read_interleaved_iq(input_path)
+        y = run_channel_pipeline(
+            iq,
+            fs=fs,
+            out_dir=out_dir,
+            stage_configs=stage_configs,
+            seed=seed,
+            enabled_stages=enabled_stages,
+            show_progress=show_progress,
+            progress_prefix=progress_prefix,
+        )
+        save_interleaved_iq(output_iq, y)
 
     metadata = build_run_metadata(
         input_file=input_path,
@@ -314,12 +552,23 @@ def process_one_file(
     metadata["stage_configs"] = stage_configs
     write_json(metadata_path, metadata)
 
-    print(f"Processing complete: {input_path}")
-    print(f"  Image directory: {out_dir}")
-    print(f"  Output IQ: {output_iq}")
-    print(f"  Parameters record: {metadata_path}")
+    print(f"{progress_prefix}  processing done → {output_iq}")
 
 
+def _auto_chunk_limit() -> int:
+    """Default chunk size based on available RAM (in complex samples).
+
+    Returns 0 to disable auto-streaming (always load full file).
+    Currently returns a conservative 10 M samples (~160 MB for complex128)
+    as a sensible default; override with --chunk-size 0 to disable or a
+    custom value to tune.
+    """
+    return 0  # disabled by default; use --chunk-size to enable streaming
+
+
+# ----------------------------------------------------------------------
+# Config loading
+# ----------------------------------------------------------------------
 def load_yaml_config(config_path: str | Path | None) -> dict[str, object]:
     if config_path is None:
         return {}
@@ -347,40 +596,69 @@ def _pick(cli_value, cfg: dict[str, object], key: str, default):
     return cli_value if cli_value is not None else cfg.get(key, default)
 
 
+# ----------------------------------------------------------------------
+# CLI
+# ----------------------------------------------------------------------
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ChannelSimulation: Complete channel degradation pipeline + time-frequency plots for each stage")
+    parser = argparse.ArgumentParser(
+        description="ChannelSimulation: Complete channel degradation pipeline + "
+                    "time-frequency plots for each stage",
+    )
 
-    parser.add_argument("input", nargs="?", type=str, default="", help="Input IQ file (float32 interleaved IQ)")
+    parser.add_argument("--input", nargs="?", type=str, default="", help="Input IQ file (float32 interleaved IQ)")
     parser.add_argument("--config", type=str, default=None, help="YAML config file path")
 
-    parser.add_argument("--input-dir", type=str, default=None, help="Batch processing input directory (mutually exclusive with input)")
-    parser.add_argument("--input-glob", type=str, default=None, help="Batch processing file matching pattern, default *.iq")
+    parser.add_argument("--input-dir", type=str, default=None,
+                        help="Batch processing input directory (mutually exclusive with input)")
+    parser.add_argument("--input-glob", type=str, default=None,
+                        help="Batch processing file matching pattern, default *.iq")
 
     parser.add_argument("--fs", type=float, default=None, help="Sampling rate (Hz)")
-    parser.add_argument("--out-dir", type=str, default=None, help="Root directory for images and output")
-    parser.add_argument("--output-iq", type=str, default=None, help="Final degraded IQ output in single-file mode")
-    parser.add_argument("--meta-json", type=str, default=None, help="Parameters record JSON output in single-file mode")
+    parser.add_argument("--out-dir", type=str, default=None,
+                        help="Root directory for images and output")
+    parser.add_argument("--output-iq", type=str, default=None,
+                        help="Final degraded IQ output in single-file mode")
+    parser.add_argument("--meta-json", type=str, default=None,
+                        help="Parameters record JSON output in single-file mode")
 
-    # Backward compatibility with old parameters (will be overridden by stage_configs)
+    # Backward compatibility with old parameters
     parser.add_argument("--fading", type=str, choices=["rayleigh", "rician"], default=None)
     parser.add_argument("--k-factor", type=float, default=None, help="Rician K factor")
     parser.add_argument("--cfo-hz", type=float, default=None)
-    parser.add_argument("--phase-std", type=float, default=None, help="Standard deviation of phase increment per sample")
+    parser.add_argument("--phase-std", type=float, default=None,
+                        help="Standard deviation of phase increment per sample")
     parser.add_argument("--iq-gain-db", type=float, default=None)
     parser.add_argument("--iq-phase-deg", type=float, default=None)
     parser.add_argument("--snr-db", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
 
     parser.add_argument(
-        "--stages",
-        type=str,
-        default=None,
+        "--stages", type=str, default=None,
         help=(
             "Execution stages. all or comma-separated list: "
             "original,fading,multipath,cfo,phase_noise,iq_imbalance,awgn,crop_time_shift"
         ),
     )
-    parser.add_argument("--show-progress", action="store_true", default=None, help="Show progress for each stage and batch processing")
+    parser.add_argument("--show-progress", action="store_true", default=None,
+                        help="Show progress for each stage and batch processing")
+
+    # Memory optimisation
+    parser.add_argument(
+        "--chunk-size", type=int, default=None,
+        help=(
+            "Max complex samples held in RAM at once (streaming mode). "
+            "Set > 0 to enable streaming for all files. "
+            "0 disables streaming.  Default: 0 (full-signal, for small files). "
+            "Example: --chunk-size 10000000 ≈ 160 MB RAM per chunk."
+        ),
+    )
+    parser.add_argument(
+        "--chunk-limit", type=int, default=None,
+        help=(
+            "Auto-switch to streaming when file > chunk-limit complex samples. "
+            "Default: 20_000_000 (≈ 320 MB for complex128).  Set to 0 to disable auto-switch."
+        ),
+    )
 
     args = parser.parse_args()
     cfg = load_yaml_config(args.config)
@@ -390,9 +668,9 @@ def main() -> None:
     input_glob = _pick(args.input_glob, cfg, "input_glob", "*.iq")
 
     fs = _pick(args.fs, cfg, "fs", None)
-    out_dir = _pick(args.out_dir, cfg, "out_dir", "ChannelSimulation/results")
-    output_iq = _pick(args.output_iq, cfg, "output_iq", "ChannelSimulation/results/processed.iq")
-    meta_json = _pick(args.meta_json, cfg, "meta_json", "ChannelSimulation/results/run_meta.json")
+    out_dir = _pick(args.out_dir, cfg, "out_dir", "./results")
+    output_iq = _pick(args.output_iq, cfg, "output_iq", "./results/processed.iq")
+    meta_json = _pick(args.meta_json, cfg, "meta_json", "./results/run_meta.json")
 
     fading = _pick(args.fading, cfg, "fading", "rayleigh")
     k_factor = _pick(args.k_factor, cfg, "k_factor", 5.0)
@@ -405,6 +683,9 @@ def main() -> None:
 
     stages_spec = _pick(args.stages, cfg, "stages", "all")
     show_progress = bool(_pick(args.show_progress, cfg, "show_progress", False))
+
+    chunk_size_cli = args.chunk_size
+    chunk_limit_cli = args.chunk_limit
 
     if fs is None:
         raise ValueError("Missing fs, please provide via --fs or YAML config")
@@ -436,6 +717,8 @@ def main() -> None:
             show_progress=show_progress,
             stage_configs=stage_configs,
             progress_prefix=Path(str(input_path)).name,
+            chunk_size=chunk_size_cli,
+            chunk_limit=chunk_limit_cli,
         )
         return
 
@@ -461,7 +744,7 @@ def main() -> None:
 
     for idx, file_path in enumerate(files):
         if show_progress:
-            print(f"File progress {idx + 1}/{len(files)}: {file_path.name}")
+            print(f"File {idx + 1}/{len(files)}: {file_path.name}")
 
         sample_name = file_path.stem
         sample_out = out_root / sample_name
@@ -480,6 +763,8 @@ def main() -> None:
             show_progress=show_progress,
             stage_configs=stage_configs,
             progress_prefix=file_path.name,
+            chunk_size=chunk_size_cli,
+            chunk_limit=chunk_limit_cli,
         )
 
         summary["runs"].append(
@@ -493,7 +778,7 @@ def main() -> None:
 
     summary_path = out_root / "batch_summary.json"
     write_json(summary_path, summary)
-    print(f"Batch processing complete, processed {len(files)} files. Summary: {summary_path}")
+    print(f"Batch done: {len(files)} files → {summary_path}")
 
 
 if __name__ == "__main__":

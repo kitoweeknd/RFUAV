@@ -40,17 +40,24 @@ seed: 42
 
 # -----------------------------
 # New Unified Interface: stage_configs
-# Each stage: method + params
+# Each stage: method + params + save
+#
+# save: (optional) if true, write intermediate IQ after this stage completes.
+#       File path: <out_dir> / <stage_name>.iq
+#       In streaming mode, enabling save for any stage forces full-signal
+#       accumulation (higher memory usage for that stage only).
 # -----------------------------
 stage_configs:
   fading:
     method: rayleigh  # rayleigh / rician
+    save: true
     params:
       k_factor: 5.0
       block_size: 256
 
   multipath:
     method: tdl
+    save: true
     params:
       max_delay_samp: 20
       n_paths: 4
@@ -58,27 +65,42 @@ stage_configs:
 
   cfo:
     method: constant
+    save: true
     params:
       cfo_hz: 15000
 
   phase_noise:
     method: wiener
+    save: true
     params:
       phase_std_per_sample: 0.002
 
   iq_imbalance:
     method: widely_linear
+    save: true
     params:
       gain_imbalance_db: 1.0
       phase_imbalance_deg: 3.0
 
   awgn:
     method: gaussian
+    save: true
     params:
       snr_db: 15.0
 
   crop_time_shift:
     method: basic
+    save: true
     params:
       min_keep_ratio: 0.7
       max_shift: 300
+
+# -----------------------------
+# Memory Optimisation (streaming)
+# -----------------------------
+# Max complex samples held in RAM at once.  0 = always full-signal mode.
+# Set to e.g. 10000000 to enable streaming for all files.
+# chunk_size: 0
+
+# Auto-switch to streaming when file > this many complex samples.
+# chunk_limit: 20000000
