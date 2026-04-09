@@ -2,11 +2,14 @@
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend to avoid multi-threading issues
 import argparse
+import inspect
+import os
+import shutil
 import sys
+import tempfile
 import matplotlib.pyplot as plt
 from scipy.signal import stft, windows
 import numpy as np
-import os
 from io import BytesIO
 import imageio
 from PIL import Image
@@ -15,15 +18,55 @@ from scipy.fft import fft
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 from collections import OrderedDict
-import queue
 
 
+# ----------------------------------------------------------------------
+# Memory-efficient helpers
+# ----------------------------------------------------------------------
+def _complex_from_file(filepath: str, start: int, count: int,
+                       file_type=np.float32) -> np.ndarray:
+    """Read `count` complex samples starting at `start` from an interleaved IQ file.
+
+    Memory overhead: only the exact slice is kept in RAM.
+    """
+    bytes_per_sample = np.dtype(file_type).itemsize
+    skip_bytes = start * 2 * bytes_per_sample
+    read_bytes = count * 2 * bytes_per_sample
+    raw = np.fromfile(filepath, dtype=file_type, offset=skip_bytes, count=read_bytes)
+    return raw[::2] + raw[1::2] * 1j
+
+
+def _count_complex_samples(filepath: str, file_type=np.float32) -> int:
+    """Return the total number of complex samples in the file."""
+    bytes_per_sample = np.dtype(file_type).itemsize
+    total_bytes = os.path.getsize(filepath)
+    return total_bytes // (2 * bytes_per_sample)
+
+
+def _complex_memmap(filepath: str, file_type=np.float32):
+    """Memory-mapped view of an interleaved IQ file as complex64 samples.
+
+    The returned array has dtype complex64 and length = total_complex_samples.
+    NumPy memmap is read-only and backed by the OS page cache, so large files
+    are never fully resident in RAM; only touched pages are loaded on demand.
+    """
+    bytes_per_sample = np.dtype(file_type).itemsize
+    mm = np.memmap(filepath, dtype=file_type, mode='r')
+    i = mm[::2].astype(np.complex64)
+    q = mm[1::2].astype(np.complex64)
+    return i + 1j * q
+
+
+# ----------------------------------------------------------------------
+# RawDataProcessor
+# ----------------------------------------------------------------------
 class RawDataProcessor:
-    """transform raw data into images, video, and save the result locally
-    func:
-    - TransRawDataintoSpectrogram() can process raw data in batches and save the results locally
-    - TransRawDataintoVideo() can transform raw data into video and save the result locally
-    - ShowSpectrogram() can show the spectrum of the raw data in prev 0.1s to check the raw data quicly
+    """Transform raw data into images, video, and save the result locally.
+
+    Modes:
+    - TransRawDataintoSpectrogram(): batch-convert raw data to spectrogram images
+    - TransRawDataintoVideo(): convert raw data to video
+    - ShowSpectrogram(): quick interactive spectrogram preview (first slice only)
     """
 
     def TransRawDataintoSpectrogram(self,
@@ -34,12 +77,13 @@ class RawDataProcessor:
                                     duration_time: float = 0.1,
                                     file_type=np.float32
                                     ):
-        """transform the raw data into spectromgrams and save the results locally
+        """Transform the raw data into spectrograms and save the results locally.
+
         :param fig_save_path: the target dir path to save the image result.
         :param data_path: the input raw data dir path.
-        :param sample_rate: the simple rate when collect the raw frequency data using USRP, ref: https://en.wikipedia.org/wiki/Sampling_(signal_processing)
-        :param stft_point: the STFT points using in STFT transformation, you better set this to 2**n (n is a Non-negative integer).
-        :param duration_time: the duration time of single spectromgram.
+        :param sample_rate: the sampling rate used during USRP acquisition.
+        :param stft_point: STFT window size; should be a power of 2.
+        :param duration_time: duration of a single spectrogram frame in seconds.
         """
         DrawandSave(fig_save_path=fig_save_path, file_path=data_path, fs=sample_rate,
                     stft_point=stft_point, duration_time=duration_time, file_type=file_type)
@@ -53,16 +97,18 @@ class RawDataProcessor:
                               fps: int = 5,
                               file_type=np.float32
                               ):
-        """transform the raw data into video and save the result locally
-        :param save_path: the target dir path to save the image result.
-        :param data_path: the input raw data dir path.
-        :param sample_rate: the simple rate when collect the raw frequency data using USRP, ref: https://en.wikipedia.org/wiki/Sampling_(signal_processing)
-        :param stft_point: the STFT points using in STFT transformation, you better set this to 2**n (n is a Non-negative integer). ref: https://en.wikipedia.org/wiki/Short-time_Fourier_transform#Inverse_STFT
-        :param duration_time: the duration time of single spectromgram.
-        :param fps: control the fps of generated video.
+        """Transform the raw data into video and save the result locally.
+
+        :param save_path: the target dir path to save the video.
+        :param data_path: the input raw data file path.
+        :param sample_rate: the sampling rate used during USRP acquisition.
+        :param stft_point: STFT window size; should be a power of 2.
+        :param duration_time: duration of a single spectrogram frame in seconds.
+        :param fps: frame rate of the output video.
         """
         save_as_video(datapack=data_path, save_path=save_path, fs=sample_rate,
-                      stft_point=stft_point, duration_time=duration_time, fps=fps, file_type=file_type)
+                      stft_point=stft_point, duration_time=duration_time, fps=fps,
+                      file_type=file_type)
 
     def ShowSpectrogram(self,
                         data_path: str,
@@ -72,24 +118,60 @@ class RawDataProcessor:
                         duration_time: float = 0.1,
                         oneside: bool = False,
                         Middle_Frequency: float = 2400e6,
-                        file_type=np.float32
+                        file_type=np.float32,
+                        save_path: str = None
                         ):
-        """Tool used to observe the spectrograms from a local datapack
-        :param data_path: the input raw data file path.
-        :param sample_rate: the simple rate when collect the raw frequency data using USRP, ref: https://en.wikipedia.org/wiki/Sampling_(signal_processing)
-        :param stft_point: the STFT points using in STFT transformation, you better set this to 2**n (n is a Non-negative integer). ref: https://en.wikipedia.org/wiki/Short-time_Fourier_transform#Inverse_STFT
-        :param duration_time: the duration time of single spectromgram.
-        :param oneside: set 'True' if you want to observe the real & imaginary parts separately, set 'False' to show the complete spectrogram
-        :param Middle_Frequency: the middle frequency set to collect data using USRP in the frequency band, ref: https://en.wikipedia.org/wiki/Center_frequency
-        """
+        """Interactive preview of the first `duration_time` seconds of the raw data.
 
+        Falls back to saving the figure when no GUI is available.
+
+        :param data_path: the input raw data file path.
+        :param sample_rate: the sampling rate used during USRP acquisition.
+        :param stft_point: STFT window size; should be a power of 2.
+        :param duration_time: duration of the displayed spectrogram segment in seconds.
+        :param oneside: True = show I and Q components separately; False = full spectrogram.
+        :param Middle_Frequency: center frequency of the acquired band.
+        :param file_type: NumPy dtype of the raw file.
+        :param save_path: if provided, always save to this path instead of displaying.
+        """
         if oneside:
             show_half_only(datapack=data_path, drone_name=drone_name,
-                           fs=sample_rate, stft_point=stft_point, duration_time=duration_time, file_type=file_type)
-
+                           fs=sample_rate, stft_point=stft_point,
+                           duration_time=duration_time, file_type=file_type,
+                           save_path=save_path)
         else:
-            show_spectrum(datapack=data_path, drone_name=drone_name, fs=sample_rate, stft_point=stft_point,
-                           duration_time=duration_time, Middle_Frequency=Middle_Frequency, file_type=file_type)
+            show_spectrum(datapack=data_path, drone_name=drone_name, fs=sample_rate,
+                           stft_point=stft_point, duration_time=duration_time,
+                           Middle_Frequency=Middle_Frequency, file_type=file_type,
+                           save_path=save_path)
+
+
+# ----------------------------------------------------------------------
+# Core processing functions
+# ----------------------------------------------------------------------
+def STFT(data,
+         onside: bool = True,
+         stft_point: int = 1024,
+         fs: int = 100e6,
+         duration_time: float = 0.1,
+         ):
+    """Perform Short-Time Fourier Transform on the given data.
+
+    Parameters:
+    - data (array-like): Input complex data.
+    - onside (bool): Whether to return one-sided STFT, default True.
+    - stft_point (int): FFT window size, default 1024.
+    - fs (int): Sampling frequency in Hz, default 100 MHz.
+    - duration_time (float): Duration of each segment in seconds, default 0.1.
+
+    Returns: (frequencies, times, Zxx)
+    """
+    slice_point = int(fs * duration_time)
+    f, t, Zxx = stft(data[0: slice_point], fs,
+                     return_onesided=onside,
+                     window=windows.hamming(stft_point),
+                     nperseg=stft_point)
+    return f, t, Zxx
 
 
 def generate_images(datapack: str = None,
@@ -98,36 +180,43 @@ def generate_images(datapack: str = None,
                     fs: int = 100e6,
                     stft_point: int = 1024,
                     duration_time: float = 0.1,
-                    ratio: int = 1,  # Controls the time interval ratio for generating images, default is 1
+                    ratio: int = 1,
                     location: str = 'buffer',
                     file_type=np.float32
                     ):
-    """
-    Generates images from the given data using Short-Time Fourier Transform (STFT).
+    """Generate spectrogram images from a raw data file using streaming reads.
+
+    When `location` is 'buffer', returns a list of PIL Images.
+    When `location` is a directory path, saves each image to disk immediately
+    (memory-efficient: only one frame is held in RAM at a time).
 
     Parameters:
-    - datapack (str): Path to the data file.
-    - file (str): File name.
-    - pack (str): Pack name.
-    - fs (int): Sampling frequency, default is 100 MHz. ref: https://en.wikipedia.org/wiki/Sampling_(signal_processing)
-    - stft_point (int): Number of points for STFT, default is 1024. ref: https://en.wikipedia.org/wiki/Short-time_Fourier_transform#Inverse_STFT
-    - duration_time (float): Duration time for each segment, default is 0.1 seconds.
-    - ratio (int): Controls the time interval ratio for generating images, default is 1.
-    - location (str): Location to save the images, default is 'buffer'.
+    - datapack (str): Path to the raw IQ data file.
+    - file (str): Top-level label (e.g., drone type), used in filenames.
+    - pack (str): Sub-label (e.g., recording session), used in filenames.
+    - fs (int): Sampling frequency in Hz, default 100 MHz.
+    - stft_point (int): FFT window size, default 1024.
+    - duration_time (float): Duration per frame in seconds, default 0.1.
+    - ratio (int): Frame step control (0 = every frame, 1 = every other, etc.), default 1.
+    - location (str): 'buffer' to return images in RAM, or a directory path to stream to disk.
+    - file_type: NumPy dtype of the raw file, default np.float32.
 
     Returns:
-    - list: List of images if `location` is 'buffer'.
+    - list of PIL Images (when location='buffer'), otherwise None.
     """
     slice_point = int(fs * duration_time)
-    data = np.fromfile(datapack, dtype=file_type)
-    data = data[::2] + data[1::2] * 1j
-    if location == 'buffer': images = []
+    total_complex = _count_complex_samples(datapack, file_type)
+    n_frames = int(total_complex // slice_point)
 
+    images = [] if location == 'buffer' else None
     i = 0
-    while (i + 1) * slice_point <= len(data):
 
-        f, t, Zxx = STFT(data[int(i * slice_point): int((i + 1) * slice_point)],
-                         stft_point=stft_point, fs=fs, duration_time=duration_time, onside=False)
+    while int(i) * slice_point < total_complex:
+        # Stream one frame from disk (only ~1.6 MB for float32 at 100 MHz, 0.1 s)
+        data = _complex_from_file(datapack, int(i) * slice_point, slice_point, file_type)
+
+        f, t, Zxx = STFT(data, stft_point=stft_point, fs=fs,
+                         duration_time=duration_time, onside=False)
         f = np.fft.fftshift(f)
         Zxx = np.fft.fftshift(Zxx, axes=0)
         aug = 10 * np.log10(np.abs(Zxx))
@@ -139,21 +228,23 @@ def generate_images(datapack: str = None,
         plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=None, hspace=None)
 
         if location == 'buffer':
-            buffer = BytesIO()
-            plt.savefig(buffer, format='png', dpi=300)
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=300)
             plt.close()
-
-            buffer.seek(0)
-            images.append(Image.open(buffer))
-
+            buf.seek(0)
+            images.append(Image.open(buf))
         else:
-            plt.savefig(location + (file + '/' if file else '') + (pack + '/' if pack else '') + file + ' (' + str(i) + ').jpg', dpi=300)
+            subdir = os.path.join(location,
+                                  (file + '/' if file else '') +
+                                  (pack + '/' if pack else ''))
+            os.makedirs(subdir, exist_ok=True)
+            fname = os.path.join(subdir, f'{file} ({i}).jpg')
+            plt.savefig(fname, dpi=300)
             plt.close()
 
         i += 2 ** (-ratio)
 
-    if location == 'buffer':
-        return images
+    return images
 
 
 def save_as_video(datapack: str,
@@ -161,28 +252,97 @@ def save_as_video(datapack: str,
                   fs: int = 100e6,
                   stft_point: int = 1024,
                   duration_time: float = 0.1,
-                  fps: int = 5,  # Video frame rate
+                  fps: int = 5,
                   file_type=np.float32
                   ):
-    """
-    Saves the generated images as a video.
+    """Save the raw data as an MP4 video, streaming frames to avoid memory overflow.
+
+    Large files are handled by periodically flushing completed frames to disk,
+    keeping the in-flight buffer bounded regardless of total file size.
 
     Parameters:
-    - datapack (str): Path to the data file.
-    - save_path (str): Path to save the video.
-    - fs (int): Sampling frequency, default is 100 MHz.
-    - stft_point (int): Number of points for STFT, default is 1024.
-    - duration_time (float): Duration time for each segment, default is 0.1 seconds.
-    - fps (int): Frame rate of the video, default is 5.
+    - datapack (str): Path to the raw IQ data file.
+    - save_path (str): Directory in which to save video.mp4.
+    - fs (int): Sampling frequency in Hz, default 100 MHz.
+    - stft_point (int): FFT window size, default 1024.
+    - duration_time (float): Duration per frame in seconds, default 0.1.
+    - fps (int): Output video frame rate, default 5.
+    - file_type: NumPy dtype of the raw file, default np.float32.
     """
+    os.makedirs(save_path, exist_ok=True)
+    video_path = os.path.join(save_path, 'video.mp4')
 
-    if not os.path.exists(save_path):
-        os.mkdir(save_path)
-    if not os.path.exists(datapack):
-        raise ValueError('File not found!')
+    slice_point = int(fs * duration_time)
+    total_complex = _count_complex_samples(datapack, file_type)
+    n_frames = int(total_complex // slice_point)
 
-    images = generate_images(datapack=datapack, fs=fs, stft_point=stft_point, duration_time=duration_time, file_type=file_type)
-    imageio.mimsave(save_path+'video.mp4', images, fps=fps)
+    tmp_dir = tempfile.mkdtemp(prefix='rdu_')
+    frame_idx = 0
+    flush_every = max(fps * 10, 50)   # flush to disk every N frames
+
+    try:
+        writer = imageio.get_writer(video_path, fps=fps, codec='libx264',
+                                   pixelformat='yuv420p')
+
+        for i in range(n_frames):
+            data = _complex_from_file(datapack, i * slice_point, slice_point, file_type)
+
+            f, t, Zxx = STFT(data, stft_point=stft_point, fs=fs,
+                             duration_time=duration_time, onside=False)
+            f = np.fft.fftshift(f)
+            Zxx = np.fft.fftshift(Zxx, axes=0)
+            aug = 10 * np.log10(np.abs(Zxx))
+            extent = [t.min(), t.max(), f.min(), f.max()]
+
+            plt.figure()
+            plt.imshow(aug, extent=extent, aspect='auto', origin='lower', cmap='jet')
+            plt.axis('off')
+            plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=None, hspace=None)
+
+            buf = BytesIO()
+            plt.savefig(buf, format='png')
+            plt.close()
+            buf.seek(0)
+
+            img = Image.open(buf)
+            writer.append_data(np.array(img))
+            img.close()
+
+            frame_idx += 1
+
+            if frame_idx % flush_every == 0:
+                writer.close()
+                del writer
+                writer = imageio.get_writer(video_path, fps=fps, codec='libx264',
+                                           pixelformat='yuv420p', mode='a')
+
+        writer.close()
+        print(f'Video ready: {video_path}  ({n_frames} frames @ {fps} fps)')
+
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _is_interactive_backend() -> bool:
+    """Return True if the current matplotlib backend supports plt.show()."""
+    backend = matplotlib.get_backend().lower()
+    # Known non-interactive (file-only) backends
+    non_interactive = {'agg', 'svg', 'pdf', 'ps', 'cairo', 'none'}
+    return backend not in non_interactive
+
+
+def _save_figure(fig, name: str) -> str:
+    """Save figure to a temp file and return its path.
+
+    Saved alongside the script so users can find it easily even when
+    the temp dir is obscure (e.g. /tmp on Linux vs %TEMP% on Windows).
+    """
+    script_dir = os.path.dirname(os.path.abspath(inspect.getfile(_save_figure)))
+    safe_name = os.path.splitext(os.path.basename(name))[0]
+    out_path = os.path.join(script_dir, f'{safe_name}.png')
+    fig.savefig(out_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    return out_path
 
 
 def show_spectrum(datapack: str = '',
@@ -191,40 +351,52 @@ def show_spectrum(datapack: str = '',
                   stft_point: int = 2048,
                   duration_time: float = 0.1,
                   Middle_Frequency: float = 2400e6,
-                  file_type=np.float32
+                  file_type=np.float32,
+                  save_path: str = None
                   ):
+    """Display or save the spectrogram of the first `duration_time` seconds of the file.
 
-    """
-    Displays the spectrum of the given data.
+    When no GUI is available (Agg backend) the figure is saved automatically.
 
     Parameters:
-    - datapack (str): Path to the data file.
-    - drone_name (str): Name of the drone, default is 'test'.
-    - fs (int): Sampling frequency, default is 100 MHz.
-    - stft_point (int): Number of points for STFT, default is 2048.
-    - duration_time (float): Duration time for each segment, default is 0.1 seconds.
-    - Middle_Frequency (float): Middle frequency, default is 2400 MHz.
+    - datapack (str): Path to the raw IQ data file.
+    - drone_name (str): Title for the plot, default 'test'.
+    - fs (int): Sampling frequency in Hz, default 100 MHz.
+    - stft_point (int): FFT window size, default 2048.
+    - duration_time (float): Duration to display in seconds, default 0.1.
+    - Middle_Frequency (float): Center frequency of the band, default 2400 MHz.
+    - file_type: NumPy dtype of the raw file, default np.float32.
+    - save_path (str): If provided, always save to this path; otherwise auto-save
+        when no display is available.
     """
+    slice_point = int(fs * duration_time)
 
-    with open(datapack, 'rb') as fp:
-        print("reading raw data...")
-        read_data = np.fromfile(fp, dtype=file_type)
+    print("reading raw data ...")
+    data = _complex_from_file(datapack, 0, slice_point, file_type)
+    print("STFT transforming ...")
 
-        data = read_data[::2] + read_data[1::2] * 1j
-        print('STFT transforming')
+    f, t, Zxx = STFT(data, stft_point=stft_point, fs=fs,
+                     duration_time=duration_time, onside=False)
+    f = np.linspace(Middle_Frequency - fs / 2, Middle_Frequency + fs / 2, stft_point)
+    Zxx = np.fft.fftshift(Zxx, axes=0)
 
-        f, t, Zxx = STFT(data, stft_point=stft_point, fs=fs, duration_time=duration_time, onside=False)
-        f = np.linspace(Middle_Frequency-fs / 2, Middle_Frequency+fs / 2, stft_point)
-        Zxx = np.fft.fftshift(Zxx, axes=0)
+    fig = plt.figure()
+    aug = 10 * np.log10(np.abs(Zxx))
+    extent = [t.min(), t.max(), f.min(), f.max()]
+    plt.imshow(aug, extent=extent, aspect='auto', origin='lower')
+    plt.colorbar()
+    plt.title(drone_name)
+    plt.xlabel('Time (s)')
+    plt.ylabel('Frequency (Hz)')
 
-        plt.figure()
-        aug = 10 * np.log10(np.abs(Zxx))
-        extent = [t.min(), t.max(), f.min(), f.max()]
-        plt.imshow(aug, extent=extent, aspect='auto', origin='lower')
-        plt.colorbar()
-        plt.title(drone_name)
-        plt.xlabel('Time (s)')
-        plt.ylabel('Frequency (Hz)')
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        print(f"Saved: {save_path}")
+    elif not _is_interactive_backend():
+        saved = _save_figure(fig, drone_name)
+        print(f"[headless] Saved: {saved}")
+    else:
         plt.show()
 
 
@@ -233,100 +405,116 @@ def show_half_only(datapack: str = '',
                    fs: int = 100e6,
                    stft_point: int = 2048,
                    duration_time: float = 0.1,
-                   file_type=np.float32
+                   file_type=np.float32,
+                   save_path: str = None
                    ):
+    """Display or save I and Q components of the first `duration_time` seconds separately.
 
-    """
-    Displays I and Q components of the given data separately.
-
-    Parameters:
-    - datapack (str): Path to the data file.
-    - drone_name (str): Name of the drone, default is 'test'.
-    - fs (int): Sampling frequency, default is 100 MHz.
-    - stft_point (int): Number of points for STFT, default is 2048.
-    - duration_time (float): Duration time for each segment, default is 0.1 seconds.
-    """
-
-    with open(datapack, 'rb') as fp:
-        print("reading raw data...")
-        read_data = np.fromfile(fp, dtype=file_type)
-        dataI = read_data[::2]
-        dataQ = read_data[1::2]
-
-        f_I, t_I, Zxx_I = STFT(dataI, fs=fs, stft_point=stft_point, duration_time=duration_time)
-        f_Q, t_Q, Zxx_Q = STFT(dataQ, fs=fs, stft_point=stft_point, duration_time=duration_time)
-
-        # I component spectrogram
-        print('Drawing')
-        plt.figure()
-        aug_I = 10 * np.log10(np.abs(Zxx_I))
-        plt.pcolormesh(t_I, f_I, np.abs(aug_I))
-        plt.title(drone_name + " I")
-        plt.xlabel('Time (s)')
-        plt.ylabel('Frequency (Hz)')
-        plt.colorbar()
-        plt.show()
-        print("figure I done")
-
-        # Q component spectrogram
-        plt.figure()
-        aug_Q = 10 * np.log10(np.abs(Zxx_Q))
-        plt.pcolormesh(t_Q, f_Q, np.abs(aug_Q), cmap='jet')
-        plt.title(drone_name + " Q")
-        plt.xlabel('Time (s)')
-        plt.ylabel('Frequency (Hz)')
-        plt.colorbar()
-        plt.show()
-        print("figure Q done")
-
-
-def DrawandSave(
-        fig_save_path: str,
-        file_path: str,
-        fs: int = 100e6,
-        stft_point: int = 2048,
-        duration_time: float = 0.1,
-        file_type=np.float32
-):
-
-    """
-    Draw and save the images from the given data files.
+    When no GUI is available the figures are saved automatically.
 
     Parameters:
-    - fig_save_path (str): Path to save the figures.
-    - file_path (str): Path to the data files.
-    - fs (int): Sampling frequency, default is 100 MHz.
-    - stft_point (int): Number of points for STFT, default is 2048.
-    - duration_time (float): Duration time for each segment, default is 0.1 seconds.
+    - datapack (str): Path to the raw IQ data file.
+    - drone_name (str): Title base for the plots, default 'test'.
+    - fs (int): Sampling frequency in Hz, default 100 MHz.
+    - stft_point (int): FFT window size, default 2048.
+    - duration_time (float): Duration to display in seconds, default 0.1.
+    - file_type: NumPy dtype of the raw file, default np.float32.
+    - save_path (str): If provided, always save to this path; otherwise auto-save
+        when no display is available.
+    """
+    slice_point = int(fs * duration_time)
 
-    Your raw data should organize like this:
-    file_path
-        Drone 1
-            data pack1.iq
-            data pack2.iq
-            ...
-            data packn.iq
-        Drone 2
-            data pack1.iq
-            data pack2.iq
-            ...
-            data packn.iq
-        Drone 3
-            data pack1.iq
-            data pack2.iq
-            ...
-            data packn.iq
-        .....
-        Drone n
-            ...
+    print("reading raw data ...")
+    bytes_per_sample = np.dtype(file_type).itemsize
+    raw = np.fromfile(datapack, dtype=file_type, offset=0,
+                      count=slice_point * 2)
+    dataI = raw[::2]
+    dataQ = raw[1::2]
+
+    print("STFT transforming ...")
+    f_I, t_I, Zxx_I = STFT(dataI, fs=fs, stft_point=stft_point, duration_time=duration_time)
+    f_Q, t_Q, Zxx_Q = STFT(dataQ, fs=fs, stft_point=stft_point, duration_time=duration_time)
+
+    headless = not _is_interactive_backend()
+
+    # I component
+    fig_I = plt.figure()
+    aug_I = 10 * np.log10(np.abs(Zxx_I))
+    plt.pcolormesh(t_I, f_I, np.abs(aug_I))
+    plt.title(drone_name + " I")
+    plt.xlabel('Time (s)')
+    plt.ylabel('Frequency (Hz)')
+    plt.colorbar()
+
+    if save_path:
+        base, ext = os.path.splitext(save_path)
+        path_I = f'{base}_I{ext}'
+        fig_I.savefig(path_I, dpi=150, bbox_inches='tight')
+        plt.close(fig_I)
+        print(f"Saved: {path_I}")
+    elif headless:
+        saved_I = _save_figure(fig_I, f'{drone_name}_I')
+        print(f"[headless] Saved I: {saved_I}")
+    else:
+        plt.show()
+
+    # Q component
+    fig_Q = plt.figure()
+    aug_Q = 10 * np.log10(np.abs(Zxx_Q))
+    plt.pcolormesh(t_Q, f_Q, np.abs(aug_Q), cmap='jet')
+    plt.title(drone_name + " Q")
+    plt.xlabel('Time (s)')
+    plt.ylabel('Frequency (Hz)')
+    plt.colorbar()
+
+    if save_path:
+        base, ext = os.path.splitext(save_path)
+        path_Q = f'{base}_Q{ext}'
+        fig_Q.savefig(path_Q, dpi=150, bbox_inches='tight')
+        plt.close(fig_Q)
+        print(f"Saved: {path_Q}")
+    elif headless:
+        saved_Q = _save_figure(fig_Q, f'{drone_name}_Q')
+        print(f"[headless] Saved Q: {saved_Q}")
+    else:
+        plt.show()
+
+
+def DrawandSave(fig_save_path: str,
+                file_path: str,
+                fs: int = 100e6,
+                stft_point: int = 2048,
+                duration_time: float = 0.1,
+                file_type=np.float32
+                ):
+    """Batch-generate spectrogram images from a directory tree of raw IQ files.
+
+    Expected directory layout:
+        file_path/
+            Drone1/
+                datapack1.iq
+                datapack2.iq
+                ...
+            Drone2/
+                ...
+
+    Parameters:
+    - fig_save_path (str): Root directory for saved images.
+    - file_path (str): Root directory of the raw data tree.
+    - fs (int): Sampling frequency in Hz, default 100 MHz.
+    - stft_point (int): FFT window size, default 2048.
+    - duration_time (float): Duration per frame in seconds, default 0.1.
+    - file_type: NumPy dtype of the raw files, default np.float32.
     """
     re_files = os.listdir(file_path)
 
     for file in re_files:
         packlist = os.listdir(os.path.join(file_path, file))
         for pack in packlist:
-            check_folder(os.path.join(fig_save_path, file, pack))
-            generate_images(datapack=os.path.join(file_path, file, pack),
+            src = os.path.join(file_path, file, pack)
+            dst = os.path.join(fig_save_path, file, pack)
+            os.makedirs(dst, exist_ok=True)
+            generate_images(datapack=src,
                             file=file,
                             pack=pack,
                             fs=fs,
@@ -336,257 +524,210 @@ def DrawandSave(
                             location=fig_save_path,
                             file_type=file_type
                             )
-
-            print(pack + ' Done')
-        print(file + ' Done')
-    print('All Done')
+            print(f"  {pack} ... done")
+        print(f"  {file} ... done")
+    print("All done.")
 
 
 def check_folder(folder_path):
-    """
-    Checks and creates the folder if it does not exist.
-
-    Parameters:
-    - folder_path (str): Path to the folder.
-    """
-    if not os.path.exists(folder_path):
-        os.makedirs(folder_path)
-        print(f"folder '{folder_path}' created.")
-    else:
-        print(f"folder '{folder_path}' already exists.")
+    """Create `folder_path` if it does not exist (no-op if it already exists)."""
+    os.makedirs(folder_path, exist_ok=True)
 
 
-def STFT(data,
-         onside: bool = True,
-         stft_point: int = 1024,
-         fs: int = 100e6,
-         duration_time: float = 0.1,
-         ):
-
-    """
-    Performs Short-Time Fourier Transform (STFT) on the given data.
-
-    Parameters:
-    - data (array-like): Input data.
-    - onside (bool): Whether to return one-sided or two-sided STFT, default is True.
-    - stft_point (int): Number of points for STFT, default is 1024.
-    - fs (int): Sampling frequency, default is 100 MHz.
-    - duration_time (float): Duration time for each segment, default is 0.1 seconds.
-
-    Returns:
-    - f (array): Frequencies.
-    - t (array): Times.
-    - Zxx (array): STFT result.
-    """
-
-    slice_point = int(fs * duration_time)
-
-    f, t, Zxx = stft(data[0: slice_point], fs,
-         return_onesided=onside, window=windows.hamming(stft_point), nperseg=stft_point)
-
-    return f, t, Zxx
-
-
+# ----------------------------------------------------------------------
+# Waterfall spectrogram (data-reuse + parallel + streaming)
+# ----------------------------------------------------------------------
 def _compute_fft_frame(data_segment, fft_size, window, frame_idx, fft_cache, cache_lock):
+    """Compute FFT for a single frame with cache.
+
+    Returns: (frame_idx, magnitude)
     """
-    Computes FFT for a single frame with data reuse caching.
-    
-    Parameters:
-    - data_segment: Data segment
-    - fft_size: FFT window size
-    - window: Window function
-    - frame_idx: Frame index
-    - fft_cache: FFT result cache dictionary
-    - cache_lock: Cache lock
-    
-    Returns:
-    - frame_idx: Frame index
-    - magnitude: FFT magnitude spectrum
-    """
-    # Check cache
     cache_key = (frame_idx, fft_size)
     with cache_lock:
         if cache_key in fft_cache:
             return frame_idx, fft_cache[cache_key]
-    
-    # Compute FFT
+
     frame_data = data_segment * window
     magnitude = np.abs(np.fft.fftshift(fft(frame_data)))
-    
-    # Store in cache
+
     with cache_lock:
         fft_cache[cache_key] = magnitude
-    
+
     return frame_idx, magnitude
 
 
 def _generate_spectrogram_image(spectrogram_data, fs, fft_size, num_frames, frame_id):
-    """
-    Generates spectrogram image with color mapping.
-    
-    Parameters:
-    - spectrogram_data: Spectrogram data
-    - fs: Sampling rate
-    - fft_size: FFT size
-    - num_frames: Total number of frames
-    - frame_id: Frame ID
-    
-    Returns:
-    - frame_id: Frame ID
-    - image_buffer: Image buffer
+    """Generate a spectrogram image from the given data.
+
+    Returns: (frame_id, BytesIO buffer)
     """
     plt.figure(figsize=(10, 6))
     plt.imshow(np.log10(spectrogram_data.T), aspect='auto', cmap='jet', origin='lower',
-               extent=[0, num_frames * (fft_size) / fs, -fs / 2, fs / 2])
+               extent=[0, num_frames * fft_size / fs, -fs / 2, fs / 2])
     plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=None, hspace=None)
     plt.axis('off')
-    
-    buffer = BytesIO()
-    plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight', pad_inches=0)
+
+    buf = BytesIO()
+    plt.savefig(buf, format='png', dpi=300, bbox_inches='tight', pad_inches=0)
     plt.close()
-    buffer.seek(0)
-    
-    return frame_id, BytesIO(buffer.getvalue())
+    buf.seek(0)
+
+    return frame_id, BytesIO(buf.getvalue())
 
 
-def waterfall_spectrogram_optimized(datapack, fft_size, fs, location, time_scale, 
-                                     target_frame_gap=150, num_workers=4):
-    """
-    Optimized waterfall spectrogram generation with data reuse, parallel processing, and non-blocking pipeline.
+def waterfall_spectrogram_optimized(datapack,
+                                    fft_size: int,
+                                    fs: int,
+                                    location: str,
+                                    time_scale: int,
+                                    target_frame_gap: int = 150,
+                                    num_workers: int = 4,
+                                    file_type=np.float32,
+                                    chunk_size: int = 50_000_000
+                                    ):
+    """Generate waterfall spectrograms with parallel FFT and streaming data loading.
+
+    Memory usage is bounded to `chunk_size` complex samples (~400 MB for float32,
+    ~800 MB for float64) regardless of file size.
 
     Parameters:
-    - datapack: Raw data path or numpy array
-    - fft_size: FFT window size
-    - fs: Sampling rate
-    - location: Save location, 'buffer' for memory, otherwise file path
-    - time_scale: Time scale controlling when to start scrolling
-    - target_frame_gap: Gap between target frames (in small frames)
-    - num_workers: Number of parallel worker threads
-
-    Returns:
-    - images: List of images (when location='buffer') or None
+    - datapack: Path to the raw IQ file, or a pre-loaded np.ndarray.
+    - fft_size (int): FFT window size.
+    - fs (int): Sampling frequency in Hz.
+    - location (str): 'buffer' to return images in RAM, or a directory to stream to disk.
+    - time_scale (int): Number of FFT frames visible in each waterfall column.
+    - target_frame_gap (int): Spacing between consecutive waterfall frames (in FFT frames).
+    - num_workers (int): Number of parallel FFT workers.
+    - file_type: NumPy dtype of the raw file, default np.float32.
+    - chunk_size (int): Maximum complex samples held in RAM at once, default 50M
+        (~400 MB for float32, ~800 MB for float64). Adjust based on available RAM.
     """
-    # Load the entire raw signal
+    # --- load / validate data source ---
     if isinstance(datapack, str):
-        data = np.fromfile(datapack, dtype=np.float32)
-        data = data[::2] + data[1::2] * 1j
+        total_complex = _count_complex_samples(datapack, file_type)
+        total_bytes = os.path.getsize(datapack)
+        bytes_per_sample = np.dtype(file_type).itemsize
+        total_complex = total_bytes // (2 * bytes_per_sample)
     elif isinstance(datapack, np.ndarray):
-        data = datapack
+        total_complex = len(datapack)
     else:
         raise ValueError("datapack must be str or np.ndarray")
-    
+
+    if location != 'buffer':
+        os.makedirs(location, exist_ok=True)
+
     window = np.hanning(fft_size)
-    num_small_frames = len(data) // fft_size
-    
-    # Calculate target frame (video frame) split points
-    target_frame_indices = []
-    if num_small_frames > time_scale:
-        # First target frame at time_scale
-        target_frame_indices.append(time_scale)
-        # Subsequent target frames every target_frame_gap small frames
+
+    # --- streaming pass: process the file in chunks ---
+    processed_frames = 0
+
+    for chunk_start in range(0, total_complex, chunk_size):
+        chunk_end = min(chunk_start + chunk_size, total_complex)
+        chunk_len = chunk_end - chunk_start
+
+        if isinstance(datapack, str):
+            data = _complex_from_file(datapack, chunk_start, chunk_len, file_type)
+        else:
+            data = datapack[chunk_start:chunk_end]
+
+        num_small_frames = len(data) // fft_size
+        if num_small_frames <= time_scale:
+            continue
+
+        # Determine which target frames fall inside this chunk
+        global_start = chunk_start // fft_size
+        global_end = (chunk_end - 1) // fft_size + 1
+
+        target_frame_indices = []
+        if global_start < time_scale:
+            target_frame_indices.append(time_scale)
         current = time_scale + target_frame_gap
-        while current < num_small_frames:
+        while current < global_end:
             target_frame_indices.append(current)
             current += target_frame_gap
-    
-    if not target_frame_indices:
-        return [] if location == 'buffer' else None
-    
-    # Create save directory
-    if location != 'buffer':
-        if not os.path.exists(location):
-            os.makedirs(location)
-        images = None
-    else:
-        images = []
-    
-    # FFT result cache (ordered by time)
-    fft_cache = {}
-    fft_cache_lock = Lock()
-    fft_results = OrderedDict()  # Maintain time order
-    
-    # Spectrogram image cache (ordered by time)
-    spectrogram_images = OrderedDict()
-    spectrogram_lock = Lock()
-    
-    # Parallel FFT processing
-    def process_fft_for_target_frame(target_frame_idx):
-        """Calculate FFT results needed for a target frame"""
-        # Compute FFT for all small frames required by this target frame
-        start_frame = max(0, target_frame_idx - time_scale)
-        end_frame = target_frame_idx + 1
-        
-        frame_ffts = []
-        for small_frame_idx in range(start_frame, end_frame):
-            data_segment = data[small_frame_idx * fft_size: (small_frame_idx + 1) * fft_size]
-            _, magnitude = _compute_fft_frame(data_segment, fft_size, window, 
-                                             small_frame_idx, fft_cache, fft_cache_lock)
-            frame_ffts.append(magnitude)
-        
-        # Assemble into spectrogram
-        spectrogram = np.array(frame_ffts)
-        return target_frame_idx, spectrogram
-    
-    # Use thread pool to process all target frame FFTs in parallel
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        fft_futures = {executor.submit(process_fft_for_target_frame, idx): idx 
-                      for idx in target_frame_indices}
-        
-        # Collect FFT results
-        for future in as_completed(fft_futures):
-            target_frame_idx, spectrogram = future.result()
-            fft_results[target_frame_idx] = spectrogram
-    
-    # Parallel spectrogram image generation with color mapping
-    def generate_image_for_frame(target_frame_idx):
-        """Generate spectrogram image for a target frame"""
-        spectrogram = fft_results[target_frame_idx]
-        _, image_buffer = _generate_spectrogram_image(
-            spectrogram, fs, fft_size, num_small_frames, target_frame_idx
-        )
-        return target_frame_idx, image_buffer
-    
-    # Generate all spectrogram images in parallel
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        image_futures = {executor.submit(generate_image_for_frame, idx): idx 
-                        for idx in target_frame_indices}
-        
-        # Collect spectrogram results (in completion order but maintain time order)
-        for future in as_completed(image_futures):
-            target_frame_idx, image_buffer = future.result()
-            with spectrogram_lock:
-                spectrogram_images[target_frame_idx] = image_buffer
-    
-    # Reassemble results in time order
-    if location == 'buffer':
-        images = [spectrogram_images[idx] for idx in sorted(spectrogram_images.keys())]
-        return images
-    else:
-        for j, idx in enumerate(sorted(spectrogram_images.keys())):
-            image_buffer = spectrogram_images[idx]
-            image_buffer.seek(0)
-            img = Image.open(image_buffer)
-            img.save(os.path.join(location, f'{j}_waterfall_spectrogram.jpg'), 'JPEG', quality=95)
-        return None
+
+        target_frame_indices = [idx for idx in target_frame_indices
+                                if idx >= global_start and idx < global_end]
+        if not target_frame_indices:
+            continue
+
+        print(f"  processing [{chunk_start:,} – {chunk_end:,}] ...")
+
+        # Local indices within this chunk
+        local_indices = [idx - global_start for idx in target_frame_indices]
+
+        fft_cache = {}
+        fft_cache_lock = Lock()
+        fft_results = OrderedDict()
+        spectrogram_images = OrderedDict()
+        spectrogram_lock = Lock()
+
+        def process_fft_for_target_frame(local_idx, global_idx):
+            start_frame = max(0, global_idx - time_scale)
+            end_frame = global_idx + 1
+            frame_ffts = []
+            for sf_idx in range(start_frame, end_frame):
+                data_seg = data[sf_idx * fft_size: (sf_idx + 1) * fft_size]
+                _, magnitude = _compute_fft_frame(data_seg, fft_size, window,
+                                                   sf_idx, fft_cache, fft_cache_lock)
+                frame_ffts.append(magnitude)
+            spectrogram = np.array(frame_ffts)
+            return global_idx, spectrogram
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            fft_futures = {executor.submit(process_fft_for_target_frame, li, gi): gi
+                           for li, gi in zip(local_indices, target_frame_indices)}
+            for future in as_completed(fft_futures):
+                gi, spectrogram = future.result()
+                fft_results[gi] = spectrogram
+
+        def generate_image_for_frame(global_idx):
+            spectrogram = fft_results[global_idx]
+            _, buf = _generate_spectrogram_image(
+                spectrogram, fs, fft_size, num_small_frames, global_idx)
+            return global_idx, buf
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            img_futures = {executor.submit(generate_image_for_frame, gi): gi
+                           for gi in target_frame_indices}
+            for future in as_completed(img_futures):
+                gi, buf = future.result()
+                with spectrogram_lock:
+                    spectrogram_images[gi] = buf
+
+        # --- write images to disk / collect in RAM ---
+        if location == 'buffer':
+            images_chunk = [spectrogram_images[gi] for gi in
+                            sorted(spectrogram_images, key=lambda x: x)]
+            processed_frames += len(images_chunk)
+            print(f"  [{chunk_start:,} – {chunk_end:,}] "
+                  f"{len(images_chunk)} waterfall frames  (total: {processed_frames})")
+        else:
+            for j, gi in enumerate(sorted(spectrogram_images)):
+                buf = spectrogram_images[gi]
+                buf.seek(0)
+                img = Image.open(buf)
+                img.save(os.path.join(location,
+                                      f'{processed_frames + j}_waterfall_spectrogram.jpg'),
+                         'JPEG', quality=95)
+                img.close()
+            processed_frames += len(spectrogram_images)
+            print(f"  [{chunk_start:,} – {chunk_end:,}] "
+                  f"{len(spectrogram_images)} waterfall frames  (total: {processed_frames})")
+
+    return [] if location == 'buffer' else None
 
 
-def waterfall_spectrogram(datapack, fft_size, fs, location, time_scale):
-    """
-    Generates waterfall spectrogram (backward compatible interface, internally calls optimized version).
-    
-    Parameters:
-    - datapack: Raw data path or numpy array
-    - fft_size: FFT window size
-    - fs: Sampling rate
-    - location: Save location
-    - time_scale: Time scale
-    
-    Returns:
-    - images: List of images or None
-    """
-    return waterfall_spectrogram_optimized(datapack, fft_size, fs, location, time_scale)
+def waterfall_spectrogram(datapack, fft_size, fs, location, time_scale,
+                          file_type=np.float32):
+    """Backward-compatible wrapper. Calls waterfall_spectrogram_optimized."""
+    return waterfall_spectrogram_optimized(
+        datapack, fft_size, fs, location, time_scale, file_type=file_type)
 
 
+# ----------------------------------------------------------------------
+# CLI
+# ----------------------------------------------------------------------
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog='RawDataProcessor',
@@ -597,59 +738,88 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # ── spectrogram ──────────────────────────────────────────────────
     p_spec = subparsers.add_parser('spectrogram', help='Batch-generate spectrogram images')
-    p_spec.add_argument('--input', '-i', required=True, help='Input raw data directory')
-    p_spec.add_argument('--output', '-o', required=True, help='Output image directory')
-    p_spec.add_argument('--fs', type=float, default=100e6, help='Sampling rate (default 100e6)')
-    p_spec.add_argument('--stft-point', type=int, default=2048, help='STFT window size (default 2048)')
-    p_spec.add_argument('--duration', type=float, default=0.1, help='Single-frame duration in seconds (default 0.1)')
-    p_spec.add_argument('--dtype', default='float32', choices=['float32', 'float64', 'complex64'],
-                        help='Data file type (default float32)')
+    p_spec.add_argument('--input', '-i', required=True,
+                         help='Input raw data directory')
+    p_spec.add_argument('--output', '-o', required=True,
+                         help='Output image directory')
+    p_spec.add_argument('--fs', type=float, default=100e6,
+                         help='Sampling rate (default 100e6)')
+    p_spec.add_argument('--stft-point', type=int, default=2048,
+                         help='STFT window size (default 2048)')
+    p_spec.add_argument('--duration', type=float, default=0.1,
+                         help='Single-frame duration in seconds (default 0.1)')
+    p_spec.add_argument('--dtype', default='float32',
+                         choices=['float32', 'float64', 'complex64'],
+                         help='Data file type (default float32)')
 
     # ── video ────────────────────────────────────────────────────────
     p_vid = subparsers.add_parser('video', help='Convert raw data into video')
-    p_vid.add_argument('--input', '-i', required=True, help='Input raw data file (.iq)')
-    p_vid.add_argument('--output', '-o', required=True, help='Output video path (.mp4)')
-    p_vid.add_argument('--fs', type=float, default=100e6, help='Sampling rate (default 100e6)')
-    p_vid.add_argument('--stft-point', type=int, default=1024, help='STFT window size (default 1024)')
-    p_vid.add_argument('--duration', type=float, default=0.1, help='Single-frame duration in seconds (default 0.1)')
-    p_vid.add_argument('--fps', type=int, default=5, help='Video frame rate (default 5)')
-    p_vid.add_argument('--dtype', default='float32', choices=['float32', 'float64', 'complex64'],
+    p_vid.add_argument('--input', '-i', required=True,
+                        help='Input raw data file (.iq)')
+    p_vid.add_argument('--output', '-o', required=True,
+                        help='Output directory for video.mp4')
+    p_vid.add_argument('--fs', type=float, default=100e6,
+                        help='Sampling rate (default 100e6)')
+    p_vid.add_argument('--stft-point', type=int, default=1024,
+                        help='STFT window size (default 1024)')
+    p_vid.add_argument('--duration', type=float, default=0.1,
+                        help='Single-frame duration in seconds (default 0.1)')
+    p_vid.add_argument('--fps', type=int, default=5,
+                        help='Video frame rate (default 5)')
+    p_vid.add_argument('--dtype', default='float32',
+                        choices=['float32', 'float64', 'complex64'],
                         help='Data file type (default float32)')
 
     # ── show ─────────────────────────────────────────────────────────
     p_show = subparsers.add_parser('show', help='Interactively display spectrogram')
-    p_show.add_argument('--input', '-i', required=True, help='Input raw data file (.iq)')
-    p_show.add_argument('--name', default='test', help='Drone/sample name (default test)')
-    p_show.add_argument('--fs', type=float, default=100e6, help='Sampling rate (default 100e6)')
-    p_show.add_argument('--stft-point', type=int, default=2048, help='STFT window size (default 2048)')
-    p_show.add_argument('--duration', type=float, default=0.1, help='Single-frame duration in seconds (default 0.1)')
-    p_show.add_argument('--freq', type=float, default=2400e6, help='Center frequency (default 2400e6)')
-    p_show.add_argument('--half', action='store_true', help='Show I/Q components separately (half spectrum)')
-    p_show.add_argument('--dtype', default='float32', choices=['float32', 'float64', 'complex64'],
-                        help='Data file type (default float32)')
+    p_show.add_argument('--input', '-i', required=True,
+                         help='Input raw data file (.iq)')
+    p_show.add_argument('--name', default='test',
+                         help='Drone/sample name (default test)')
+    p_show.add_argument('--fs', type=float, default=100e6,
+                         help='Sampling rate (default 100e6)')
+    p_show.add_argument('--stft-point', type=int, default=2048,
+                         help='STFT window size (default 2048)')
+    p_show.add_argument('--duration', type=float, default=0.1,
+                         help='Single-frame duration in seconds (default 0.1)')
+    p_show.add_argument('--freq', type=float, default=2400e6,
+                         help='Center frequency (default 2400e6)')
+    p_show.add_argument('--half', action='store_true',
+                         help='Show I/Q components separately (half spectrum)')
+    p_show.add_argument('--save', '-s', default=None,
+                         help='Save the figure to this path instead of displaying '
+                              '(useful in headless environments)')
+    p_show.add_argument('--dtype', default='float32',
+                         choices=['float32', 'float64', 'complex64'],
+                         help='Data file type (default float32)')
 
     # ── waterfall ───────────────────────────────────────────────────
     p_wf = subparsers.add_parser('waterfall', help='Generate scrolling spectrogram (waterfall)')
-    p_wf.add_argument('--input', '-i', required=True, help='Input raw data file (.iq)')
-    p_wf.add_argument('--output', '-o', required=True, help='Output image directory')
-    p_wf.add_argument('--fs', type=float, default=100e6, help='Sampling rate (default 100e6)')
-    p_wf.add_argument('--fft-size', type=int, default=1024, help='FFT window size (default 1024)')
-    p_wf.add_argument('--time-scale', type=int, default=512, help='Time-window size (default 512)')
-    p_wf.add_argument('--frame-gap', type=int, default=150, help='Target frame interval (default 150)')
-    p_wf.add_argument('--workers', type=int, default=4, help='Number of parallel workers (default 4)')
-    p_wf.add_argument('--dtype', default='float32', choices=['float32', 'float64', 'complex64'],
-                        help='Data file type (default float32)')
+    p_wf.add_argument('--input', '-i', required=True,
+                      help='Input raw data file (.iq)')
+    p_wf.add_argument('--output', '-o', required=True,
+                      help='Output image directory')
+    p_wf.add_argument('--fs', type=float, default=100e6,
+                      help='Sampling rate (default 100e6)')
+    p_wf.add_argument('--fft-size', type=int, default=1024,
+                      help='FFT window size (default 1024)')
+    p_wf.add_argument('--time-scale', type=int, default=512,
+                      help='Time-window size (default 512)')
+    p_wf.add_argument('--frame-gap', type=int, default=150,
+                      help='Target frame interval in FFT frames (default 150)')
+    p_wf.add_argument('--workers', type=int, default=4,
+                      help='Number of parallel workers (default 4)')
+    p_wf.add_argument('--chunk-size', type=int, default=50_000_000,
+                      help='Max complex samples held in RAM at once (default 50M, ~400 MB)')
+    p_wf.add_argument('--dtype', default='float32',
+                      choices=['float32', 'float64', 'complex64'],
+                      help='Data file type (default float32)')
 
     return parser
 
 
 def _dtype_from_str(name: str):
-    mapping = {
-        'float32': np.float32,
-        'float64': np.float64,
-        'complex64': np.complex64,
-    }
-    return mapping[name]
+    return {'float32': np.float32, 'float64': np.float64, 'complex64': np.complex64}[name]
 
 
 def main():
@@ -693,6 +863,7 @@ def main():
                 stft_point=args.stft_point,
                 duration_time=args.duration,
                 file_type=dtype,
+                save_path=args.save,
             )
         else:
             show_spectrum(
@@ -703,10 +874,10 @@ def main():
                 duration_time=args.duration,
                 Middle_Frequency=args.freq,
                 file_type=dtype,
+                save_path=args.save,
             )
 
     elif args.mode == 'waterfall':
-        os.makedirs(args.output, exist_ok=True)
         waterfall_spectrogram_optimized(
             datapack=args.input,
             fft_size=args.fft_size,
@@ -715,8 +886,10 @@ def main():
             time_scale=args.time_scale,
             target_frame_gap=args.frame_gap,
             num_workers=args.workers,
+            file_type=dtype,
+            chunk_size=args.chunk_size,
         )
-        print(f'Waterfall images saved to {args.output}')
+        print(f"Waterfall images saved: {args.output}")
 
 
 if __name__ == '__main__':
