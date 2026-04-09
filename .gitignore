@@ -1,3 +1,92 @@
+# IDE
 .idea/
 .vscode/
-.gitignore
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# PyTorch & Training
+*.pth
+*.pt
+*.ckpt
+checkpoints/
+runs/
+logs/
+tensorboard/
+*.tensorboard
+
+# Data (用户本地数据集)
+data/
+datasets/
+
+# Output & figures
+output/
+outputs/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.pdf
+*.eps
+*.svg
+*.fig
+
+# Matplotlib
+~/.matplotlib
+matplotlibrc
+
+# NumPy / SciPy cache
+*.npy
+*.npz
+*.mat
+*.h5
+*.hdf5
+
+# Configuration secrets
+*.yaml
+!configs/sample.yaml
+*.yml
+!ChannelSimulation/channel_pipeline.sample.yaml
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Misc
+*.tmp
+*.temp
+*.bak
+*.orig

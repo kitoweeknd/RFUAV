@@ -1,6 +1,8 @@
 # Tool to process raw data
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend to avoid multi-threading issues
+import argparse
+import sys
 import matplotlib.pyplot as plt
 from scipy.signal import stft, windows
 import numpy as np
@@ -349,9 +351,9 @@ def check_folder(folder_path):
     """
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
-        print(f"folder '{folder_path}' created。")
+        print(f"folder '{folder_path}' created.")
     else:
-        print(f"folder '{folder_path}' existed。")
+        print(f"folder '{folder_path}' already exists.")
 
 
 def STFT(data,
@@ -585,67 +587,136 @@ def waterfall_spectrogram(datapack, fft_size, fs, location, time_scale):
     return waterfall_spectrogram_optimized(datapack, fft_size, fs, location, time_scale)
 
 
-# Usage-----------------------------------------------------------------------------------------------------------------
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog='RawDataProcessor',
+        description='Transform raw IQ data into spectrograms, video, or real-time visualization.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest='mode', title='mode', required=True)
+
+    # ── spectrogram ──────────────────────────────────────────────────
+    p_spec = subparsers.add_parser('spectrogram', help='Batch-generate spectrogram images')
+    p_spec.add_argument('--input', '-i', required=True, help='Input raw data directory')
+    p_spec.add_argument('--output', '-o', required=True, help='Output image directory')
+    p_spec.add_argument('--fs', type=float, default=100e6, help='Sampling rate (default 100e6)')
+    p_spec.add_argument('--stft-point', type=int, default=2048, help='STFT window size (default 2048)')
+    p_spec.add_argument('--duration', type=float, default=0.1, help='Single-frame duration in seconds (default 0.1)')
+    p_spec.add_argument('--dtype', default='float32', choices=['float32', 'float64', 'complex64'],
+                        help='Data file type (default float32)')
+
+    # ── video ────────────────────────────────────────────────────────
+    p_vid = subparsers.add_parser('video', help='Convert raw data into video')
+    p_vid.add_argument('--input', '-i', required=True, help='Input raw data file (.iq)')
+    p_vid.add_argument('--output', '-o', required=True, help='Output video path (.mp4)')
+    p_vid.add_argument('--fs', type=float, default=100e6, help='Sampling rate (default 100e6)')
+    p_vid.add_argument('--stft-point', type=int, default=1024, help='STFT window size (default 1024)')
+    p_vid.add_argument('--duration', type=float, default=0.1, help='Single-frame duration in seconds (default 0.1)')
+    p_vid.add_argument('--fps', type=int, default=5, help='Video frame rate (default 5)')
+    p_vid.add_argument('--dtype', default='float32', choices=['float32', 'float64', 'complex64'],
+                        help='Data file type (default float32)')
+
+    # ── show ─────────────────────────────────────────────────────────
+    p_show = subparsers.add_parser('show', help='Interactively display spectrogram')
+    p_show.add_argument('--input', '-i', required=True, help='Input raw data file (.iq)')
+    p_show.add_argument('--name', default='test', help='Drone/sample name (default test)')
+    p_show.add_argument('--fs', type=float, default=100e6, help='Sampling rate (default 100e6)')
+    p_show.add_argument('--stft-point', type=int, default=2048, help='STFT window size (default 2048)')
+    p_show.add_argument('--duration', type=float, default=0.1, help='Single-frame duration in seconds (default 0.1)')
+    p_show.add_argument('--freq', type=float, default=2400e6, help='Center frequency (default 2400e6)')
+    p_show.add_argument('--half', action='store_true', help='Show I/Q components separately (half spectrum)')
+    p_show.add_argument('--dtype', default='float32', choices=['float32', 'float64', 'complex64'],
+                        help='Data file type (default float32)')
+
+    # ── waterfall ───────────────────────────────────────────────────
+    p_wf = subparsers.add_parser('waterfall', help='Generate scrolling spectrogram (waterfall)')
+    p_wf.add_argument('--input', '-i', required=True, help='Input raw data file (.iq)')
+    p_wf.add_argument('--output', '-o', required=True, help='Output image directory')
+    p_wf.add_argument('--fs', type=float, default=100e6, help='Sampling rate (default 100e6)')
+    p_wf.add_argument('--fft-size', type=int, default=1024, help='FFT window size (default 1024)')
+    p_wf.add_argument('--time-scale', type=int, default=512, help='Time-window size (default 512)')
+    p_wf.add_argument('--frame-gap', type=int, default=150, help='Target frame interval (default 150)')
+    p_wf.add_argument('--workers', type=int, default=4, help='Number of parallel workers (default 4)')
+    p_wf.add_argument('--dtype', default='float32', choices=['float32', 'float64', 'complex64'],
+                        help='Data file type (default float32)')
+
+    return parser
+
+
+def _dtype_from_str(name: str):
+    mapping = {
+        'float32': np.float32,
+        'float64': np.float64,
+        'complex64': np.complex64,
+    }
+    return mapping[name]
+
+
 def main():
+    parser = _build_parser()
+    args = parser.parse_args()
 
-    """
-    data_path = data_path
-    save_path = save_path
-    test = RawDataProcessor()
-    test.TransRawDataintoSpectrogram(fig_save_path=save_path,
-                                     data_path=data_path,
-                                     sample_rate=100e6,
-                                     stft_point=1024,
-                                     duration_time=0.1,
-                                     )
-    """
+    if args.mode is None:
+        parser.print_help()
+        sys.exit(1)
 
-    """
-    data_path = ''
-    test.ShowSpectrogram(data_path=data_path,
-                         drone_name='DJ FPV COMBO',
-                         sample_rate=100e6,
-                         stft_point=2048,
-                         duration_time=0.1,
-                         Middle_Frequency=2400e6
-                         )
-    """
+    dtype = _dtype_from_str(args.dtype)
 
-    """
-    save_path = ''
-    data_path = ''
-    test.TransRawDataintoSpectrogram(fig_save_path=save_path,
-                                 data_path=data_path,
-                                 sample_rate=100e6,
-                                 stft_point=2048,
-                                 duration_time=0.1,
-                                 )
-    """
+    if args.mode == 'spectrogram':
+        proc = RawDataProcessor()
+        proc.TransRawDataintoSpectrogram(
+            fig_save_path=args.output,
+            data_path=args.input,
+            sample_rate=args.fs,
+            stft_point=args.stft_point,
+            duration_time=args.duration,
+            file_type=dtype,
+        )
 
-    """
-    datapack = ''
-    save_path = ''
-    save_as_video(datapack=datapack,
-                  save_path=save_path,
-                  fs=100e6,
-                  stft_point=1024,
-                  duration_time=0.1,
-                  fps=5,
-                  )
+    elif args.mode == 'video':
+        save_as_video(
+            datapack=args.input,
+            save_path=args.output,
+            fs=args.fs,
+            stft_point=args.stft_point,
+            duration_time=args.duration,
+            fps=args.fps,
+            file_type=dtype,
+        )
 
-    show_spectrum(datapack=datapack,
-                  drone_name='test',
-                  fs=100e6,
-                  stft_point=2048,
-                  duration_time=0.1,
-                  )
-    show_half_only(datapack, 
-                   drone_name='test',
-                   fs=100e6,
-                   stft_point=2048,
-                   duration_time=0.1,
-                   )
-    """
+    elif args.mode == 'show':
+        if args.half:
+            show_half_only(
+                datapack=args.input,
+                drone_name=args.name,
+                fs=args.fs,
+                stft_point=args.stft_point,
+                duration_time=args.duration,
+                file_type=dtype,
+            )
+        else:
+            show_spectrum(
+                datapack=args.input,
+                drone_name=args.name,
+                fs=args.fs,
+                stft_point=args.stft_point,
+                duration_time=args.duration,
+                Middle_Frequency=args.freq,
+                file_type=dtype,
+            )
+
+    elif args.mode == 'waterfall':
+        os.makedirs(args.output, exist_ok=True)
+        waterfall_spectrogram_optimized(
+            datapack=args.input,
+            fft_size=args.fft_size,
+            fs=args.fs,
+            location=args.output,
+            time_scale=args.time_scale,
+            target_frame_gap=args.frame_gap,
+            num_workers=args.workers,
+        )
+        print(f'Waterfall images saved to {args.output}')
 
 
 if __name__ == '__main__':

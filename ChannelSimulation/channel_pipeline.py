@@ -350,7 +350,7 @@ def _pick(cli_value, cfg: dict[str, object], key: str, default):
 def main() -> None:
     parser = argparse.ArgumentParser(description="ChannelSimulation: Complete channel degradation pipeline + time-frequency plots for each stage")
 
-    parser.add_argument("input", nargs="?", type=str, default=None, help="Input IQ file (float32 interleaved IQ)")
+    parser.add_argument("input", nargs="?", type=str, default="", help="Input IQ file (float32 interleaved IQ)")
     parser.add_argument("--config", type=str, default=None, help="YAML config file path")
 
     parser.add_argument("--input-dir", type=str, default=None, help="Batch processing input directory (mutually exclusive with input)")
