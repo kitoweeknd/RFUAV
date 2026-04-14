@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 
 try:
-    from .common import EPS, normalize_power
+    from ChannelSimulation.core.common import EPS, normalize_power
 except ImportError:  # Compatible with direct script execution
-    from common import EPS, normalize_power
+    from core.common import EPS, normalize_power
 
 
 def apply_multipath(

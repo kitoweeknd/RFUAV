@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 
 try:
-    from .common import EPS
+    from ChannelSimulation.core.common import EPS
 except ImportError:  # Compatible with direct script execution
-    from common import EPS
+    from core.common import EPS
 
 
 def apply_awgn(

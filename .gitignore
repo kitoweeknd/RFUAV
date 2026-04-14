@@ -4,6 +4,7 @@
 *.swp
 *.swo
 *~
+.gitignore
 
 # Python
 __pycache__/
@@ -52,6 +53,7 @@ data/
 datasets/
 
 # Output & figures
+exp/
 output/
 outputs/
 res/

@@ -13,9 +13,10 @@ input_glob: "*.iq"
 # Basic Output Configuration
 # -----------------------------
 fs: 100000000
-out_dir: ChannelSimulation/results
-output_iq: ChannelSimulation/results/processed.iq
-meta_json: ChannelSimulation/results/run_meta.json
+fc: 5.8e9
+out_dir: ./results
+output_iq: ./results/processed.iq
+meta_json: ./results/run_meta.json
 
 # -----------------------------
 # Pipeline Execution Control

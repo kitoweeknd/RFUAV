@@ -7,41 +7,41 @@ from typing import Callable
 import numpy as np
 
 try:
-    from .awgn import apply_awgn
-    from .cfo import apply_cfo
-    from .common import normalize_power
-    from .crop_shift import apply_random_crop_and_time_shift
-    from .fading import apply_rayleigh_or_rician_fading
-    from .io_utils import (
+    from ChannelSimulation.channels.awgn import apply_awgn
+    from ChannelSimulation.channels.cfo import apply_cfo
+    from ChannelSimulation.channels.crop_shift import apply_random_crop_and_time_shift
+    from ChannelSimulation.channels.fading import apply_rayleigh_or_rician_fading
+    from ChannelSimulation.channels.iq_imbalance import apply_iq_imbalance
+    from ChannelSimulation.channels.multipath import apply_multipath
+    from ChannelSimulation.channels.phase_noise import apply_phase_noise
+    from ChannelSimulation.core.common import normalize_power
+    from ChannelSimulation.core.io_utils import (
         append_interleaved_iq,
         count_complex_samples,
         iter_iq_chunks,
         read_interleaved_iq,
         save_interleaved_iq,
     )
-    from .iq_imbalance import apply_iq_imbalance
-    from .metadata import build_run_metadata, write_json
-    from .multipath import apply_multipath
-    from .phase_noise import apply_phase_noise
-    from .visualization import plot_time_frequency
+    from ChannelSimulation.metadata import build_run_metadata, write_json
+    from ChannelSimulation.viz.visualization import plot_time_frequency
 except ImportError:  # Compatible with direct script execution
-    from awgn import apply_awgn
-    from cfo import apply_cfo
-    from common import normalize_power
-    from crop_shift import apply_random_crop_and_time_shift
-    from fading import apply_rayleigh_or_rician_fading
-    from io_utils import (
+    from ChannelSimulation.channels.awgn import apply_awgn
+    from ChannelSimulation.channels.cfo import apply_cfo
+    from ChannelSimulation.channels.crop_shift import apply_random_crop_and_time_shift
+    from ChannelSimulation.channels.fading import apply_rayleigh_or_rician_fading
+    from ChannelSimulation.channels.iq_imbalance import apply_iq_imbalance
+    from ChannelSimulation.channels.multipath import apply_multipath
+    from ChannelSimulation.channels.phase_noise import apply_phase_noise
+    from ChannelSimulation.core.common import normalize_power
+    from ChannelSimulation.core.io_utils import (
         append_interleaved_iq,
         count_complex_samples,
         iter_iq_chunks,
         read_interleaved_iq,
         save_interleaved_iq,
     )
-    from iq_imbalance import apply_iq_imbalance
-    from metadata import build_run_metadata, write_json
-    from multipath import apply_multipath
-    from phase_noise import apply_phase_noise
-    from visualization import plot_time_frequency
+    from ChannelSimulation.metadata import build_run_metadata, write_json
+    from ChannelSimulation.viz.visualization import plot_time_frequency
 
 
 STAGE_ORDER = [
@@ -260,6 +260,7 @@ def run_channel_pipeline(
     enabled_stages: list[str] | None = None,
     show_progress: bool = False,
     progress_prefix: str = "",
+    fc: float = 0.0,
 ) -> np.ndarray:
     """Apply all channel stages to the full IQ signal in memory.
 
@@ -280,7 +281,7 @@ def run_channel_pipeline(
     if "original" in enabled_stages:
         if show_progress:
             _print_stage_progress(enabled_stages, "original", prefix=progress_prefix)
-        plot_time_frequency(x, fs, "stage0_original", out_dir)
+        plot_time_frequency(x, fs, "stage0_original", out_dir, fc=fc)
         if _stage_save_flag(enabled_stages, stage_configs, "original"):
             save_interleaved_iq(out_dir / "original.iq", x)
 
@@ -302,7 +303,7 @@ def run_channel_pipeline(
             raise ValueError(f"stage {stage} method={method} not supported, valid options: {allowed}")
 
         x = fn(x, fs, rng, **params)
-        plot_time_frequency(x, fs, f"stage{STAGE_ORDER.index(stage)}_{stage}", out_dir)
+        plot_time_frequency(x, fs, f"stage{STAGE_ORDER.index(stage)}_{stage}", out_dir, fc=fc)
 
         if stage_cfg.get("save", False):
             save_interleaved_iq(out_dir / f"{stage}.iq", x)
@@ -355,6 +356,7 @@ def run_channel_pipeline_streaming(
     show_progress: bool = False,
     progress_prefix: str = "",
     out_dir: str | Path | None = None,
+    fc: float = 0.0,
 ) -> None:
     """Stream-process a large IQ file in bounded memory.
 
@@ -483,6 +485,7 @@ def process_one_file(
     progress_prefix: str = "",
     chunk_size: int | None = None,
     chunk_limit: int | None = None,
+    fc: float = 0.0,
 ) -> None:
     """Process one IQ file: decide streaming vs. full-signal automatically.
 
@@ -505,7 +508,7 @@ def process_one_file(
         rng_preview = np.random.default_rng(seed)
         x_preview = normalize_power(first_chunk)
         if "original" in enabled_stages:
-            plot_time_frequency(x_preview, fs, "stage0_original", out_dir)
+            plot_time_frequency(x_preview, fs, "stage0_original", out_dir, fc=fc)
         del first_chunk, x_preview
 
         run_channel_pipeline_streaming(
@@ -519,6 +522,7 @@ def process_one_file(
             show_progress=show_progress,
             progress_prefix=progress_prefix,
             out_dir=out_dir,
+            fc=fc,
         )
     else:
         iq = read_interleaved_iq(input_path)
@@ -531,6 +535,7 @@ def process_one_file(
             enabled_stages=enabled_stages,
             show_progress=show_progress,
             progress_prefix=progress_prefix,
+            fc=fc,
         )
         save_interleaved_iq(output_iq, y)
 
@@ -547,6 +552,7 @@ def process_one_file(
         iq_phase_deg=float(stage_configs["iq_imbalance"].get("params", {}).get("phase_imbalance_deg", 0.0)),
         snr_db=float(stage_configs["awgn"].get("params", {}).get("snr_db", 0.0)),
         seed=seed,
+        fc=fc,
     )
     metadata["enabled_stages"] = enabled_stages
     metadata["stage_configs"] = stage_configs
@@ -614,6 +620,9 @@ def main() -> None:
                         help="Batch processing file matching pattern, default *.iq")
 
     parser.add_argument("--fs", type=float, default=None, help="Sampling rate (Hz)")
+    parser.add_argument("--fc", type=float, default=None,
+                        help="Center frequency in Hz (for frequency-axis labeling in plots). "
+                             "Example: --fc 5.8e9  [default: 0 Hz / baseband]")
     parser.add_argument("--out-dir", type=str, default=None,
                         help="Root directory for images and output")
     parser.add_argument("--output-iq", type=str, default=None,
@@ -668,6 +677,7 @@ def main() -> None:
     input_glob = _pick(args.input_glob, cfg, "input_glob", "*.iq")
 
     fs = _pick(args.fs, cfg, "fs", None)
+    fc = _pick(args.fc, cfg, "fc", 0.0)
     out_dir = _pick(args.out_dir, cfg, "out_dir", "./results")
     output_iq = _pick(args.output_iq, cfg, "output_iq", "./results/processed.iq")
     meta_json = _pick(args.meta_json, cfg, "meta_json", "./results/run_meta.json")
@@ -719,6 +729,7 @@ def main() -> None:
             progress_prefix=Path(str(input_path)).name,
             chunk_size=chunk_size_cli,
             chunk_limit=chunk_limit_cli,
+            fc=float(fc),
         )
         return
 
@@ -765,6 +776,7 @@ def main() -> None:
             progress_prefix=file_path.name,
             chunk_size=chunk_size_cli,
             chunk_limit=chunk_limit_cli,
+            fc=float(fc),
         )
 
         summary["runs"].append(

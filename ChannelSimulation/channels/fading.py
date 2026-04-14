@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 
 try:
-    from .common import normalize_power
+    from ChannelSimulation.core.common import normalize_power
 except ImportError:  # Compatible with direct script execution
-    from common import normalize_power
+    from core.common import normalize_power
 
 
 def apply_rayleigh_or_rician_fading(

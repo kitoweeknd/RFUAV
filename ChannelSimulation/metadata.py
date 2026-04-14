@@ -19,6 +19,7 @@ def build_run_metadata(
     iq_phase_deg: float,
     snr_db: float,
     seed: int,
+    fc: float = 0.0,
 ) -> dict:
     return {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -37,6 +38,7 @@ def build_run_metadata(
         ],
         "params": {
             "fs": fs,
+            "fc": fc,
             "fading": fading,
             "k_factor": k_factor,
             "cfo_hz": cfo_hz,
