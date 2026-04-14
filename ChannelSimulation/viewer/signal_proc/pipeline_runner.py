@@ -9,21 +9,21 @@ Supports step-by-step output of intermediate signals by stage, and memmap readin
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
 # Try to import backend modules
 try:
     from ChannelSimulation.channel_pipeline import STAGE_ORDER as _STAGE_ORDER
-    from ChannelSimulation.core.io_utils import read_interleaved_iq, count_complex_samples
+    from ChannelSimulation.core.io_utils import read_interleaved_iq
     from ChannelSimulation.core.common import normalize_power
 except ImportError:
     import sys
     from pathlib import Path as _Path
     sys.path.insert(0, str(_Path(__file__).parent.parent.parent))
     from ChannelSimulation.channel_pipeline import STAGE_ORDER as _STAGE_ORDER
-    from ChannelSimulation.core.io_utils import read_interleaved_iq, count_complex_samples
+    from ChannelSimulation.core.io_utils import read_interleaved_iq
     from ChannelSimulation.core.common import normalize_power
 
 
@@ -243,17 +243,28 @@ class PipelineRunner:
         """
         file_path = Path(file_path)
 
-        # Determine file size and select loading method
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+
         file_size = file_path.stat().st_size
+        if file_size == 0:
+            raise ValueError(f"File is empty: {file_path}")
+
         # float32: 8 bytes per sample (2 x 4)
         sample_size = 8
         n_samples = file_size // sample_size
+
+        if n_samples == 0:
+            raise ValueError(f"File contains no valid samples: {file_path}")
 
         # For large files (>100MB), use memory mapping
         if file_size > 100 * 1024 * 1024:
             self._iq_data = self._load_memmap(file_path, dtype)
         else:
             self._iq_data = read_interleaved_iq(file_path, dtype)
+
+        if len(self._iq_data) == 0:
+            raise ValueError(f"Failed to load IQ data from file: {file_path}")
 
         return n_samples
 
@@ -433,9 +444,14 @@ class PipelineRunner:
                 )
 
             elif stage_name == "doppler":
-                # Doppler module may not exist, use placeholder
-                # TODO: Implement Doppler effect
-                return x
+                from ChannelSimulation.channels.doppler import apply_doppler
+
+                return apply_doppler(
+                    x,
+                    fs=self._fs,
+                    doppler_shift_hz=float(params.get("doppler_shift_hz", 0.0)),
+                    doppler_spread_hz=float(params.get("doppler_spread_hz", 100.0)),
+                )
 
             elif stage_name == "multipath":
                 from ChannelSimulation.channels.multipath import apply_multipath
@@ -574,49 +590,3 @@ class PipelineRunner:
         if power <= 0:
             return None
         return 10 * np.log10(power)
-
-
-class CustomPipeline:
-    """Custom Pipeline (for advanced users)"""
-
-    def __init__(self):
-        self._stages: list[tuple[str, dict[str, Any]]] = []
-
-    def add_stage(
-        self,
-        name: str,
-        func: callable | None = None,
-        **params,
-    ) -> "CustomPipeline":
-        """Add a stage
-
-        Args:
-            name: Stage name
-            func: Processing function (optional, uses built-in processing if not provided)
-            **params: Parameters passed to the processing function
-        """
-        self._stages.append((name, {"func": func, "params": params}))
-        return self
-
-    def run(self, iq_data: np.ndarray) -> np.ndarray:
-        """Run custom pipeline
-
-        Args:
-            iq_data: Input IQ data
-
-        Returns:
-            Processed IQ data
-        """
-        x = iq_data.copy()
-
-        for name, cfg in self._stages:
-            func = cfg.get("func")
-            params = cfg.get("params", {})
-
-            if func is not None:
-                x = func(x, **params)
-            else:
-                # TODO: Use built-in processing
-                print(f"[WARNING] No processing function provided for {name}, skipping")
-
-        return x

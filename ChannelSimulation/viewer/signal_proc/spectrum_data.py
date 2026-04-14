@@ -509,6 +509,9 @@ class SpectrumCalculator:
         """SciPy-free path: capped n_fft, crop frequencies."""
         n_fft = min(int(n_fft), self.MAX_ZOOM_NFFT)
         n = len(signal)
+        if n < 8:
+            z = np.zeros((1, 1), dtype=np.float64)
+            return z, np.array([-fs / 2, fs / 2]), np.array([0.0])
         nperseg_w = min(nperseg, n)
         step = max(1, nperseg_w - nperseg_w * 3 // 4)
         max_frames = self.MAX_STFT_COLS + 1
@@ -705,44 +708,3 @@ class SpectrumCalculator:
             }
             for p in peaks
         ]
-
-
-def compute_psd_vectorized(
-    signal: np.ndarray,
-    fs: float,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Vectorized PSD computation (standalone function version)
-
-    Used for fast computation without creating a class instance.
-    """
-    n = len(signal)
-    windowed = signal * np.hanning(n)
-    spectrum = np.fft.fft(windowed)[:n // 2]
-    psd = np.abs(spectrum) ** 2 / (np.sum(np.hanning(n) ** 2) * fs)
-    psd_db = 10 * np.log10(psd + 1e-12)
-    freqs = np.fft.fftfreq(n, 1 / fs)[:n // 2]
-    return psd_db, freqs
-
-
-def compute_stft_vectorized(
-    signal: np.ndarray,
-    fs: float,
-    nperseg: int = 256,
-    noverlap: int = 192,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Vectorized STFT computation (standalone function version)"""
-    try:
-        from scipy.signal import stft as scipy_stft
-        freqs, times, Zxx = scipy_stft(
-            signal,
-            fs=fs,
-            nperseg=nperseg,
-            noverlap=noverlap,
-            return_onesided=False,
-        )
-        freqs_shifted = np.fft.fftshift(freqs)
-        Zxx_shifted = np.fft.fftshift(Zxx, axes=0)
-        stft_db = 20 * np.log10(np.abs(Zxx_shifted) + 1e-12)
-        return freqs_shifted, times, stft_db
-    except ImportError:
-        return np.array([]), np.array([]), np.array([])

@@ -142,8 +142,8 @@ def create_default_presets() -> None:
 
     # Satellite downlink (LEO)
     satellite_config = {
-        "name": "卫星下行 (LEO)",
-        "description": "LEO 卫星通信信道：高多普勒 + Rayleigh 衰落 + 多径",
+        "name": "Satellite LEO",
+        "description": "LEO satellite communication channel with high Doppler + Rayleigh fading + multipath",
         "category": "satellite",
         "fs": 100_000_000,
         "fc": 0.0,
@@ -187,8 +187,8 @@ def create_default_presets() -> None:
 
     # UAV swarm
     uav_config = {
-        "name": "无人机集群",
-        "description": "UAV 蜂群网络：Rayleigh 衰落 + 中等多普勒 + Phase Noise",
+        "name": "UAV Swarm",
+        "description": "UAV swarm network with Rayleigh fading + moderate Doppler + Phase Noise",
         "category": "uav",
         "fs": 100_000_000,
         "fc": 0.0,
@@ -228,8 +228,8 @@ def create_default_presets() -> None:
 
     # Ground cellular
     cellular_config = {
-        "name": "地面蜂窝",
-        "description": "4G/5G 地面信道：Rician 衰落 + 轻度多径 + AWGN",
+        "name": "Cellular 4G-5G",
+        "description": "4G/5G terrestrial channel with Rician fading + light multipath + AWGN",
         "category": "cellular",
         "fs": 100_000_000,
         "fc": 0.0,
@@ -265,8 +265,8 @@ def create_default_presets() -> None:
 
     # Radar echo
     radar_config = {
-        "name": "雷达回波",
-        "description": "雷达系统仿真：多径 + 加性噪声 + 目标 Doppler",
+        "name": "Radar Echo",
+        "description": "Radar system simulation with multipath + additive noise + target Doppler",
         "category": "radar",
         "fs": 100_000_000,
         "fc": 0.0,
@@ -305,8 +305,8 @@ def create_default_presets() -> None:
 
     # Clean reference
     clean_config = {
-        "name": "纯净参考",
-        "description": "所有信道关闭，用于基线对比",
+        "name": "Clean Reference",
+        "description": "All channels disabled, for baseline comparison",
         "category": "reference",
         "fs": 100_000_000,
         "fc": 0.0,

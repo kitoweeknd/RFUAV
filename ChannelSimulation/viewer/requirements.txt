@@ -1,9 +1,10 @@
-# RFUAV ChannelSim Viewer 依赖清单
-# 安装命令: pip install -r ChannelSimulation/viewer/requirements.txt
+# RFUAV ChannelSim Viewer Dependency List
+# Installation: pip install -r ChannelSimulation/viewer/requirements.txt
 
 PySide6>=6.5
 numpy>=1.24
 scipy>=1.10
 matplotlib>=3.7
 PyYAML>=6.0
-psutil>=5.9.0  # 用于性能监控（CPU/内存）
+psutil>=5.9.0  # For performance monitoring (CPU/Memory)
+`

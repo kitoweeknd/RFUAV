@@ -316,34 +316,3 @@ class SignalInfoPanel(QWidget):
             "fc": self._label_fc.text(),
             "power": self._label_power.text(),
         }
-
-
-def format_duration(seconds: float) -> str:
-    """Format duration"""
-    if seconds < 0.001:
-        return f"{seconds * 1e6:.2f} µs"
-    elif seconds < 1:
-        return f"{seconds * 1e3:.2f} ms"
-    elif seconds < 60:
-        return f"{seconds:.3f} s"
-    else:
-        minutes = int(seconds // 60)
-        secs = seconds % 60
-        return f"{minutes}m {secs:.2f}s"
-
-
-def format_frequency(hz: float) -> str:
-    """Format frequency"""
-    if hz >= 1e9:
-        return f"{hz / 1e9:.4f} GHz"
-    elif hz >= 1e6:
-        return f"{hz / 1e6:.4f} MHz"
-    elif hz >= 1e3:
-        return f"{hz / 1e3:.4f} kHz"
-    else:
-        return f"{hz:.4f} Hz"
-
-
-def format_power(db_value: float, unit: str = "dB") -> str:
-    """Format power"""
-    return f"{db_value:.2f} {unit}"

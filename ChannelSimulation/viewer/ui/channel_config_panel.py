@@ -606,7 +606,7 @@ class PreprocessCard(QWidget):
         # Add stretch space
         layout.addStretch()
 
-        self._switch.toggled.connect(self.value_changed.emit)
+        self._switch.toggled.connect(lambda *args: self.value_changed.emit())
 
     def isChecked(self) -> bool:
         """Check if enabled"""

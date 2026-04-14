@@ -46,6 +46,22 @@ def get_app() -> QApplication:
     return _app_instance
 
 
+def _create_splash_pixmap(message: str) -> "QPixmap":
+    """Create splash screen pixmap with message."""
+    pixmap = QPixmap(400, 200)
+    pixmap.fill(QColor("#1a73e8"))
+    painter = QPainter(pixmap)
+    painter.setPen(QColor("#ffffff"))
+    painter.setFont(QFont("Segoe UI", 16, QFont.Bold))
+    painter.drawText(pixmap.rect(), Qt.AlignCenter, "RFUAV ChannelSim Viewer")
+    painter.setFont(QFont("Segoe UI", 10))
+    painter.drawText(pixmap.rect().adjusted(0, 30, 0, 0), Qt.AlignCenter, "v1.3.0")
+    painter.setFont(QFont("Segoe UI", 9))
+    painter.drawText(pixmap.rect().adjusted(0, 60, 0, 0), Qt.AlignCenter, message)
+    painter.end()
+    return pixmap
+
+
 def show_splash_screen(message: str = "Initializing...") -> "QSplashScreen | None":
     """Display the splash screen.
 
@@ -57,27 +73,13 @@ def show_splash_screen(message: str = "Initializing...") -> "QSplashScreen | Non
     """
     try:
         from PySide6.QtCore import Qt
-        from PySide6.QtGui import QFont, QPainter, QPixmap, QColor
+        from PySide6.QtGui import QPixmap, QColor
         from PySide6.QtWidgets import QSplashScreen
 
-        # Create a simple splash screen
-        pixmap = QPixmap(400, 200)
-        pixmap.fill(QColor("#1a73e8"))
-
-        painter = QPainter(pixmap)
-        painter.setPen(QColor("#ffffff"))
-        painter.setFont(QFont("Segoe UI", 16, QFont.Bold))
-        painter.drawText(pixmap.rect(), Qt.AlignCenter, "RFUAV ChannelSim Viewer")
-        painter.setFont(QFont("Segoe UI", 10))
-        painter.drawText(pixmap.rect().adjusted(0, 30, 0, 0), Qt.AlignCenter, "v1.3.0")
-        painter.setFont(QFont("Segoe UI", 9))
-        painter.drawText(pixmap.rect().adjusted(0, 60, 0, 0), Qt.AlignCenter, message)
-        painter.end()
-
+        pixmap = _create_splash_pixmap(message)
         splash = QSplashScreen(pixmap, Qt.WindowStaysOnTopHint)
         splash.setWindowFlag(Qt.FramelessWindowHint)
         splash.show()
-
         return splash
     except Exception as e:
         print(f"[WARNING] Failed to create splash screen: {e}")
@@ -94,22 +96,10 @@ def update_splash_message(splash, message: str) -> None:
     if splash is not None:
         try:
             from PySide6.QtCore import Qt
-            from PySide6.QtGui import QFont, QPainter, QPixmap, QColor
+            from PySide6.QtGui import QPixmap, QColor
             from PySide6.QtWidgets import QSplashScreen
 
-            pixmap = QPixmap(400, 200)
-            pixmap.fill(QColor("#1a73e8"))
-
-            painter = QPainter(pixmap)
-            painter.setPen(QColor("#ffffff"))
-            painter.setFont(QFont("Segoe UI", 16, QFont.Bold))
-            painter.drawText(pixmap.rect(), Qt.AlignCenter, "RFUAV ChannelSim Viewer")
-            painter.setFont(QFont("Segoe UI", 10))
-            painter.drawText(pixmap.rect().adjusted(0, 30, 0, 0), Qt.AlignCenter, "v1.3.0")
-            painter.setFont(QFont("Segoe UI", 9))
-            painter.drawText(pixmap.rect().adjusted(0, 60, 0, 0), Qt.AlignCenter, message)
-            painter.end()
-
+            pixmap = _create_splash_pixmap(message)
             splash.setPixmap(pixmap)
             splash.repaint()
             get_app().processEvents()
@@ -128,12 +118,6 @@ def setup_theme(app: QApplication, dark: bool = False) -> None:
     from ChannelSimulation.viewer.core.ui_style import apply_stylesheet, set_theme
     set_theme(dark)
     apply_stylesheet(app)
-
-
-def load_fonts() -> None:
-    """Load custom fonts if needed."""
-    # Currently using system default fonts
-    pass
 
 
 def setup_unhandled_exception_handler() -> None:

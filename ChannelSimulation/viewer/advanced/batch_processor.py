@@ -8,7 +8,6 @@ progress display, and resume capability.
 
 from __future__ import annotations
 
-import csv
 import json
 import time
 from dataclasses import dataclass, asdict
@@ -18,8 +17,8 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 try:
-from ChannelSimulation.viewer.signal_proc.pipeline_runner import PipelineRunner
-from ChannelSimulation.viewer.signal_proc.business.export_utils import ExportUtils
+    from ChannelSimulation.viewer.signal_proc.pipeline_runner import PipelineRunner
+    from ChannelSimulation.viewer.business.export_utils import ExportUtils
 except ImportError:
     from pipeline_runner import PipelineRunner
     from export_utils import ExportUtils
@@ -293,10 +292,176 @@ class BatchProcessorDialog:
     """
 
     def __init__(self, parent=None):
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFileDialog, QListWidget, QListWidgetItem, QProgressBar, QCheckBox, QSpinBox, QLineEdit
+        from PySide6.QtCore import Qt, QThread, Signal, QTimer
+        from ChannelSimulation.viewer.core.ui_style import get_color
+
         self._parent = parent
-        self._processor = BatchProcessor()
+        self._dialog = QDialog(parent)
+        self._dialog.setWindowTitle("Batch Processing")
+        self._dialog.setMinimumSize(700, 500)
+
+        layout = QVBoxLayout(self._dialog)
+        layout.setSpacing(12)
+
+        # File selection
+        file_section = QLabel("Input Files:")
+        file_section.setStyleSheet("font-weight: bold;")
+        layout.addWidget(file_section)
+
+        file_layout = QHBoxLayout()
+        self._file_list = QListWidget()
+        self._file_list.setMaximumHeight(100)
+        file_layout.addWidget(self._file_list)
+
+        btn_file_layout = QVBoxLayout()
+        btn_add = QPushButton("Add Files...")
+        btn_add.clicked.connect(self._add_files)
+        btn_remove = QPushButton("Remove")
+        btn_remove.clicked.connect(self._remove_file)
+        btn_clear = QPushButton("Clear All")
+        btn_clear.clicked.connect(self._file_list.clear)
+        btn_file_layout.addWidget(btn_add)
+        btn_file_layout.addWidget(btn_remove)
+        btn_file_layout.addWidget(btn_clear)
+        btn_file_layout.addStretch()
+        file_layout.addLayout(btn_file_layout)
+        layout.addLayout(file_layout)
+
+        # Output directory
+        output_layout = QHBoxLayout()
+        output_layout.addWidget(QLabel("Output Directory:"))
+        self._output_dir = QLineEdit()
+        self._output_dir.setPlaceholderText("Select output directory...")
+        output_layout.addWidget(self._output_dir)
+        btn_output = QPushButton("Browse...")
+        btn_output.clicked.connect(self._select_output_dir)
+        output_layout.addWidget(btn_output)
+        layout.addLayout(output_layout)
+
+        # Sweep parameters
+        param_section = QLabel("Parameter Sweep (optional):")
+        param_section.setStyleSheet("font-weight: bold;")
+        layout.addWidget(param_section)
+
+        self._sweep_list = QListWidget()
+        self._sweep_list.setMaximumHeight(80)
+        layout.addWidget(self._sweep_list)
+
+        sweep_btn_layout = QHBoxLayout()
+        btn_add_param = QPushButton("Add Parameter...")
+        btn_add_param.clicked.connect(self._add_sweep_param)
+        btn_remove_param = QPushButton("Remove")
+        btn_remove_param.clicked.connect(lambda: self._sweep_list.takeItem(self._sweep_list.currentRow()))
+        sweep_btn_layout.addWidget(btn_add_param)
+        sweep_btn_layout.addWidget(btn_remove_param)
+        sweep_btn_layout.addStretch()
+        layout.addLayout(sweep_btn_layout)
+
+        # Progress
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setValue(0)
+        self._status_label = QLabel("Ready")
+        self._status_label.setStyleSheet(f"color: {get_color('text_secondary')};")
+        layout.addWidget(self._progress_bar)
+        layout.addWidget(self._status_label)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_run = QPushButton("Run")
+        btn_run.setObjectName("btnPrimary")
+        btn_run.clicked.connect(self._run_batch)
+        btn_stop = QPushButton("Stop")
+        btn_stop.clicked.connect(self._stop_batch)
+        btn_stop.setEnabled(False)
+        self._btn_stop = btn_stop
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self._dialog.reject)
+        btn_layout.addWidget(btn_run)
+        btn_layout.addWidget(btn_stop)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
 
     def exec(self) -> None:
         """Show dialog"""
-        # TODO: Implement full dialog UI
-        pass
+        self._dialog.exec()
+
+    def _add_files(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        files, _ = QFileDialog.getOpenFileNames(
+            self._dialog,
+            "Select IQ Files",
+            "",
+            "IQ Files (*.iq *.cf32 *.cfile *.raw *.bin);;All Files (*.*)",
+        )
+        for f in files:
+            from pathlib import Path
+            item = QListWidgetItem(Path(f).name)
+            item.setData(Qt.ItemDataRole.UserRole, f)
+            self._file_list.addItem(item)
+
+    def _remove_file(self) -> None:
+        self._file_list.takeItem(self._file_list.currentRow())
+
+    def _select_output_dir(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        dir_path = QFileDialog.getExistingDirectory(self._dialog, "Select Output Directory")
+        if dir_path:
+            self._output_dir.setText(dir_path)
+
+    def _add_sweep_param(self) -> None:
+        from PySide6.QtWidgets import QInputDialog
+        param, ok = QInputDialog.getText(self._dialog, "Add Sweep Parameter", "Parameter name (e.g., stage_configs.awgn.params.snr_db):")
+        if ok and param:
+            values_str, ok2 = QInputDialog.getText(self._dialog, "Add Sweep Parameter", "Values (comma-separated, e.g., 10,15,20):")
+            if ok2:
+                from PySide6.QtWidgets import QListWidgetItem
+                item = QListWidgetItem(f"{param}: {values_str}")
+                item.setData(Qt.ItemDataRole.UserRole, (param, [v.strip() for v in values_str.split(",")]))
+                self._sweep_list.addItem(item)
+
+    def _run_batch(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+        if self._file_list.count() == 0:
+            QMessageBox.warning(self._dialog, "No Files", "Please add at least one input file.")
+            return
+        output_dir = self._output_dir.text()
+        if not output_dir:
+            QMessageBox.warning(self._dialog, "No Output Directory", "Please select an output directory.")
+            return
+
+        self._btn_run = self._dialog.findChild(object, "btnPrimary") or self._dialog.findChild(__import__('PySide6.QtWidgets', fromlist=['QPushButton']).QPushButton, "")
+        self._btn_stop.setEnabled(True)
+
+        files = [self._file_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self._file_list.count())]
+        processor = BatchProcessor()
+
+        def update_progress(current, total, message):
+            pct = int(current / total * 100) if total > 0 else 0
+            self._progress_bar.setValue(pct)
+            self._status_label.setText(f"{message} ({current}/{total})")
+
+        processor.set_progress_callback(update_progress)
+        self._processor = processor
+
+        for f in files:
+            processor.add_task(f, output_dir, {})
+
+        try:
+            results = processor.run()
+            self._progress_bar.setValue(100)
+            completed = processor.get_completed_count()
+            failed = processor.get_failed_count()
+            self._status_label.setText(f"Completed: {completed}, Failed: {failed}")
+            QMessageBox.information(self._dialog, "Batch Complete", f"Completed: {completed}\nFailed: {failed}")
+        except Exception as e:
+            QMessageBox.critical(self._dialog, "Error", f"Batch processing failed:\n{str(e)}")
+        finally:
+            self._btn_stop.setEnabled(False)
+
+    def _stop_batch(self) -> None:
+        if self._processor:
+            self._processor.stop()
+            self._status_label.setText("Stopping...")
+

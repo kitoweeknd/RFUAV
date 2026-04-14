@@ -231,12 +231,14 @@ class CustomPipeline:
         self,
         input_signal: np.ndarray,
         seed: int = 42,
+        built_in_stages: Dict[str, Callable] | None = None,
     ) -> tuple[Dict[str, np.ndarray], np.ndarray]:
         """Run custom pipeline
 
         Args:
             input_signal: Input signal
             seed: Random seed
+            built_in_stages: Dictionary of built-in stage functions {name: func}
 
         Returns:
             (Intermediate signals dictionary, final output)
@@ -247,7 +249,12 @@ class CustomPipeline:
 
         for name, func, params in self._stages:
             try:
-                current = func(current, rng, params)
+                if func is not None:
+                    current = func(current, rng, params)
+                elif built_in_stages is not None and name in built_in_stages:
+                    current = built_in_stages[name](current, rng, params)
+                else:
+                    raise ScriptExecutionError(f"No processing function provided for stage '{name}'")
                 signals[name] = current.copy()
             except Exception as e:
                 raise ScriptExecutionError(f"Stage '{name}' execution failed: {e}")

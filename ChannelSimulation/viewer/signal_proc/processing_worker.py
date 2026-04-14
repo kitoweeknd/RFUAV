@@ -9,7 +9,7 @@ Supports progress reporting, error handling, metrics calculation, and pre-comput
 from __future__ import annotations
 
 import time
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 from PySide6.QtCore import QThread, Signal

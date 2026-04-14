@@ -19,9 +19,6 @@ from __future__ import annotations
 
 from typing import Final
 
-from PySide6.QtCore import QSize
-from PySide6.QtWidgets import QSizePolicy
-
 # ============================================================================
 # Theme color definitions
 # ============================================================================
@@ -128,17 +125,6 @@ def get_color(key: str) -> str:
 # ============================================================================
 # QSS stylesheet generators
 # ============================================================================
-
-def _css_var(name: str) -> str:
-    """Generate CSS variable reference"""
-    return f"var(--{name})"
-
-
-def _build_css_variables() -> str:
-    """Generate CSS variable definition block"""
-    vars_list = [f"    --{k}: {v};" for k, v in _current_theme.items()]
-    return ":\root {\n" + "\n".join(vars_list) + "\n}"
-
 
 def get_main_window_qss() -> str:
     """Main window stylesheet"""

@@ -9,7 +9,7 @@ Supports left-right comparison of original vs processed signals.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 
@@ -124,21 +124,21 @@ class SpectrumViewer(QWidget):
         nav_layout = QHBoxLayout(self._stft_nav_row)
         nav_layout.setContentsMargins(8, 0, 8, 4)
         nav_layout.setSpacing(12)
-        nav_layout.addWidget(QLabel("时间窗口:"))
+        nav_layout.addWidget(QLabel("Time Window:"))
         self._slider_time = QSlider(Qt.Orientation.Horizontal)
         self._slider_time.setRange(0, 1000)
         self._slider_time.setValue(1000)
-        self._slider_time.setToolTip("向左：放大时间轴（更短时段）；向右：显示更长时段")
+        self._slider_time.setToolTip("Left: zoom in time axis (shorter period); Right: show longer period")
         self._slider_time.valueChanged.connect(self._on_stft_time_slider_changed)
         nav_layout.addWidget(self._slider_time, stretch=1)
         self._label_time_span = QLabel("—")
         self._label_time_span.setMinimumWidth(120)
         nav_layout.addWidget(self._label_time_span)
-        nav_layout.addWidget(QLabel("频率窗口:"))
+        nav_layout.addWidget(QLabel("Freq Window:"))
         self._slider_freq = QSlider(Qt.Orientation.Horizontal)
         self._slider_freq.setRange(0, 1000)
         self._slider_freq.setValue(1000)
-        self._slider_freq.setToolTip("向左：放大频率轴（更窄频带）；向右：更宽频带")
+        self._slider_freq.setToolTip("Left: zoom in frequency axis (narrower band); Right: wider band")
         self._slider_freq.valueChanged.connect(self._on_stft_freq_slider_changed)
         nav_layout.addWidget(self._slider_freq, stretch=1)
         self._label_freq_span = QLabel("—")
@@ -235,8 +235,23 @@ class SpectrumViewer(QWidget):
         if self._data is None:
             return
 
-        self._play_frame = (self._play_frame + 1) % 100
-        # TODO: Implement STFT window sliding animation
+        if self._current_view_type == 2 and self._stft_center_t is not None:
+            total_dur = len(self._raw_original) / self._calculator.fs if self._raw_original is not None else 1.0
+            self._play_frame = (self._play_frame + 1) % 100
+            progress = self._play_frame / 100.0
+            t_range = self._nav_t1 - self._nav_t0 if self._has_stft_nav() else total_dur * 0.1
+            window_center = self._stft_center_t + progress * t_range
+            if self._nav_t0 is not None and self._nav_t1 is not None:
+                half_span = t_range * 0.5
+                max_center = self._nav_t1 - half_span
+                min_center = self._nav_t0 + half_span
+                window_center = float(np.clip(window_center, min_center, max_center))
+            self._stft_center_t = window_center
+            self._clamp_stft_centers()
+            self._update_stft_nav_labels()
+            self._apply_stft_view_limits_to_figures()
+            self._schedule_zoom_recompute()
+
         self._redraw()
 
     def _ensure_data_for_current_view(self) -> None:
@@ -518,6 +533,8 @@ class SpectrumViewer(QWidget):
             return
 
         n_total = len(self._raw_original)
+        if n_total == 0:
+            return
         i_start = int(np.clip(np.floor(t_min * fs), 0, n_total - 1))
         i_end = int(np.clip(np.ceil(t_max * fs), i_start + 1, n_total))
         sig_orig = self._raw_original[i_start:i_end]

@@ -307,24 +307,6 @@ def guess_iq_format(file_path: str | Path) -> str:
     return format_map.get(ext, "unknown")
 
 
-class Timer:
-    """Simple timer context manager"""
-
-    def __init__(self):
-        self.start_time: float | None = None
-        self.elapsed: float = 0.0
-
-    def __enter__(self):
-        import time
-        self.start_time = time.perf_counter()
-        return self
-
-    def __exit__(self, *args):
-        import time
-        if self.start_time is not None:
-            self.elapsed = time.perf_counter() - self.start_time
-
-
 def safe_dict_get(d: dict[str, Any], key: str, default: Any = None) -> Any:
     """Safely get dictionary value with nested access support
 
