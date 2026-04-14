@@ -1,6 +1,6 @@
 # Tool to process raw data
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend to avoid multi-threading issues
+matplotlib.use('Agg')
 import argparse
 import inspect
 import os
@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 from scipy.signal import stft, windows
 import numpy as np
 from io import BytesIO
-import imageio
 from PIL import Image
 from typing import Union
 from scipy.fft import fft
@@ -19,42 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 from collections import OrderedDict
 
-
-# ----------------------------------------------------------------------
-# Memory-efficient helpers
-# ----------------------------------------------------------------------
-def _complex_from_file(filepath: str, start: int, count: int,
-                       file_type=np.float32) -> np.ndarray:
-    """Read `count` complex samples starting at `start` from an interleaved IQ file.
-
-    Memory overhead: only the exact slice is kept in RAM.
-    """
-    bytes_per_sample = np.dtype(file_type).itemsize
-    skip_bytes = start * 2 * bytes_per_sample
-    read_bytes = count * 2 * bytes_per_sample
-    raw = np.fromfile(filepath, dtype=file_type, offset=skip_bytes, count=read_bytes)
-    return raw[::2] + raw[1::2] * 1j
-
-
-def _count_complex_samples(filepath: str, file_type=np.float32) -> int:
-    """Return the total number of complex samples in the file."""
-    bytes_per_sample = np.dtype(file_type).itemsize
-    total_bytes = os.path.getsize(filepath)
-    return total_bytes // (2 * bytes_per_sample)
-
-
-def _complex_memmap(filepath: str, file_type=np.float32):
-    """Memory-mapped view of an interleaved IQ file as complex64 samples.
-
-    The returned array has dtype complex64 and length = total_complex_samples.
-    NumPy memmap is read-only and backed by the OS page cache, so large files
-    are never fully resident in RAM; only touched pages are loaded on demand.
-    """
-    bytes_per_sample = np.dtype(file_type).itemsize
-    mm = np.memmap(filepath, dtype=file_type, mode='r')
-    i = mm[::2].astype(np.complex64)
-    q = mm[1::2].astype(np.complex64)
-    return i + 1j * q
+from graphic.io_utils import _is_complex_dtype, _count_complex_samples, _complex_from_file, _complex_memmap
 
 
 # ----------------------------------------------------------------------
@@ -64,19 +28,19 @@ class RawDataProcessor:
     """Transform raw data into images, video, and save the result locally.
 
     Modes:
-    - TransRawDataintoSpectrogram(): batch-convert raw data to spectrogram images
-    - TransRawDataintoVideo(): convert raw data to video
-    - ShowSpectrogram(): quick interactive spectrogram preview (first slice only)
+    - trans_raw_data_into_spectrogram(): batch-convert raw data to spectrogram images
+    - trans_raw_data_into_video(): convert raw data to video
+    - show_spectrogram(): quick interactive spectrogram preview (first slice only)
     """
 
-    def TransRawDataintoSpectrogram(self,
-                                    fig_save_path: str,
-                                    data_path: str,
-                                    sample_rate: Union[int, float] = 100e6,
-                                    stft_point: int = 2048,
-                                    duration_time: float = 0.1,
-                                    file_type=np.float32
-                                    ):
+    def trans_raw_data_into_spectrogram(self,
+                                        fig_save_path: str,
+                                        data_path: str,
+                                        sample_rate: Union[int, float] = 100e6,
+                                        stft_point: int = 2048,
+                                        duration_time: float = 0.1,
+                                        file_type=np.float32
+                                        ):
         """Transform the raw data into spectrograms and save the results locally.
 
         :param fig_save_path: the target dir path to save the image result.
@@ -85,18 +49,18 @@ class RawDataProcessor:
         :param stft_point: STFT window size; should be a power of 2.
         :param duration_time: duration of a single spectrogram frame in seconds.
         """
-        DrawandSave(fig_save_path=fig_save_path, file_path=data_path, fs=sample_rate,
-                    stft_point=stft_point, duration_time=duration_time, file_type=file_type)
+        draw_and_save(fig_save_path=fig_save_path, file_path=data_path, fs=sample_rate,
+                      stft_point=stft_point, duration_time=duration_time, file_type=file_type)
 
-    def TransRawDataintoVideo(self,
-                              save_path: str,
-                              data_path: str,
-                              sample_rate: Union[int, float] = 100e6,
-                              stft_point: int = 2048,
-                              duration_time: float = 0.1,
-                              fps: int = 5,
-                              file_type=np.float32
-                              ):
+    def trans_raw_data_into_video(self,
+                                  save_path: str,
+                                  data_path: str,
+                                  sample_rate: Union[int, float] = 100e6,
+                                  stft_point: int = 2048,
+                                  duration_time: float = 0.1,
+                                  fps: int = 5,
+                                  file_type=np.float32
+                                  ):
         """Transform the raw data into video and save the result locally.
 
         :param save_path: the target dir path to save the video.
@@ -110,14 +74,13 @@ class RawDataProcessor:
                       stft_point=stft_point, duration_time=duration_time, fps=fps,
                       file_type=file_type)
 
-    def ShowSpectrogram(self,
+    def show_spectrogram(self,
                         data_path: str,
                         drone_name: str = 'test',
                         sample_rate: Union[int, float] = 100e6,
                         stft_point: int = 2048,
                         duration_time: float = 0.1,
                         oneside: bool = False,
-                        Middle_Frequency: float = 2400e6,
                         file_type=np.float32,
                         save_path: str = None
                         ):
@@ -130,7 +93,6 @@ class RawDataProcessor:
         :param stft_point: STFT window size; should be a power of 2.
         :param duration_time: duration of the displayed spectrogram segment in seconds.
         :param oneside: True = show I and Q components separately; False = full spectrogram.
-        :param Middle_Frequency: center frequency of the acquired band.
         :param file_type: NumPy dtype of the raw file.
         :param save_path: if provided, always save to this path instead of displaying.
         """
@@ -141,9 +103,8 @@ class RawDataProcessor:
                            save_path=save_path)
         else:
             show_spectrum(datapack=data_path, drone_name=drone_name, fs=sample_rate,
-                           stft_point=stft_point, duration_time=duration_time,
-                           Middle_Frequency=Middle_Frequency, file_type=file_type,
-                           save_path=save_path)
+                          stft_point=stft_point, duration_time=duration_time,
+                          file_type=file_type, save_path=save_path)
 
 
 # ----------------------------------------------------------------------
@@ -180,7 +141,7 @@ def generate_images(datapack: str = None,
                     fs: int = 100e6,
                     stft_point: int = 1024,
                     duration_time: float = 0.1,
-                    ratio: int = 1,
+                    step: int = 1,
                     location: str = 'buffer',
                     file_type=np.float32
                     ):
@@ -197,7 +158,8 @@ def generate_images(datapack: str = None,
     - fs (int): Sampling frequency in Hz, default 100 MHz.
     - stft_point (int): FFT window size, default 1024.
     - duration_time (float): Duration per frame in seconds, default 0.1.
-    - ratio (int): Frame step control (0 = every frame, 1 = every other, etc.), default 1.
+    - step (int): Only keep every N-th frame (step=1 means every frame, step=2 means every
+        other frame, etc.), default 1.
     - location (str): 'buffer' to return images in RAM, or a directory path to stream to disk.
     - file_type: NumPy dtype of the raw file, default np.float32.
 
@@ -209,17 +171,17 @@ def generate_images(datapack: str = None,
     n_frames = int(total_complex // slice_point)
 
     images = [] if location == 'buffer' else None
-    i = 0
+    frame_count = 0
 
-    while int(i) * slice_point < total_complex:
+    for frame_idx in range(0, n_frames, step):
         # Stream one frame from disk (only ~1.6 MB for float32 at 100 MHz, 0.1 s)
-        data = _complex_from_file(datapack, int(i) * slice_point, slice_point, file_type)
+        data = _complex_from_file(datapack, frame_idx * slice_point, slice_point, file_type)
 
         f, t, Zxx = STFT(data, stft_point=stft_point, fs=fs,
                          duration_time=duration_time, onside=False)
         f = np.fft.fftshift(f)
         Zxx = np.fft.fftshift(Zxx, axes=0)
-        aug = 10 * np.log10(np.abs(Zxx))
+        aug = np.clip(aug, a_min=1e-10, a_max=None)
         extent = [t.min(), t.max(), f.min(), f.max()]
 
         plt.figure()
@@ -238,11 +200,11 @@ def generate_images(datapack: str = None,
                                   (file + '/' if file else '') +
                                   (pack + '/' if pack else ''))
             os.makedirs(subdir, exist_ok=True)
-            fname = os.path.join(subdir, f'{file} ({i}).jpg')
+            fname = os.path.join(subdir, f'{file} ({frame_count}).jpg')
             plt.savefig(fname, dpi=300)
             plt.close()
 
-        i += 2 ** (-ratio)
+        frame_count += 1
 
     return images
 
@@ -257,8 +219,8 @@ def save_as_video(datapack: str,
                   ):
     """Save the raw data as an MP4 video, streaming frames to avoid memory overflow.
 
-    Large files are handled by periodically flushing completed frames to disk,
-    keeping the in-flight buffer bounded regardless of total file size.
+    Frames are written as PNG files in a temp directory (one at a time, never all in RAM)
+    and encoded to MP4 via ffmpeg at the end.
 
     Parameters:
     - datapack (str): Path to the raw IQ data file.
@@ -269,6 +231,8 @@ def save_as_video(datapack: str,
     - fps (int): Output video frame rate, default 5.
     - file_type: NumPy dtype of the raw file, default np.float32.
     """
+    import subprocess
+
     os.makedirs(save_path, exist_ok=True)
     video_path = os.path.join(save_path, 'video.mp4')
 
@@ -276,14 +240,9 @@ def save_as_video(datapack: str,
     total_complex = _count_complex_samples(datapack, file_type)
     n_frames = int(total_complex // slice_point)
 
-    tmp_dir = tempfile.mkdtemp(prefix='rdu_')
-    frame_idx = 0
-    flush_every = max(fps * 10, 50)   # flush to disk every N frames
+    tmp_dir = tempfile.mkdtemp(prefix='rdu_video_')
 
     try:
-        writer = imageio.get_writer(video_path, fps=fps, codec='libx264',
-                                   pixelformat='yuv420p')
-
         for i in range(n_frames):
             data = _complex_from_file(datapack, i * slice_point, slice_point, file_type)
 
@@ -292,6 +251,7 @@ def save_as_video(datapack: str,
             f = np.fft.fftshift(f)
             Zxx = np.fft.fftshift(Zxx, axes=0)
             aug = 10 * np.log10(np.abs(Zxx))
+            aug = np.clip(aug, a_min=1e-10, a_max=None)
             extent = [t.min(), t.max(), f.min(), f.max()]
 
             plt.figure()
@@ -299,26 +259,29 @@ def save_as_video(datapack: str,
             plt.axis('off')
             plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=None, hspace=None)
 
-            buf = BytesIO()
-            plt.savefig(buf, format='png')
+            frame_path = os.path.join(tmp_dir, f'frame_{i:06d}.png')
+            plt.savefig(frame_path, format='png')
             plt.close()
-            buf.seek(0)
 
-            img = Image.open(buf)
-            writer.append_data(np.array(img))
-            img.close()
+            if (i + 1) % 100 == 0 or i == n_frames - 1:
+                print(f"  frame {i + 1}/{n_frames}", flush=True)
 
-            frame_idx += 1
+        print("Encoding video with ffmpeg ...")
+        subprocess.run([
+            'ffmpeg', '-y',
+            '-framerate', str(fps),
+            '-i', os.path.join(tmp_dir, 'frame_%06d.png'),
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            '-crf', '23',
+            video_path
+        ], check=True, capture_output=True)
 
-            if frame_idx % flush_every == 0:
-                writer.close()
-                del writer
-                writer = imageio.get_writer(video_path, fps=fps, codec='libx264',
-                                           pixelformat='yuv420p', mode='a')
-
-        writer.close()
         print(f'Video ready: {video_path}  ({n_frames} frames @ {fps} fps)')
 
+    except subprocess.CalledProcessError as e:
+        print(f"ffmpeg error: {e.stderr.decode() if e.stderr else e}")
+        raise
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -350,7 +313,6 @@ def show_spectrum(datapack: str = '',
                   fs: int = 100e6,
                   stft_point: int = 2048,
                   duration_time: float = 0.1,
-                  Middle_Frequency: float = 2400e6,
                   file_type=np.float32,
                   save_path: str = None
                   ):
@@ -364,7 +326,6 @@ def show_spectrum(datapack: str = '',
     - fs (int): Sampling frequency in Hz, default 100 MHz.
     - stft_point (int): FFT window size, default 2048.
     - duration_time (float): Duration to display in seconds, default 0.1.
-    - Middle_Frequency (float): Center frequency of the band, default 2400 MHz.
     - file_type: NumPy dtype of the raw file, default np.float32.
     - save_path (str): If provided, always save to this path; otherwise auto-save
         when no display is available.
@@ -377,11 +338,12 @@ def show_spectrum(datapack: str = '',
 
     f, t, Zxx = STFT(data, stft_point=stft_point, fs=fs,
                      duration_time=duration_time, onside=False)
-    f = np.linspace(Middle_Frequency - fs / 2, Middle_Frequency + fs / 2, stft_point)
+    f = np.fft.fftshift(f)
     Zxx = np.fft.fftshift(Zxx, axes=0)
 
     fig = plt.figure()
     aug = 10 * np.log10(np.abs(Zxx))
+    aug = np.clip(aug, a_min=1e-10, a_max=None)
     extent = [t.min(), t.max(), f.min(), f.max()]
     plt.imshow(aug, extent=extent, aspect='auto', origin='lower')
     plt.colorbar()
@@ -440,7 +402,8 @@ def show_half_only(datapack: str = '',
     # I component
     fig_I = plt.figure()
     aug_I = 10 * np.log10(np.abs(Zxx_I))
-    plt.pcolormesh(t_I, f_I, np.abs(aug_I))
+    aug_I = np.clip(aug_I, a_min=1e-10, a_max=None)
+    plt.pcolormesh(t_I, f_I, aug_I, cmap='jet')
     plt.title(drone_name + " I")
     plt.xlabel('Time (s)')
     plt.ylabel('Frequency (Hz)')
@@ -461,7 +424,8 @@ def show_half_only(datapack: str = '',
     # Q component
     fig_Q = plt.figure()
     aug_Q = 10 * np.log10(np.abs(Zxx_Q))
-    plt.pcolormesh(t_Q, f_Q, np.abs(aug_Q), cmap='jet')
+    aug_Q = np.clip(aug_Q, a_min=1e-10, a_max=None)
+    plt.pcolormesh(t_Q, f_Q, aug_Q, cmap='jet')
     plt.title(drone_name + " Q")
     plt.xlabel('Time (s)')
     plt.ylabel('Frequency (Hz)')
@@ -480,7 +444,7 @@ def show_half_only(datapack: str = '',
         plt.show()
 
 
-def DrawandSave(fig_save_path: str,
+def draw_and_save(fig_save_path: str,
                 file_path: str,
                 fs: int = 100e6,
                 stft_point: int = 2048,
@@ -520,7 +484,7 @@ def DrawandSave(fig_save_path: str,
                             fs=fs,
                             stft_point=stft_point,
                             duration_time=duration_time,
-                            ratio=0,
+                            step=1,
                             location=fig_save_path,
                             file_type=file_type
                             )
@@ -581,7 +545,7 @@ def waterfall_spectrogram_optimized(datapack,
                                     location: str,
                                     time_scale: int,
                                     target_frame_gap: int = 150,
-                                    num_workers: int = 4,
+                                    num_workers: int = None,
                                     file_type=np.float32,
                                     chunk_size: int = 50_000_000
                                     ):
@@ -597,17 +561,16 @@ def waterfall_spectrogram_optimized(datapack,
     - location (str): 'buffer' to return images in RAM, or a directory to stream to disk.
     - time_scale (int): Number of FFT frames visible in each waterfall column.
     - target_frame_gap (int): Spacing between consecutive waterfall frames (in FFT frames).
-    - num_workers (int): Number of parallel FFT workers.
+    - num_workers (int): Number of parallel FFT workers. Defaults to CPU count.
     - file_type: NumPy dtype of the raw file, default np.float32.
     - chunk_size (int): Maximum complex samples held in RAM at once, default 50M
         (~400 MB for float32, ~800 MB for float64). Adjust based on available RAM.
     """
+    if num_workers is None:
+        num_workers = os.cpu_count() or 4
     # --- load / validate data source ---
     if isinstance(datapack, str):
         total_complex = _count_complex_samples(datapack, file_type)
-        total_bytes = os.path.getsize(datapack)
-        bytes_per_sample = np.dtype(file_type).itemsize
-        total_complex = total_bytes // (2 * bytes_per_sample)
     elif isinstance(datapack, np.ndarray):
         total_complex = len(datapack)
     else:
@@ -620,6 +583,8 @@ def waterfall_spectrogram_optimized(datapack,
 
     # --- streaming pass: process the file in chunks ---
     processed_frames = 0
+
+    all_images = [] if location == 'buffer' else None
 
     for chunk_start in range(0, total_complex, chunk_size):
         chunk_end = min(chunk_start + chunk_size, total_complex)
@@ -700,6 +665,7 @@ def waterfall_spectrogram_optimized(datapack,
             images_chunk = [spectrogram_images[gi] for gi in
                             sorted(spectrogram_images, key=lambda x: x)]
             processed_frames += len(images_chunk)
+            all_images.extend(images_chunk)
             print(f"  [{chunk_start:,} – {chunk_end:,}] "
                   f"{len(images_chunk)} waterfall frames  (total: {processed_frames})")
         else:
@@ -715,7 +681,7 @@ def waterfall_spectrogram_optimized(datapack,
             print(f"  [{chunk_start:,} – {chunk_end:,}] "
                   f"{len(spectrogram_images)} waterfall frames  (total: {processed_frames})")
 
-    return [] if location == 'buffer' else None
+    return all_images if location == 'buffer' else None
 
 
 def waterfall_spectrogram(datapack, fft_size, fs, location, time_scale,
@@ -782,8 +748,6 @@ def _build_parser() -> argparse.ArgumentParser:
                          help='STFT window size (default 2048)')
     p_show.add_argument('--duration', type=float, default=0.1,
                          help='Single-frame duration in seconds (default 0.1)')
-    p_show.add_argument('--freq', type=float, default=2400e6,
-                         help='Center frequency (default 2400e6)')
     p_show.add_argument('--half', action='store_true',
                          help='Show I/Q components separately (half spectrum)')
     p_show.add_argument('--save', '-s', default=None,
@@ -807,8 +771,8 @@ def _build_parser() -> argparse.ArgumentParser:
                       help='Time-window size (default 512)')
     p_wf.add_argument('--frame-gap', type=int, default=150,
                       help='Target frame interval in FFT frames (default 150)')
-    p_wf.add_argument('--workers', type=int, default=4,
-                      help='Number of parallel workers (default 4)')
+    p_wf.add_argument('--workers', type=int, default=None,
+                      help='Number of parallel workers (default: CPU count)')
     p_wf.add_argument('--chunk-size', type=int, default=50_000_000,
                       help='Max complex samples held in RAM at once (default 50M, ~400 MB)')
     p_wf.add_argument('--dtype', default='float32',
@@ -834,7 +798,7 @@ def main():
 
     if args.mode == 'spectrogram':
         proc = RawDataProcessor()
-        proc.TransRawDataintoSpectrogram(
+        proc.trans_raw_data_into_spectrogram(
             fig_save_path=args.output,
             data_path=args.input,
             sample_rate=args.fs,
@@ -872,7 +836,6 @@ def main():
                 fs=args.fs,
                 stft_point=args.stft_point,
                 duration_time=args.duration,
-                Middle_Frequency=args.freq,
                 file_type=dtype,
                 save_path=args.save,
             )
