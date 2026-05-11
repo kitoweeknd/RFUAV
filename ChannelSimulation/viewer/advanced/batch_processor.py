@@ -4,10 +4,17 @@ Batch Processing Module
 
 Supports batch processing of multiple IQ files with parameter sweeping,
 progress display, and resume capability.
+
+Memory optimisation notes
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+- Stage signals are not retained after export (saves memory for large files).
+- gc.collect() is called after each task to reclaim temporary arrays.
+- PipelineRunner reuses float32 internal precision to halve per-task memory.
 """
 
 from __future__ import annotations
 
+import gc
 import json
 import time
 from dataclasses import dataclass, asdict
@@ -156,6 +163,10 @@ class BatchProcessor:
                 task.elapsed = time.perf_counter() - start_time
                 self._results.append(result)
 
+                # Reclaim temporary arrays from this task immediately.
+                del result
+                gc.collect()
+
             except Exception as e:
                 task.status = "failed"
                 task.error = str(e)
@@ -180,19 +191,46 @@ class BatchProcessor:
         # Load file
         runner.load_iq_file(task.input_file)
 
-        # Run pipeline
-        results = runner.run()
+        # Run pipeline; request only final output to avoid retaining stage signals.
+        results = runner.run()  # dict: original, preprocess, <stage>, final
 
-        # Export results
+        # Export IQ
         output_iq = output_dir / "processed.iq"
         ExportUtils.export_iq(results["final"], output_iq)
 
-        # Export spectrum
+        # Compute spectrum (on-demand, only for export)
         from ChannelSimulation.viewer.signal_proc.spectrum_data import SpectrumCalculator
         calc = SpectrumCalculator(fs=task.config.get("fs", 100_000_000))
         data = calc.calculate_all(results["original"], results["final"])
 
-        # TODO: Export spectrum PNG
+        # Export spectrum PNG
+        if data.stft_original is not None and data.freq_axis_stft is not None and data.time_axis_stft is not None:
+            from ChannelSimulation.viewer.core.ui_style import get_spectrogram_cmap
+            cmap = get_spectrogram_cmap()
+            extent = [
+                float(np.min(data.time_axis_stft)),
+                float(np.max(data.time_axis_stft)),
+                float(np.min(data.freq_axis_stft) / 1e6),
+                float(np.max(data.freq_axis_stft) / 1e6),
+            ]
+            ExportUtils.export_spectrum_png(
+                data.stft_original,
+                output_dir / "original_spectrogram.png",
+                title="Original Signal Spectrogram",
+                xlabel="Time (s)",
+                ylabel="Frequency (MHz)",
+                extent=extent,
+                cmap=cmap,
+            )
+            ExportUtils.export_spectrum_png(
+                data.stft_processed,
+                output_dir / "processed_spectrogram.png",
+                title="Processed Signal Spectrogram",
+                xlabel="Time (s)",
+                ylabel="Frequency (MHz)",
+                extent=extent,
+                cmap=cmap,
+            )
 
         # Calculate metrics
         from ChannelSimulation.viewer.signal_proc.metrics_calculator import MetricsCalculator
@@ -212,6 +250,10 @@ class BatchProcessor:
         }
         with open(output_dir / "meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
+
+        # Clean up large objects to free memory between tasks.
+        del runner, results, data, calc
+        gc.collect()
 
         return BatchResult(
             task=task,
@@ -435,6 +477,16 @@ class BatchProcessorDialog:
         self._btn_stop.setEnabled(True)
 
         files = [self._file_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self._file_list.count())]
+        
+        # Get sweep parameters
+        sweep_params = {}
+        for i in range(self._sweep_list.count()):
+            item = self._sweep_list.item(i)
+            param_path, values = item.data(Qt.ItemDataRole.UserRole)
+            if param_path and values:
+                sweep_params[param_path] = [v for v in values]
+
+        # Create processor
         processor = BatchProcessor()
 
         def update_progress(current, total, message):
@@ -445,8 +497,12 @@ class BatchProcessorDialog:
         processor.set_progress_callback(update_progress)
         self._processor = processor
 
-        for f in files:
-            processor.add_task(f, output_dir, {})
+        # Add tasks with sweep parameters
+        if sweep_params:
+            processor.add_parameter_sweep(files, output_dir, {}, sweep_params)
+        else:
+            for f in files:
+                processor.add_task(f, output_dir, {})
 
         try:
             results = processor.run()

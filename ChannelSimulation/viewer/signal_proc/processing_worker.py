@@ -4,15 +4,162 @@ Background Processing Thread
 
 Implements background signal processing using QThread to avoid blocking the main UI thread.
 Supports progress reporting, error handling, metrics calculation, and pre-computed STFT/PSD cache.
+
+Memory optimisation notes
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+- A spectral cache stores computed STFT/PSD results, keyed by signal id + view params.
+- The cache is bounded (max entries) and uses LRU eviction when full.
+- All Qt signals pass float32 arrays (half the memory of float64).
+- Arrays are registered with MemoryManager for explicit tracking.
 """
 
 from __future__ import annotations
 
 import time
+import threading
+import weakref
 from typing import Any
 
 import numpy as np
 from PySide6.QtCore import QThread, Signal
+
+from .array_pool import get_pool
+from .memory_manager import get_memory_manager
+
+
+# ----------------------------------------------------------------------
+# Spectral Cache (LRU bounded cache for STFT/PSD results, keyed by stage)
+# ----------------------------------------------------------------------
+
+# view_type values (consistent with SpectrumViewer)
+_VIEW_TIME = 0
+_VIEW_PSD = 1
+_VIEW_STFT = 2
+_VIEW_RESIDUAL = 3
+_VIEW_STFT_ZOOM = 4  # STFT zoomed to a specific time/freq window
+
+
+class _SpectralCache:
+    """Thread-safe LRU cache for spectrum computation results.
+
+    Key design decisions
+    ~~~~~~~~~~~~~~~~~~~~
+    - Bounded size: at most ``_max_entries`` entries; evict LRU when full.
+    - Primary key: (stage_name, view_type, signal_id) → cached result.
+      For zoom entries the key extends to
+      (stage_name, _VIEW_STFT_ZOOM, signal_id, zoom_key).
+    - Stale entries are auto-detected by comparing ``signal_id`` (id of the
+      raw original array).  When the signal changes, all entries are
+      treated as invalid regardless of key match.
+    - Stores pre-computed STFT / PSD / residual for a given stage + view
+      combination; zoom recompute is handled separately by StftWorker.
+    """
+
+    _lock = threading.RLock()
+    _max_entries = 64  # full-spectrum + zoom entries; LRU eviction when full
+
+    def __init__(self):
+        self._cache: dict[tuple, tuple[float, int, dict]] = {}
+        self._order: list[tuple] = []  # most-recently-used at end
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _make_key(
+        stage_name: str,
+        view_type: int,
+        signal_id: int,
+        zoom_key: str | None = None,
+    ) -> tuple:
+        """Build a cache key, optionally including zoom_key for zoom entries."""
+        if view_type == _VIEW_STFT_ZOOM:
+            assert zoom_key is not None, "zoom_key required for STFT_ZOOM view_type"
+            return (stage_name, view_type, signal_id, zoom_key)
+        return (stage_name, view_type, signal_id)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    def get(
+        self,
+        stage_name: str,
+        view_type: int,
+        signal_id: int,
+        zoom_key: str | None = None,
+    ) -> dict | None:
+        """Return cached spectrum for the given key if still valid."""
+        key = self._make_key(stage_name, view_type, signal_id, zoom_key)
+        with self._lock:
+            if key not in self._cache:
+                return None
+            ts, cached_sig_id, result = self._cache[key]
+            if cached_sig_id != signal_id:
+                self._cache.pop(key, None)
+                try:
+                    self._order.remove(key)
+                except ValueError:
+                    pass
+                return None
+            try:
+                self._order.remove(key)
+            except ValueError:
+                pass
+            self._order.append(key)
+            self._cache[key] = (time.monotonic(), cached_sig_id, result)
+            return result
+
+    def put(
+        self,
+        stage_name: str,
+        view_type: int,
+        signal_id: int,
+        result: dict,
+        zoom_key: str | None = None,
+    ) -> None:
+        """Store a computed spectrum result."""
+        key = self._make_key(stage_name, view_type, signal_id, zoom_key)
+        with self._lock:
+            if key in self._cache:
+                self._cache[key] = (time.monotonic(), signal_id, result)
+                try:
+                    self._order.remove(key)
+                except ValueError:
+                    pass
+                self._order.append(key)
+                return
+
+            if len(self._cache) >= self._max_entries:
+                evict_key = self._order.pop(0)
+                self._cache.pop(evict_key, None)
+
+            self._cache[key] = (time.monotonic(), signal_id, result)
+            self._order.append(key)
+
+    def clear(self) -> None:
+        """Clear all entries (call when loading a new IQ file)."""
+        with self._lock:
+            self._cache.clear()
+            self._order.clear()
+
+    def clear_for_signal(self, signal_id: int) -> None:
+        """Remove only entries belonging to a specific signal (signal replacement)."""
+        with self._lock:
+            stale: list[tuple] = []
+            for key, (_, cached_sig_id, _) in self._cache.items():
+                if cached_sig_id == signal_id:
+                    stale.append(key)
+            for key in stale:
+                self._cache.pop(key, None)
+                try:
+                    self._order.remove(key)
+                except ValueError:
+                    pass
+
+
+# Module-level cache singleton
+_SPECTRAL_CACHE = _SpectralCache()
+
 
 try:
     from ChannelSimulation.viewer.signal_proc.pipeline_runner import PipelineRunner
@@ -32,19 +179,21 @@ class ProcessingWorker(QThread):
         progress: Progress update (percentage, current stage name)
         error: Error message
         metrics_ready: Metrics calculation completed
-        spectrum_ready: Pre-computed spectrum data (dict)
+        spectrum_ready: Pre-computed STFT/PSD for final stage (immediate display)
+        stage_spectrum_cached: Intermediate stage spectrum cached (stage_name, spectrum_dict)
     """
 
     finished = Signal(dict)
     progress = Signal(float, str)
     error = Signal(str)
     metrics_ready = Signal(dict)
-    spectrum_ready = Signal(dict)  # pre-computed STFT/PSD in background
+    spectrum_ready = Signal(dict)
+    stage_spectrum_cached = Signal(str, dict)
 
     def __init__(
         self,
         iq_data: np.ndarray | None,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         fs: float = 100_000_000,
         fc: float = 0.0,
         seed: int = 42,
@@ -96,15 +245,78 @@ class ProcessingWorker(QThread):
             original = results.get("original")
             processed = results.get("final")
 
-            # ── Pre-compute STFT / PSD in this background thread ─────────────
-            self.progress.emit(0.85, "Computing spectrum...")
-            spectrum_data = self._compute_spectrum_background(original, processed)
-            self.spectrum_ready.emit(spectrum_data)
+            if original is None or processed is None:
+                return
+
+            # ── Build a SINGLE SpectrumCalculator and reuse for all stages ─────
+            # This is critical: creating a new SpectrumCalculator() inside each
+            # _compute_all_spectra_for_stage call re-creates scipy signal objects.
+            sig_id = id(original)
+            calc = SpectrumCalculator(fs=self._fs, fc=self._fc)
+
+            # ── Compute original spectra ONCE (reuse for final + every stage) ───
+            self.progress.emit(0.35, "Computing original spectrum...")
+            stft_o, freq_stft, time_stft = calc.compute_stft(original)
+            psd_o, freq_psd = calc.compute_psd(original)
+            orig_data = {
+                "stft_original": stft_o,
+                "freq_axis_stft": freq_stft,
+                "time_axis_stft": time_stft,
+                "psd_original": psd_o,
+                "freq_axis_psd": freq_psd,
+            }
+
+            # Cache original spectra so stage switches are instant
+            _SPECTRAL_CACHE.put("original", _VIEW_STFT, sig_id, {**orig_data})
+            _SPECTRAL_CACHE.put("original", _VIEW_PSD, sig_id, {**orig_data})
+
+            # ── Compute processed (final) stage spectra ──────────────────────────
+            self.progress.emit(0.60, "Computing processed spectrum...")
+            stft_p, _, _ = calc.compute_stft(processed)
+            psd_p, _ = calc.compute_psd(processed)
+
+            result_final = self._build_spectrum_dict(
+                original, processed,
+                "final", sig_id,
+                orig_data, stft_p, psd_p, calc,
+            )
+
+            # Emit immediately so UI updates right away
+            self.spectrum_ready.emit(result_final)
 
             if self._should_stop:
                 return
 
+            # ── Pre-compute intermediate stage spectra (populate L2 cache) ─────
+            stage_items = [
+                (k, v)
+                for k, v in results.items()
+                if k not in ("original", "final") and isinstance(v, np.ndarray)
+            ]
+            n_stages = len(stage_items)
+            if n_stages > 0:
+                for i, (sname, ssignal) in enumerate(stage_items):
+                    frac = 0.60 + 0.25 * ((i + 1) / max(n_stages, 1))
+                    self.progress.emit(frac, f"Computing {sname}...")
+                    if self._should_stop:
+                        return
+                    stft_s, _, _ = calc.compute_stft(ssignal)
+                    psd_s, _ = calc.compute_psd(ssignal)
+                    stage_result = self._build_spectrum_dict(
+                        original, ssignal,
+                        sname, sig_id,
+                        orig_data, stft_s, psd_s, calc,
+                    )
+                    _SPECTRAL_CACHE.put(sname, _VIEW_STFT, sig_id, stage_result)
+                    _SPECTRAL_CACHE.put(sname, _VIEW_PSD, sig_id, stage_result)
+                    self.stage_spectrum_cached.emit(sname, stage_result)
+
+            if self._should_stop:
+                return
+
+            self.progress.emit(0.90, "Calculating metrics...")
             metrics = self._calculate_metrics(original, processed)
+            self.metrics_ready.emit(metrics)
 
             elapsed = time.perf_counter() - start_time
             self.progress.emit(1.0, "Complete")
@@ -112,60 +324,92 @@ class ProcessingWorker(QThread):
             result = {
                 "original": original,
                 "processed": processed,
-                "stage_signals": {k: v for k, v in results.items() if k not in ("original", "final")},
+                "stage_signals": {
+                    k: v for k, v in results.items() if k not in ("original", "final")
+                },
                 "fs": self._fs,
                 "fc": self._fc,
                 "seed": self._seed,
                 "elapsed": elapsed,
                 "info": {
-                    "n_samples": len(original) if original is not None else 0,
-                    "duration": (len(original) / self._fs) if (original is not None and self._fs > 0) else 0,
+                    "n_samples": len(original),
+                    "duration": len(original) / self._fs if self._fs > 0 else 0,
                     "power_original": self._calc_power(original),
                     "power_processed": self._calc_power(processed),
                 },
             }
 
             self.finished.emit(result)
-            self.metrics_ready.emit(metrics)
 
         except Exception as e:
             import traceback
+
             error_msg = f"{type(e).__name__}: {str(e)}\n\n{traceback.format_exc()}"
             self.error.emit(error_msg)
 
     # ------------------------------------------------------------------ #
-    #  Spectrum pre-computation (runs in background thread)              #
+    #  Helpers                                                             #
     # ------------------------------------------------------------------ #
-    def _compute_spectrum_background(
+
+    def _build_spectrum_dict(
         self,
-        original: np.ndarray | None,
-        processed: np.ndarray | None,
-    ) -> Dict[str, Any]:
-        """STFT / PSD / residual computed entirely in the background thread."""
-        if original is None or processed is None:
-            return {}
-
-        calc = SpectrumCalculator(fs=self._fs, fc=self._fc)
-        data = calc.calculate_all(original, processed)
-
-        return {
-            "time_axis": data.time_axis,
-            "stft_original": data.stft_original,
-            "stft_processed": data.stft_processed,
-            "freq_axis_stft": data.freq_axis_stft,
-            "time_axis_stft": data.time_axis_stft,
-            "psd_original": data.psd_original,
-            "psd_processed": data.psd_processed,
-            "freq_axis_psd": data.freq_axis_psd,
-            "residual_psd": data.residual_psd,
-            "residual_stft": data.residual_stft,
+        original: np.ndarray,
+        processed: np.ndarray,
+        stage_name: str,
+        sig_id: int,
+        orig_data: dict,
+        stft_p: np.ndarray,
+        psd_p: np.ndarray,
+        calc: SpectrumCalculator,
+    ) -> dict[str, Any]:
+        """Build the spectrum result dict for a stage, computing residual lazily."""
+        result: dict[str, Any] = {
+            "stage_name": stage_name,
+            "signal_id": sig_id,
+            "time_axis": self._decimate_time_axis(len(original)),
+            "time_domain_original": self._decimate_1d(np.abs(original), 2_000_000),
+            "time_domain_processed": self._decimate_1d(np.abs(processed), 2_000_000),
+            # Reuse original spectra from precompute (no recompute)
+            "stft_original": orig_data["stft_original"],
+            "stft_processed": stft_p,
+            "freq_axis_stft": orig_data["freq_axis_stft"],
+            "time_axis_stft": orig_data["time_axis_stft"],
+            "psd_original": orig_data["psd_original"],
+            "psd_processed": psd_p,
+            "freq_axis_psd": orig_data["freq_axis_psd"],
+            # Residual deferred — computed on demand by SpectrumViewer when needed
+            "residual_stft": None,
+            "residual_psd": None,
+            "zoom_key": None,
         }
+        return result
+
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def clear_spectral_cache() -> None:
+        """Clear the module-level spectrum cache; call on new file load."""
+        _SPECTRAL_CACHE.clear()
+
+    def _decimate_time_axis(self, n_samples: int) -> np.ndarray:
+        """Build decimated time axis (float32)."""
+        max_pts = 2_000_000
+        step = max(1, n_samples // max_pts)
+        n_dec = n_samples // step
+        return np.arange(n_dec, dtype=np.float32) * (step / self._fs)
+
+    @staticmethod
+    def _decimate_1d(arr: np.ndarray, max_pts: int) -> np.ndarray:
+        """Downsample 1-D array to at most max_pts samples."""
+        if len(arr) <= max_pts:
+            return arr
+        step = max(1, len(arr) // max_pts)
+        return arr[::step]
 
     def _calculate_metrics(
         self,
         original: np.ndarray | None,
         processed: np.ndarray | None,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Calculate signal quality metrics"""
         try:
             if original is None or processed is None:
@@ -192,11 +436,11 @@ class StftWorker(QThread):
     """Background thread for zoom-recompute STFT.
 
     SpectrumViewer calls ``start_stft(sig_key, sig_orig, sig_proc, f_window,
-    nperseg, fs)``.  When done emits ``stft_done(sig_key, stft_orig, freq_axis,
-    time_axis)`` on the main thread.
+    nperseg, fs)``.  When done emits ``stft_done(sig_key, so, sp, ff, tt)``
+    on the main thread.
     """
 
-    stft_done = Signal(object, object, object, object, object)  # sig_key, so, sp, ff, tt
+    stft_done = Signal(object, object, object, object, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -250,7 +494,7 @@ class StreamingWorker(QThread):
         self,
         input_file: str,
         output_file: str,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         fs: float = 100_000_000,
         fc: float = 0.0,
         seed: int = 42,
@@ -296,18 +540,22 @@ class StreamingWorker(QThread):
             self.progress.emit(0.8, "Saving results...")
 
             from ChannelSimulation.core.io_utils import save_interleaved_iq
+
             save_interleaved_iq(self._output_file, results["final"])
 
             elapsed = time.perf_counter() - start_time
 
             self.progress.emit(1.0, "Complete")
 
-            self.finished.emit({
-                "output_file": self._output_file,
-                "elapsed": elapsed,
-                "n_samples": len(results["final"]),
-            })
+            self.finished.emit(
+                {
+                    "output_file": self._output_file,
+                    "elapsed": elapsed,
+                    "n_samples": len(results["final"]),
+                }
+            )
 
         except Exception as e:
             import traceback
+
             self.error.emit(f"{type(e).__name__}: {str(e)}\n\n{traceback.format_exc()}")

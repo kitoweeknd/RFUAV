@@ -50,11 +50,11 @@ seed: 42
 # -----------------------------
 stage_configs:
   fading:
-    method: rayleigh  # rayleigh / rician
+    method: rayleigh  # rayleigh / rician / rice_mild
     save: true
     params:
       k_factor: 5.0
-      block_size: 256
+      block_size: 256  # rice_mild uses 1024 by default
 
   multipath:
     method: tdl

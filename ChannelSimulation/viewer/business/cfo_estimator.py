@@ -190,13 +190,181 @@ class CFOEstimator:
 class CFOEstimatorDialog:
     """CFO Estimator Dialog
 
-    Used to display CFO estimation and compensation results in UI.
+    Provides a UI for CFO estimation and compensation functionality.
     """
 
     def __init__(self, parent=None):
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QGroupBox, QFormLayout, QTabWidget, QWidget, QTextEdit, QSpinBox
+        from PySide6.QtCore import Qt
+
         self._parent = parent
         self._estimator = CFOEstimator()
-        self._result: Optional[CFOEstimateResult] = None
+        self._original_signal = None
+        self._processed_signal = None
+        self._fs = 100_000_000
+
+        # Create dialog
+        self._dialog = QDialog(parent)
+        self._dialog.setWindowTitle("CFO Estimator & Compensation")
+        self._dialog.setMinimumSize(600, 450)
+
+        layout = QVBoxLayout(self._dialog)
+
+        # Method selection
+        method_group = QGroupBox("Estimation Method")
+        method_layout = QHBoxLayout(method_group)
+
+        self._method_combo = QComboBox()
+        self._method_combo.addItems(["FFT Peak Method", "Cross-Correlation Method"])
+        method_layout.addWidget(QLabel("Method:"))
+        method_layout.addWidget(self._method_combo)
+        method_layout.addStretch()
+        layout.addWidget(method_group)
+
+        # Search range settings
+        range_group = QGroupBox("Search Range (Optional)")
+        range_layout = QFormLayout(range_group)
+
+        self._range_min = QSpinBox()
+        self._range_min.setRange(-1000000, 1000000)
+        self._range_min.setValue(-500000)
+        self._range_min.setSuffix(" Hz")
+        self._range_min.setMaximumWidth(150)
+
+        self._range_max = QSpinBox()
+        self._range_max.setRange(-1000000, 1000000)
+        self._range_max.setValue(500000)
+        self._range_max.setSuffix(" Hz")
+        self._range_max.setMaximumWidth(150)
+
+        range_layout.addRow("Min Frequency:", self._range_min)
+        range_layout.addRow("Max Frequency:", self._range_max)
+        layout.addWidget(range_group)
+
+        # Results display
+        results_group = QGroupBox("Estimation Results")
+        results_layout = QVBoxLayout(results_group)
+
+        # FFT Peak results
+        self._fft_result_label = QLabel("FFT Peak: Not estimated")
+        self._fft_result_label.setStyleSheet("font-family: monospace; font-size: 12px;")
+        results_layout.addWidget(self._fft_result_label)
+
+        # Correlation results
+        self._corr_result_label = QLabel("Correlation: Not estimated")
+        self._corr_result_label.setStyleSheet("font-family: monospace; font-size: 12px;")
+        results_layout.addWidget(self._corr_result_label)
+
+        # True CFO input
+        true_layout = QHBoxLayout()
+        true_layout.addWidget(QLabel("True CFO (for comparison):"))
+        self._true_cfo_input = QSpinBox()
+        self._true_cfo_input.setRange(-1000000, 1000000)
+        self._true_cfo_input.setValue(15000)
+        self._true_cfo_input.setSuffix(" Hz")
+        self._true_cfo_input.setMaximumWidth(150)
+        true_layout.addWidget(self._true_cfo_input)
+        true_layout.addStretch()
+        results_layout.addLayout(true_layout)
+
+        layout.addWidget(results_group)
+
+        # Compensation section
+        comp_group = QGroupBox("Compensation")
+        comp_layout = QVBoxLayout(comp_group)
+
+        self._comp_result_label = QLabel("Compensation status: Not applied")
+        self._comp_result_label.setStyleSheet("font-family: monospace; font-size: 12px;")
+        comp_layout.addWidget(self._comp_result_label)
+
+        comp_btn_layout = QHBoxLayout()
+        self._apply_comp_btn = QPushButton("Apply Compensation")
+        self._apply_comp_btn.clicked.connect(self._apply_compensation)
+        comp_btn_layout.addWidget(self._apply_comp_btn)
+        comp_btn_layout.addStretch()
+        comp_layout.addLayout(comp_btn_layout)
+        layout.addWidget(comp_group)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+
+        run_btn = QPushButton("Run Estimation")
+        run_btn.setObjectName("btnPrimary")
+        run_btn.clicked.connect(self._run_estimation)
+        btn_layout.addWidget(run_btn)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self._dialog.accept)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+
+    def set_signals(self, original: "np.ndarray | None", processed: "np.ndarray | None", fs: float) -> None:
+        """Set signals for estimation.
+
+        Args:
+            original: Original signal without CFO
+            processed: Processed signal with CFO
+            fs: Sampling rate
+        """
+        self._original_signal = original
+        self._processed_signal = processed
+        self._fs = fs
+        self._estimator.fs = fs
+
+    def exec(self) -> None:
+        """Show dialog."""
+        self._dialog.exec()
+
+    def _run_estimation(self) -> None:
+        """Run CFO estimation."""
+        if self._processed_signal is None or len(self._processed_signal) == 0:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self._dialog, "No Signal", "Please load a signal first.")
+            return
+
+        signal = self._processed_signal
+        true_cfo = float(self._true_cfo_input.value())
+
+        # FFT Peak method
+        result_fft = self._estimator.estimate_fft_peak(signal)
+        result_fft.true_cfo_hz = true_cfo
+        result_fft.error_hz = result_fft.estimated_cfo_hz - true_cfo
+
+        # Correlation method
+        result_corr = self._estimator.estimate_correlation(signal)
+        result_corr.true_cfo_hz = true_cfo
+        result_corr.error_hz = result_corr.estimated_cfo_hz - true_cfo
+
+        # Update labels
+        self._fft_result_label.setText(
+            f"FFT Peak: Estimated={result_fft.estimated_cfo_hz:.2f} Hz | "
+            f"True={result_fft.true_cfo_hz:.2f} Hz | "
+            f"Error={result_fft.error_hz:.2f} Hz | "
+            f"Confidence={result_fft.confidence:.2%}"
+        )
+
+        self._corr_result_label.setText(
+            f"Correlation: Estimated={result_corr.estimated_cfo_hz:.2f} Hz | "
+            f"True={result_corr.true_cfo_hz:.2f} Hz | "
+            f"Error={result_corr.error_hz:.2f} Hz | "
+            f"Confidence={result_corr.confidence:.2%}"
+        )
+
+    def _apply_compensation(self) -> None:
+        """Apply CFO compensation."""
+        if self._processed_signal is None or len(self._processed_signal) == 0:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self._dialog, "No Signal", "Please load a signal first.")
+            return
+
+        # Use FFT peak estimate
+        result = self._estimator.estimate_fft_peak(self._processed_signal)
+        compensated = self._estimator.compensate(self._processed_signal, result.estimated_cfo_hz)
+
+        self._comp_result_label.setText(
+            f"Compensation applied with estimated CFO: {result.estimated_cfo_hz:.2f} Hz"
+        )
 
     def estimate_and_compare(
         self,

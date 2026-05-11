@@ -12,14 +12,30 @@ def apply_awgn(
     x: np.ndarray,
     snr_db: float,
     rng: np.random.Generator | None = None,
+    ref_power: float | None = None,
 ) -> np.ndarray:
-    """Add complex Gaussian white noise at target SNR."""
+    """Add complex Gaussian white noise at target SNR.
+
+    Args:
+        x: Input signal array.
+        snr_db: Target SNR in dB for the *output* signal.
+        rng: Random number generator.
+        ref_power: Reference signal power. If None, uses input signal power.
+                   This should be the power of the original signal (after
+                   preprocessing, before any AWGN stage) so that each AWGN
+                   stage's SNR target is relative to the same reference.
+    """
     if rng is None:
         rng = np.random.default_rng()
 
     sig_power = float(np.mean(np.abs(x) ** 2))
+    # Use provided ref_power for SNR calculation; fall back to input signal power.
+    # ref_power is the power of the original/preprocessed signal, ensuring
+    # that multiple AWGN stages each degrade to the same target SNR relative
+    # to the reference rather than accumulating noise.
+    power_for_snr = ref_power if ref_power is not None else sig_power
     snr_linear = 10.0 ** (snr_db / 10.0)
-    noise_power = sig_power / max(snr_linear, EPS)
+    noise_power = power_for_snr / max(snr_linear, EPS)
     sigma = np.sqrt(noise_power / 2.0)
 
     n = len(x)

@@ -19,6 +19,11 @@ def apply_rayleigh_or_rician_fading(
 
     Uses block-wise scalars instead of full-length np.repeat to avoid allocating
     an n-element copy of the block gain array.
+
+    Fading types:
+        - "rayleigh": pure Rayleigh fading, no dominant path (severe effect)
+        - "rician": Rician fading with configurable K factor
+        - "rice_mild": lightweight Rician with K=20 and large block size (subtle effect)
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -28,15 +33,20 @@ def apply_rayleigh_or_rician_fading(
 
     h_nlos = (rng.standard_normal(n_blocks) + 1j * rng.standard_normal(n_blocks)) / np.sqrt(2.0)
 
-    if fading_type.lower() == "rician":
+    if fading_type.lower() == "rice_mild":
+        k = max(k_factor, 0.0)
         los_phase = rng.uniform(0.0, 2.0 * np.pi, size=n_blocks)
         h_los = np.exp(1j * los_phase)
+        h_blocks = np.sqrt(k / (k + 1.0)) * h_los + np.sqrt(1.0 / (k + 1.0)) * h_nlos
+    elif fading_type.lower() == "rician":
         k = max(k_factor, 0.0)
+        los_phase = rng.uniform(0.0, 2.0 * np.pi, size=n_blocks)
+        h_los = np.exp(1j * los_phase)
         h_blocks = np.sqrt(k / (k + 1.0)) * h_los + np.sqrt(1.0 / (k + 1.0)) * h_nlos
     elif fading_type.lower() == "rayleigh":
         h_blocks = h_nlos
     else:
-        raise ValueError("fading_type only supports 'rayleigh' or 'rician'")
+        raise ValueError("fading_type only supports 'rayleigh', 'rician', or 'rice_mild'")
 
     # Apply per-block gain: reshape to (n_blocks, block_size), broadcast over last axis
     y = np.empty(n, dtype=np.complex128)

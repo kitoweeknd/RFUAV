@@ -48,7 +48,7 @@ logs/
 tensorboard/
 *.tensorboard
 
-# Data (用户本地数据集)
+# Data
 data/
 datasets/
 

@@ -25,7 +25,7 @@ def apply_phase_noise(
     x_c = np.ascontiguousarray(x, dtype=np.complex128)
 
     # float32 is sufficient for per-sample phase noise; accumulate in float64
-    dphi = rng.normal(0.0, phase_std_per_sample, size=n).astype(np.float32, copy=False)
+    dphi = rng.normal(0.0, phase_std_per_sample, size=n).astype(np.float32)
     phi = np.empty(n, dtype=np.float64)
     np.cumsum(dphi, out=phi)
 

@@ -19,9 +19,17 @@ try:
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
 
-    # Enable high DPI scaling
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    # Enable high DPI scaling — only for PySide6 < 6.5 (deprecated afterwards).
+    # PySide6 6.5+ handles HiDPI automatically.
+    import importlib.metadata
+    try:
+        pyside_version = importlib.metadata.version("PySide6")
+    except Exception:
+        pyside_version = "0.0.0"
+    major_minor = tuple(int(x) for x in pyside_version.split(".")[:2])
+    if major_minor < (6, 5):
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 except ImportError:
     print("[ERROR] PySide6 not installed. Please run: pip install PySide6>=6.5")
     sys.exit(1)
@@ -48,6 +56,7 @@ def get_app() -> QApplication:
 
 def _create_splash_pixmap(message: str) -> "QPixmap":
     """Create splash screen pixmap with message."""
+    from PySide6.QtGui import QPixmap, QColor, QPainter, QFont
     pixmap = QPixmap(400, 200)
     pixmap.fill(QColor("#1a73e8"))
     painter = QPainter(pixmap)
@@ -185,6 +194,35 @@ def restore_window_state(window) -> bool:
         return False
 
 
+def is_first_launch() -> bool:
+    """Check if this is the first launch (no app data exists yet)."""
+    try:
+        from ChannelSimulation.viewer.core.utils import get_app_data_dir
+        marker = get_app_data_dir() / ".first_run_done"
+        return not marker.exists()
+    except Exception:
+        return False
+
+
+def mark_first_launch_done() -> None:
+    """Mark that the first launch tutorial has been shown."""
+    try:
+        from ChannelSimulation.viewer.core.utils import get_app_data_dir
+        marker = get_app_data_dir() / ".first_run_done"
+        marker.touch()
+    except Exception:
+        pass
+
+
+def show_first_launch_help(window) -> None:
+    """Show the quick-start tutorial on first launch."""
+    from ChannelSimulation.viewer.advanced.help_panel import HelpDialog
+    dialog = HelpDialog(window)
+    dialog.setWindowTitle("Quick Start Tutorial — RFUAV ChannelSim Viewer")
+    dialog.exec()
+    mark_first_launch_done()
+
+
 def save_window_state(window) -> None:
     """Save window state.
 
@@ -214,6 +252,16 @@ def save_window_state(window) -> None:
         print(f"[WARNING] Failed to save window state: {e}")
 
 
+def _ensure_presets_exist() -> None:
+    """Ensure default presets exist, create if missing."""
+    from ChannelSimulation.viewer.business.presets_manager import PresetsManager
+
+    presets_dir = Path(__file__).parent / "core" / "presets"
+    if not presets_dir.exists() or not list(presets_dir.glob("*.yaml")):
+        from ChannelSimulation.viewer.business.presets_manager import create_default_presets
+        create_default_presets()
+
+
 def main() -> int:
     """Main entry point."""
     global _main_window
@@ -228,6 +276,9 @@ def main() -> int:
     splash = show_splash_screen("Loading...")
 
     try:
+        # Ensure default presets exist
+        _ensure_presets_exist()
+
         # Lazy import core modules
         update_splash_message(splash, "Loading UI styles...")
         from ChannelSimulation.viewer.core.ui_style import get_all_stylesheet
@@ -248,6 +299,10 @@ def main() -> int:
             splash.finish(window)
 
         window.show()
+
+        # First-launch tutorial
+        if is_first_launch():
+            show_first_launch_help(window)
 
         return app.exec()
 

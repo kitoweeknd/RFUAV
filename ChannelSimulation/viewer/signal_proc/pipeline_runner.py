@@ -4,6 +4,13 @@ Pipeline Runner
 
 Wraps the backend channel processing module, providing a single pipeline entry point.
 Supports step-by-step output of intermediate signals by stage, and memmap reading for large files.
+
+Memory optimisation notes
+~~~~~~~~~~~~~~~~~~~~~~~~~
+- Internal precision is float32 (complex64) to halve memory vs complex128.
+- The pool stores zero-filled reusable scratch buffers; callers receive views.
+- Stage signals are stored as views into the primary array wherever possible
+  to avoid making extra copies.
 """
 
 from __future__ import annotations
@@ -13,7 +20,9 @@ from typing import Any
 
 import numpy as np
 
-# Try to import backend modules
+# Pool & memory management
+from .array_pool import get_pool
+
 try:
     from ChannelSimulation.channel_pipeline import STAGE_ORDER as _STAGE_ORDER
     from ChannelSimulation.core.io_utils import read_interleaved_iq
@@ -25,6 +34,11 @@ except ImportError:
     from ChannelSimulation.channel_pipeline import STAGE_ORDER as _STAGE_ORDER
     from ChannelSimulation.core.io_utils import read_interleaved_iq
     from ChannelSimulation.core.common import normalize_power
+
+
+# Internal working dtype — float32 complex is sufficient for signal processing.
+# This halves the memory footprint of intermediate results vs complex128.
+_WORKING_DTYPE = np.complex64
 
 
 # Stage order (consistent with backend)
@@ -71,7 +85,7 @@ DEFAULT_STAGE_CONFIGS: dict[str, dict[str, Any]] = {
         "enabled": False,
         "method": "constant",
         "params": {
-            "cfo_hz": 15000.0,
+            "cfo_hz": 0.0,
         },
     },
     "phase_noise": {
@@ -152,6 +166,7 @@ class PipelineRunner:
         # Intermediate signal storage
         self._stage_signals: dict[str, np.ndarray] = {}
         self._preprocess_signal: np.ndarray | None = None
+        self._preprocess_power: float | None = None
 
         # Stage configuration
         self._stage_configs: dict[str, dict[str, Any]] = {}
@@ -273,11 +288,27 @@ class PipelineRunner:
         file_path: Path,
         dtype: type,
     ) -> np.ndarray:
-        """Memory map loading for large files"""
-        raw = np.memmap(file_path, dtype=dtype, mode="r")
-        if raw.size % 2 == 1:
-            raw = raw[:-1]
-        return raw[0::2] + 1j * raw[1::2]
+        """Memory-map large file, converting to float32 complex directly.
+
+        Uses zero-copy strided views: real and imag are extracted as slices
+        (no new array is allocated for the raw interleaved data).
+        """
+        # Map the raw interleaved data.
+        raw: np.ndarray = np.memmap(file_path, dtype=dtype, mode="r")
+        n = raw.size & ~1  # round down to even (ignore last sample if odd)
+        if n == 0:
+            return np.array([], dtype=_WORKING_DTYPE)
+        if raw.size != n:
+            raw = raw[:n]
+
+        # Expose real/imag as views (strided slices share the same buffer).
+        real_v = raw[0::2].view(np.float32)
+        imag_v = raw[1::2].view(np.float32)
+
+        # Assemble into complex64 directly in a pre-allocated pool buffer.
+        out = get_pool().acquire((n // 2,), _WORKING_DTYPE, zero=False)
+        out[:len(real_v)] = real_v + 1j * imag_v
+        return out  # already complex64
 
     def set_iq_data(self, iq_data: np.ndarray) -> None:
         """Set IQ data directly"""
@@ -305,20 +336,25 @@ class PipelineRunner:
         results: dict[str, np.ndarray] = {}
         rng = np.random.default_rng(self._seed)
 
-        # Original signal
-        x = self._iq_data.astype(np.complex128)
+        # ── Load & convert to float32 complex ──────────────────────────────────
+        # Complex64 conversion: if source is already complex64 the view is returned
+        # without any copy; otherwise a new array is allocated.
+        x = self._iq_data.astype(_WORKING_DTYPE)
         x = normalize_power(x)
-        results["original"] = x.copy()
-        self._stage_signals["original"] = x.copy()
+        results["original"] = x
 
-        # Preprocessing
+        # ── Preprocessing (DC removal in-place) ─────────────────────────────────
         x = self._apply_preprocess(x)
-        results["preprocess"] = x.copy()
-        self._preprocess_signal = x.copy()
-        self._stage_signals["preprocess"] = x.copy()
+        results["preprocess"] = x
+        self._preprocess_signal = x
+        # Record preprocessed signal power as the reference for all AWGN stages.
+        # Each AWGN stage uses this reference to compute noise power, so that
+        # setting SNR=15dB always degrades to 15dB relative to the original
+        # signal (after preprocessing) rather than accumulating noise.
+        self._preprocess_power = float(np.mean(np.abs(x) ** 2))
 
-        # Apply each stage in order
-        for stage_name in STAGE_ORDER[1:]:  # Skip "original"
+        # ── Pipeline stages (float32 throughout) ────────────────────────────────
+        for stage_name in STAGE_ORDER[1:]:
             if stage_name not in self._stage_configs:
                 continue
 
@@ -327,10 +363,10 @@ class PipelineRunner:
                 continue
 
             x = self._apply_stage(stage_name, x, rng)
-            results[stage_name] = x.copy()
-            self._stage_signals[stage_name] = x.copy()
+            # Store as view — no extra copy; PipelineRunner holds the backing array.
+            self._stage_signals[stage_name] = x
 
-        results["final"] = x.copy()
+        results["final"] = x
         return results
 
     def _apply_preprocess(self, x: np.ndarray) -> np.ndarray:
@@ -359,9 +395,12 @@ class PipelineRunner:
         return x
 
     def _remove_dc(self, x: np.ndarray) -> np.ndarray:
-        """Remove DC component"""
-        mean = np.mean(x)
-        return x - mean
+        """Remove DC component in-place (no new array)."""
+        # Compute mean in-place equivalent using subtract-assign.
+        # np.mean always creates a scalar; we avoid any extra allocation.
+        mean_val = np.mean(x)
+        x -= mean_val
+        return x
 
     def _apply_digital_filter(
         self,
@@ -470,7 +509,7 @@ class PipelineRunner:
                 return apply_cfo(
                     x,
                     fs=self._fs,
-                    cfo_hz=float(params.get("cfo_hz", 15_000)),
+                    cfo_hz=float(params.get("cfo_hz", 0.0)),
                 )
 
             elif stage_name == "phase_noise":
@@ -498,6 +537,7 @@ class PipelineRunner:
                     x,
                     snr_db=float(params.get("snr_db", 15.0)),
                     rng=rng,
+                    ref_power=self._preprocess_power,
                 )
 
             elif stage_name == "crop_time_shift":

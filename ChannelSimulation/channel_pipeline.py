@@ -110,6 +110,16 @@ def _stage_fading_rician(x: np.ndarray, fs: float, rng: np.random.Generator, **p
     )
 
 
+def _stage_fading_rice_mild(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
+    return apply_rayleigh_or_rician_fading(
+        x,
+        fading_type="rice_mild",
+        k_factor=float(params.get("k_factor", 20.0)),
+        block_size=int(params.get("block_size", 1024)),
+        rng=rng,
+    )
+
+
 def _stage_multipath_tdl(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
     return apply_multipath(
         x,
@@ -121,7 +131,7 @@ def _stage_multipath_tdl(x: np.ndarray, fs: float, rng: np.random.Generator, **p
 
 
 def _stage_cfo_constant(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
-    return apply_cfo(x, fs=fs, cfo_hz=float(params.get("cfo_hz", 15e3)))
+    return apply_cfo(x, fs=fs, cfo_hz=float(params.get("cfo_hz", 0.0)))
 
 
 def _stage_phase_noise_wiener(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
@@ -137,7 +147,8 @@ def _stage_iq_imbalance_widely_linear(x: np.ndarray, fs: float, rng: np.random.G
 
 
 def _stage_awgn_gaussian(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
-    return apply_awgn(x, snr_db=float(params.get("snr_db", 15.0)), rng=rng)
+    return apply_awgn(x, snr_db=float(params.get("snr_db", 15.0)), rng=rng,
+                      ref_power=params.get("ref_power"))
 
 
 def _stage_crop_shift_basic(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
@@ -153,6 +164,7 @@ STAGE_REGISTRY: dict[str, dict[str, Callable[..., np.ndarray]]] = {
     "fading": {
         "rayleigh": _stage_fading_rayleigh,
         "rician": _stage_fading_rician,
+        "rice_mild": _stage_fading_rice_mild,
     },
     "multipath": {
         "tdl": _stage_multipath_tdl,
@@ -179,7 +191,7 @@ def default_stage_configs() -> dict[str, dict[str, object]]:
     return {
         "fading": {"method": "rayleigh", "params": {"k_factor": 5.0, "block_size": 256}},
         "multipath": {"method": "tdl", "params": {"max_delay_samp": 20, "n_paths": 4, "exp_decay": 0.35}},
-        "cfo": {"method": "constant", "params": {"cfo_hz": 15e3}},
+        "cfo": {"method": "constant", "params": {"cfo_hz": 0.0}},
         "phase_noise": {"method": "wiener", "params": {"phase_std_per_sample": 2e-3}},
         "iq_imbalance": {"method": "widely_linear", "params": {"gain_imbalance_db": 1.0, "phase_imbalance_deg": 3.0}},
         "awgn": {"method": "gaussian", "params": {"snr_db": 15.0}},
@@ -285,6 +297,10 @@ def run_channel_pipeline(
         if _stage_save_flag(enabled_stages, stage_configs, "original"):
             save_interleaved_iq(out_dir / "original.iq", x)
 
+    # Reference power for all AWGN stages: use the normalized signal power
+    # so that each AWGN stage's SNR target is relative to the same reference.
+    ref_power = float(np.mean(np.abs(x) ** 2))
+
     for stage in ["fading", "multipath", "cfo", "phase_noise", "iq_imbalance", "awgn", "crop_time_shift"]:
         if stage not in enabled_stages:
             continue
@@ -296,6 +312,11 @@ def run_channel_pipeline(
         params = stage_cfg.get("params", {})
         if not isinstance(params, dict):
             raise ValueError(f"stage_configs.{stage}.params must be a dictionary")
+
+        # Pass ref_power to AWGN so it computes noise relative to the
+        # normalized input signal rather than the accumulated pipeline signal.
+        if stage == "awgn":
+            params = {**params, "ref_power": ref_power}
 
         fn = STAGE_REGISTRY[stage].get(method)
         if fn is None:
@@ -332,6 +353,8 @@ def _run_stages_on_chunk(
 ) -> np.ndarray:
     """Apply all enabled stages (except stateful ones) to a single chunk."""
     x = normalize_power(chunk)
+    # Reference power for AWGN stages: use the normalized chunk power.
+    ref_power = float(np.mean(np.abs(x) ** 2))
     for stage in enabled_stages:
         if stage == "original" or stage in _STATEFUL_STAGES:
             continue
@@ -341,6 +364,8 @@ def _run_stages_on_chunk(
         fn = STAGE_REGISTRY[stage].get(method)
         if fn is None:
             continue
+        if stage == "awgn":
+            params = {**params, "ref_power": ref_power}
         x = fn(x, fs, rng, **params)
     return x
 
@@ -684,7 +709,7 @@ def main() -> None:
 
     fading = _pick(args.fading, cfg, "fading", "rayleigh")
     k_factor = _pick(args.k_factor, cfg, "k_factor", 5.0)
-    cfo_hz = _pick(args.cfo_hz, cfg, "cfo_hz", 15e3)
+    cfo_hz = _pick(args.cfo_hz, cfg, "cfo_hz", 0.0)
     phase_std = _pick(args.phase_std, cfg, "phase_std", 2e-3)
     iq_gain_db = _pick(args.iq_gain_db, cfg, "iq_gain_db", 1.0)
     iq_phase_deg = _pick(args.iq_phase_deg, cfg, "iq_phase_deg", 3.0)

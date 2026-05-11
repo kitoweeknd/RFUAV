@@ -299,17 +299,24 @@ class ParameterTooltip:
         },
         "fading.k_factor": {
             "name": "K Factor",
-            "description": "K factor for Rician fading, ratio of LOS power to scattered power.",
+            "description": "K factor for Rician fading, ratio of LOS power to scattered power. Higher K means less severe fading.",
             "range": "Range: 0 ~ 100",
-            "typical": "K=0: Rayleigh (NLOS); K→∞: No fading",
+            "typical": "K=0: Rayleigh (severe); K=1-10: typical; K>20: mild (Rice Mild preset)",
             "standard": "Indoor: K=3-7; Outdoor LOS: K=5-20",
         },
         "fading.block_size": {
             "name": "Block Size",
             "description": "Coherent block size for fading in samples. Channel parameters remain constant within each block.",
             "range": "Range: 64 ~ 2048 samples",
-            "typical": "Typical: 128-512 samples",
+            "typical": "Typical: 128-512 samples (Rice Mild uses 1024 for stability)",
             "standard": "Block size should be smaller than samples corresponding to coherence time",
+        },
+        "fading.type": {
+            "name": "Fading Type",
+            "description": "Rayleigh: pure NLOS, no dominant path (severe effect). Rician: adds LOS component. Rice (Mild): high-K + large block, very subtle effect.",
+            "range": "Options: Rayleigh, Rician, Rice (Mild)",
+            "typical": "Rice Mild is recommended when subtle channel variation is needed.",
+            "standard": "Rice Mild uses K=20, block_size=1024 as safe defaults.",
         },
         "multipath.max_delay_samp": {
             "name": "Max Delay (samples)",

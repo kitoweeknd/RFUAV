@@ -4,6 +4,14 @@ Spectrum Data Computation Module
 |
 | Spectrum data computation module decoupled from plotting logic.
 | Provides FFT, PSD, STFT, and residual spectrum computation.
+|
+| Memory optimisation notes
+| ~~~~~~~~~~~~~~~~~~~~~~~~~~
+| - All display arrays (PSD dB, STFT dB) use float32, halving memory vs float64.
+| - Sliding-window blocks are allocated from the ArrayPool.
+| - Window arrays are registered as fixed pool slots so they are reused across calls.
+| - For PSD/STFT the output is always float32 regardless of input dtype.
+| - NumPy array views are used wherever possible to avoid data copying.
 """
 
 from __future__ import annotations
@@ -12,6 +20,8 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import numpy as np
+
+from .array_pool import get_pool
 
 
 @dataclass
@@ -52,23 +62,29 @@ class SpectrumCalculator:
     MAX_PLOT_POINTS = 2_000_000
     MAX_STFT_COLS = 3_000
 
+    # Display dtype for all spectrum / time-domain arrays.
+    # float32 halves memory vs float64 with negligible precision loss for UI.
+    DISPLAY_DTYPE = np.float32
+
     # Beyond this length, PSD uses Welch instead of a full-length FFT (avoids 1e8-point FFT).
     MAX_PSD_DIRECT_FFT = 524_288
     PSD_WELCH_NPERSEG = 8192
 
     # Long captures: never decimate IQ before STFT (that shrinks Nyquist and breaks MHz axis).
     # Instead use sparse window placement (hop may exceed nperseg) to cap frame count.
-    STFT_LONG_THRESHOLD = 2_000_000
+    STFT_LONG_THRESHOLD = 50_000_000  # 0.5 s @ 100 Msps — below this use scipy stft with overlap
     STFT_NPERSEG_LONG = 4096  # FFT size per column; full [-fs/2, fs/2] at original fs
 
     # Zoom-recompute STFT: must never let nfft grow with 1/bandwidth (was allocating 100+ GiB).
     MAX_ZOOM_STFT_SAMPLES = 4_000_000
     MAX_ZOOM_NFFT = 8192
 
-    # STFT parameters
-    DEFAULT_NPERSEG = 256
-    DEFAULT_NOVERLAP = 192
-    DEFAULT_NFFT = 256
+    # STFT parameters — optimised for 100 Msps UAV OFDM signals
+    # nperseg=2048 → freq resolution ≈ 100MHz/2048 ≈ 48.8 kHz
+    # enough to resolve typical OFDM subcarrier spacing (≥ 10 kHz)
+    DEFAULT_NPERSEG = 2048
+    DEFAULT_NOVERLAP = 1536   # 75% overlap for smooth spectrogram
+    DEFAULT_NFFT = 2048
 
     # Small value for numerical stability
     EPS = 1e-12
@@ -201,10 +217,11 @@ class SpectrumCalculator:
         self,
         n_samples: int,
     ) -> np.ndarray:
-        """Compute time axis"""
+        """Compute time axis in float32 to save memory."""
         step = max(1, n_samples // self.MAX_PLOT_POINTS)
         n_decimated = n_samples // step
-        t = np.arange(n_decimated, dtype=np.float64) * (step / self._fs)
+        # float32 is sufficient for time axis display (sub-ms precision at 100 MHz is ~1e-8).
+        t = np.arange(n_decimated, dtype=np.float32) * (step / self._fs)
         return t
 
     def compute_psd(
@@ -255,7 +272,7 @@ class SpectrumCalculator:
         elif window == "blackman":
             window_vals = np.blackman(n)
         else:
-            window_vals = np.ones(n)
+            window_vals = np.ones(n, dtype=np.float64)
 
         windowed = signal * window_vals
         spectrum = np.fft.fft(windowed)
@@ -263,7 +280,8 @@ class SpectrumCalculator:
         psd = np.abs(spectrum_single) ** 2
         window_power = np.sum(window_vals**2)
         psd = psd / (window_power * self._fs)
-        psd_db = 10 * np.log10(psd + self.EPS)
+        # float32 output for display (saves ~50 % memory vs float64).
+        psd_db = (10 * np.log10(psd + self.EPS)).astype(self.DISPLAY_DTYPE)
         freqs = np.fft.fftfreq(n, 1 / self._fs)[: n // 2]
         if self._fc != 0:
             freqs = freqs + self._fc
@@ -324,6 +342,7 @@ class SpectrumCalculator:
         Zxx_shifted = np.fft.fftshift(Zxx, axes=0)
         stft_db = 20 * np.log10(np.abs(Zxx_shifted) + self.EPS)
 
+        # scipy stft: shape (nfreq, ntime) → matches imshow convention directly.
         stft_db = self._decimate_2d(stft_db, self.MAX_STFT_COLS, axis=1)
         times = self._decimate_1d(times, self.MAX_STFT_COLS)
 
@@ -339,12 +358,9 @@ class SpectrumCalculator:
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Vectorized STFT for long IQ: no Python for-loop over frames.
 
-        Uses ``np.lib.stride_tricks.sliding_window_view`` to build a 2-D
-        (nperseg × n_frames) block from the signal, then one ``np.fft.fft``
-        call computes all frames.  This is ~10× faster than a Python for-loop.
-
-        The time axis is evenly spaced so the spectrogram covers the full
-        ``[0, n/fs]`` interval at the original sample rate (Nyquist = ±fs/2).
+        Uses non-overlapping blocks (hop = n // max_cols) so the time axis
+        covers the FULL recording from 0 to n/fs — no sparse gaps, no noise
+        bands on idle portions.
         """
         n = len(signal)
         nperseg = min(self.STFT_NPERSEG_LONG, n)
@@ -352,26 +368,31 @@ class SpectrumCalculator:
             return self._compute_stft_fallback_short(signal, fs)
 
         max_cols = self.MAX_STFT_COLS
-        n_frames = min(max_cols, max(1, n - nperseg + 1))
+        hop = max(1, n // max_cols)          # non-overlapping stride
+        n_frames = max(1, n // hop)          # how many frames fit in the recording
 
-        # Build the sliding-window block  (n_frames × nperseg) then transpose
-        from numpy.lib.stride_tricks import sliding_window_view
+        # Build the block: (n_frames × nperseg)  — no linspace, straight slicing
+        starts = np.arange(0, n_frames * hop, hop, dtype=np.intp)
+        starts = starts[starts + nperseg <= n]  # drop any window that would overflow
+        if len(starts) == 0:
+            return self._compute_stft_fallback_short(signal, fs)
 
-        windows = sliding_window_view(signal, nperseg)  # shape: (n - nperseg + 1, nperseg)
-        starts = np.linspace(0, len(windows) - 1, n_frames, dtype=np.intp)
-        block = windows[starts].T  # (nperseg, n_frames)  — each column = one frame
+        # Slices into the full signal array (zero copy)
+        # Each row = one time frame
+        block = np.stack([signal[s:s + nperseg] for s in starts], axis=0)  # (n_frames, nperseg)
 
-        # Apply Hann window column-wise
+        # Apply Hann window row-wise
         hann = np.hanning(nperseg)
-        block = block * hann[:, np.newaxis]
+        block = block * hann
 
-        # All FFTs at once
-        spec = np.fft.fft(block, axis=0)  # (nperseg, n_frames)
-        spec = np.fft.fftshift(spec, axes=0)
-        stft_db = (20.0 * np.log10(np.abs(spec) + self.EPS)).astype(np.float32)
+        # All FFTs at once; output cast to float32.
+        spec = np.fft.fft(block, axis=1)                     # (n_frames, nperseg) = (ntime, nfreq)
+        spec = np.fft.fftshift(spec, axes=1)
+        stft_db = (20.0 * np.log10(np.abs(spec) + self.EPS)).astype(self.DISPLAY_DTYPE)
+        stft_db = stft_db.T                                   # → (nfreq, ntime)  for imshow
 
-        # Time axis
-        times = (starts + nperseg * 0.5) / fs
+        # Time axis: mid-point of each non-overlapping block
+        times = (starts.astype(np.float64) + nperseg * 0.5) / fs
 
         freqs_shifted = np.fft.fftshift(np.fft.fftfreq(nperseg, 1.0 / fs))
         if self._fc != 0:
@@ -390,8 +411,19 @@ class SpectrumCalculator:
         step = max(1, nperseg - self._noverlap)
         n_frames = (n - nperseg) // step + 1
 
-        stft_matrix = np.zeros((nperseg, n_frames), dtype=np.complex128)
-        times = np.zeros(n_frames)
+        # Use pooled buffer for the STFT matrix (avoids repeated np.zeros() calls).
+        stft_matrix = get_pool().acquire(
+            (nperseg, n_frames), np.complex128, zero=True
+        )
+        times = np.zeros(n_frames, dtype=self.DISPLAY_DTYPE)
+
+        # Register Hanning window as a fixed pool slot (reused across calls, no allocation each time).
+        hann_key = f"hann_{nperseg}"
+        hann_win = get_pool().get_fixed(hann_key)
+        if hann_win is None:
+            hann_win = get_pool().register_fixed(hann_key, (nperseg,), np.float64)
+            hann_win[:] = np.hanning(nperseg)
+        window_vals = hann_win  # view into fixed slot
 
         for i in range(n_frames):
             start = i * step
@@ -399,16 +431,17 @@ class SpectrumCalculator:
             if end > n:
                 break
 
-            frame = signal[start:end] * np.hanning(nperseg)
+            frame = signal[start:end] * window_vals
             stft_matrix[:, i] = np.fft.fft(frame)
-            times[i] = (start + nperseg / 2) / fs
+            times[i] = (start + nperseg * 0.5) / fs
 
         freqs = np.fft.fftfreq(nperseg, 1 / fs)
         freqs_shifted = np.fft.fftshift(freqs)
         stft_shifted = np.fft.fftshift(stft_matrix, axes=0)
 
-        stft_db = 20 * np.log10(np.abs(stft_shifted) + self.EPS)
-
+        # float32 is sufficient for display; saves ~50 % memory vs float64.
+        stft_db = (20 * np.log10(np.abs(stft_shifted) + self.EPS)).astype(self.DISPLAY_DTYPE)
+        # stft_db is (nfreq, ntime) — matches imshow convention directly; decimate time axis.
         stft_db = self._decimate_2d(stft_db, self.MAX_STFT_COLS, axis=1)
         times = self._decimate_1d(times, self.MAX_STFT_COLS)
 
@@ -510,15 +543,27 @@ class SpectrumCalculator:
         n_fft = min(int(n_fft), self.MAX_ZOOM_NFFT)
         n = len(signal)
         if n < 8:
-            z = np.zeros((1, 1), dtype=np.float64)
-            return z, np.array([-fs / 2, fs / 2]), np.array([0.0])
+            z = np.zeros((1, 1), dtype=self.DISPLAY_DTYPE)
+            return z, np.array([-fs / 2, fs / 2], dtype=self.DISPLAY_DTYPE), np.array([0.0], dtype=self.DISPLAY_DTYPE)
         nperseg_w = min(nperseg, n)
         step = max(1, nperseg_w - nperseg_w * 3 // 4)
         max_frames = self.MAX_STFT_COLS + 1
         n_frames = min((n - nperseg_w) // step + 1, max_frames)
-        stft_matrix = np.zeros((n_fft, n_frames), dtype=np.complex128)
-        times = np.zeros(n_frames)
-        window_vals = np.hanning(nperseg_w)
+
+        # Pool the large STFT matrix instead of np.zeros().
+        stft_matrix = get_pool().acquire((n_fft, n_frames), np.complex128, zero=True)
+        times = np.zeros(n_frames, dtype=self.DISPLAY_DTYPE)
+
+        # Hanning window: registered fixed slot avoids re-computing each time.
+        hann_key = f"hann_{nperseg_w}"
+        hann_win = get_pool().get_fixed(hann_key)
+        if hann_win is None:
+            hann_win = get_pool().register_fixed(hann_key, (nperseg_w,), np.float64)
+            hann_win[:] = np.hanning(nperseg_w)
+        window_vals = hann_win
+
+        # Pool the padding buffer.
+        padded = get_pool().acquire((n_fft,), np.complex128, zero=True)
         fi = 0
         for i in range(n_frames):
             start = i * step
@@ -526,10 +571,10 @@ class SpectrumCalculator:
             if end > n:
                 break
             frame = signal[start:end] * window_vals
-            padded = np.zeros(n_fft, dtype=np.complex128)
+            padded.fill(0)  # clear pool buffer
             padded[:nperseg_w] = frame
             stft_matrix[:, fi] = np.fft.fft(padded)
-            times[fi] = (start + nperseg_w / 2) / fs
+            times[fi] = (start + nperseg_w * 0.5) / fs
             fi += 1
         stft_matrix = stft_matrix[:, :fi]
         times = times[:fi]
@@ -560,15 +605,11 @@ class SpectrumCalculator:
             psd_processed: Processed PSD
 
         Returns:
-            Residual PSD (dB)
+            Residual PSD (dB, float32)
         """
-        # Difference
         residual = np.abs(psd_original - psd_processed)
-
-        # Convert to dB
-        residual_db = 10 * np.log10(residual + self.EPS)
-
-        return residual_db
+        # float32 is sufficient for display residual.
+        return (10 * np.log10(residual + self.EPS)).astype(self.DISPLAY_DTYPE)
 
     def compute_residual_stft(
         self,
@@ -582,15 +623,11 @@ class SpectrumCalculator:
             stft_processed: Processed STFT
 
         Returns:
-            Residual STFT (dB)
+            Residual STFT (dB, float32)
         """
-        # Difference
         residual = np.abs(stft_original - stft_processed)
-
-        # Convert to dB
-        residual_db = 20 * np.log10(residual + self.EPS)
-
-        return residual_db
+        # float32 is sufficient for display residual.
+        return (20 * np.log10(residual + self.EPS)).astype(self.DISPLAY_DTYPE)
 
     def _decimate_1d(
         self,

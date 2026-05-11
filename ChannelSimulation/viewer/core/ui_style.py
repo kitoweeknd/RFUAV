@@ -165,13 +165,14 @@ def get_menu_qss() -> str:
         background-color: {get_color('bg_secondary')};
         color: {get_color('text_primary')};
         border-bottom: 1px solid {get_color('border')};
-        padding: 4px;
+        padding: 4px 4px 0px 4px;
     }}
 
     QMenuBar::item {{
         background-color: transparent;
-        padding: 6px 12px;
+        padding: 8px 16px;
         border-radius: 4px;
+        margin-bottom: 4px;
     }}
 
     QMenuBar::item:selected {{
@@ -301,6 +302,32 @@ def get_button_qss() -> str:
     QPushButton#btnDanger:hover {{
         background-color: {get_color('danger_hover')};
         border-color: {get_color('danger_hover')};
+    }}
+
+    QPushButton#btnScenario {{
+        background-color: {get_color('success')};
+        border: 2px solid {get_color('success')};
+        border-radius: 6px;
+        color: #ffffff;
+        font-weight: bold;
+        padding: 6px 14px;
+        min-height: 24px;
+    }}
+
+    QPushButton#btnScenario:hover {{
+        background-color: #2d9648;
+        border-color: #2d9648;
+    }}
+
+    QPushButton#btnScenario:pressed {{
+        background-color: #257a3d;
+        border-color: #257a3d;
+    }}
+
+    QPushButton#btnScenario:disabled {{
+        background-color: {get_color('bg_tertiary')};
+        border-color: {get_color('border')};
+        color: {get_color('text_disabled')};
     }}
     """
 

@@ -86,6 +86,8 @@ class SignalInfoPanel(QWidget):
         metrics_layout = QGridLayout(metrics_inner)
         metrics_layout.setSpacing(12)
         metrics_layout.setContentsMargins(4, 0, 4, 4)
+        metrics_layout.setColumnStretch(0, 1)
+        metrics_layout.setColumnStretch(1, 1)
 
         # Create metric cards
         self._metrics_cards = {}
@@ -145,7 +147,7 @@ class SignalInfoPanel(QWidget):
         )
 
         self._metrics_section = CollapsibleSection(
-            "Signal Quality Metrics", metrics_inner, expanded=False
+            "Signal Quality Metrics", metrics_inner, expanded=True
         )
         layout.addWidget(self._metrics_section)
 
@@ -169,6 +171,8 @@ class SignalInfoPanel(QWidget):
                 padding: 8px;
             }}
         """)
+        card.setMinimumWidth(120)
+        card.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
 
         layout = QVBoxLayout(card)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -177,7 +181,8 @@ class SignalInfoPanel(QWidget):
         # Title
         title_label = QLabel(title)
         title_label.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 10px;")
-        layout.addWidget(title_label)
+        title_label.setWordWrap(False)
+        title_label.setMinimumHeight(title_label.sizeHint().height())
 
         # Value
         value_label = QLabel(value)
@@ -257,6 +262,10 @@ class SignalInfoPanel(QWidget):
         Args:
             metrics: Dictionary containing metrics
         """
+        # Auto-expand the section if it's collapsed so the user can see new data
+        if hasattr(self, '_metrics_section') and not self._metrics_section.is_expanded():
+            self._metrics_section.set_expanded(True)
+
         # EVM
         if "evm" in metrics:
             evm = metrics["evm"]

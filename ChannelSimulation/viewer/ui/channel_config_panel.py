@@ -105,7 +105,7 @@ class ChannelConfigPanel(QWidget):
             "AWGN",
             "Additive Gaussian White Noise",
             [
-                ParameterDef("snr_db", "SNR", "dB", -50, 50, 15, 0.5),
+                ParameterDef("snr_db", "Output SNR", "dB", -50, 50, 15, 0.5),
             ],
         )
         channel_layout.addWidget(self._channels["awgn"])
@@ -114,7 +114,7 @@ class ChannelConfigPanel(QWidget):
             "CFO",
             "Carrier Frequency Offset",
             [
-                ParameterDef("cfo_hz", "CFO", "Hz", 0, 1e6, 15000, 100),
+                ParameterDef("cfo_hz", "CFO", "Hz", -50e6, 50e6, 0, 1000),
             ],
         )
         channel_layout.addWidget(self._channels["cfo"])
@@ -127,7 +127,7 @@ class ChannelConfigPanel(QWidget):
                 ParameterDef("block_size", "Block Size", "samples", 64, 2048, 256, 64),
             ],
             has_type_selector=True,
-            type_options=["Rayleigh", "Rician"],
+            type_options=["Rayleigh", "Rician", "Rice Mild"],
         )
         channel_layout.addWidget(self._channels["fading"])
 
@@ -242,6 +242,12 @@ class ChannelConfigPanel(QWidget):
             if name in stage_configs:
                 card.set_stage_config(stage_configs[name])
 
+    def set_awgn_snr_max(self, max_snr_db: float) -> None:
+        """Update AWGN SNR slider max to the current signal SNR (so AWGN cannot improve SNR)."""
+        awgn_card = self._channels.get("awgn")
+        if awgn_card is not None:
+            awgn_card.set_param_max("snr_db", max_snr_db)
+
     def reset(self) -> None:
         """Reset to default values"""
         self._preprocess_dc.setChecked(True)
@@ -251,6 +257,9 @@ class ChannelConfigPanel(QWidget):
 
         for card in self._channels.values():
             card.reset()
+
+        # Reset AWGN SNR max back to default 50 dB after full panel reset
+        self.set_awgn_snr_max(50.0)
 
 
 class ParameterDef:
@@ -392,9 +401,10 @@ class ChannelCard(QWidget):
             row_layout = QHBoxLayout()
             row_layout.setSpacing(8)
 
-            # Slider
+            # Slider — always uses setMinimum + setMaximum so negative ranges work
             slider = QSlider(Qt.Orientation.Horizontal)
             slider.setMinimumWidth(120)
+            slider.setMinimum(int(param.min_val / param.step))
             slider.setMaximum(int(param.max_val / param.step))
             slider.setValue(int(param.default / param.step))
             slider.setTickPosition(QSlider.TickPosition.TicksBelow)
@@ -494,6 +504,43 @@ class ChannelCard(QWidget):
                 }}
             """)
 
+    def set_param_max(self, key: str, max_val: float) -> None:
+        """Dynamically update the maximum value of a parameter's slider and spinbox."""
+        param: ParameterDef | None = None
+        for p in self._parameters:
+            if p.key == key:
+                param = p
+                break
+        if param is None:
+            return
+
+        slider = self._param_widgets.get(f"{key}_slider")
+        spinbox = self._param_widgets.get(f"{key}_spinbox")
+
+        if slider is not None:
+            param.max_val = max_val
+            slider.blockSignals(True)
+            slider.setMinimum(int(param.min_val / param.step))
+            slider.setMaximum(int(max_val / param.step))
+            slider.setTickInterval(int((max_val - param.min_val) / param.step / 5))
+            # Clamp current value to new range
+            current_int = 0
+            if hasattr(self, '_param_values'):
+                current_val = self._param_values.get(key, param.default)
+                current_int = int(current_val / param.step)
+            lo = int(param.min_val / param.step)
+            hi = int(max_val / param.step)
+            slider.setValue(max(lo, min(current_int, hi)))
+            slider.blockSignals(False)
+
+        if spinbox is not None:
+            spinbox.blockSignals(True)
+            spinbox.setMaximum(max_val)
+            if hasattr(self, '_param_values'):
+                current_val = self._param_values.get(key, param.default)
+                spinbox.setValue(min(current_val, max_val))
+            spinbox.blockSignals(False)
+
     def isChecked(self) -> bool:
         """Check if enabled"""
         return self._enabled
@@ -517,7 +564,7 @@ class ChannelCard(QWidget):
         }
 
         if self._has_type_selector:
-            config["method"] = self._selected_type.lower()
+            config["method"] = self._selected_type.lower().replace(" ", "_")
 
         return config
 
@@ -545,7 +592,7 @@ class ChannelCard(QWidget):
                                 break
 
         if "method" in config:
-            method = config["method"].lower()
+            method = config["method"].lower().replace("_", " ")
             if self._has_type_selector and method in [opt.lower() for opt in self._type_options]:
                 idx = [opt.lower() for opt in self._type_options].index(method)
                 self._type_selector.setCurrentIndex(idx)
@@ -589,7 +636,7 @@ class PreprocessCard(QWidget):
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(12)
 
-        # Switch
+        # Switch (clickable area)
         self._switch = QCheckBox()
         layout.addWidget(self._switch)
 
@@ -607,6 +654,12 @@ class PreprocessCard(QWidget):
         layout.addStretch()
 
         self._switch.toggled.connect(lambda *args: self.value_changed.emit())
+
+    def mousePressEvent(self, event) -> None:
+        """Handle mouse click on the card to toggle the switch."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._switch.toggle()
+        super().mousePressEvent(event)
 
     def isChecked(self) -> bool:
         """Check if enabled"""
