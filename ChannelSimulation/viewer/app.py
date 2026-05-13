@@ -308,7 +308,6 @@ def main() -> int:
 
     except ImportError as e:
         print(f"[ERROR] Missing required dependency: {e}")
-        print("Please run: pip install -r ChannelSimulation/viewer/requirements.txt")
         return 1
 
     except Exception as e:

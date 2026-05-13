@@ -17,6 +17,7 @@ from __future__ import annotations
 import gc
 import json
 import time
+import yaml
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -60,6 +61,7 @@ class BatchProcessor:
         self._results: List[BatchResult] = []
         self._progress_callback: Optional[callable] = None
         self._stop_requested = False
+        self._worker_thread: Optional[Any] = None
 
     def set_progress_callback(self, callback: callable) -> None:
         """Set progress callback function
@@ -72,6 +74,9 @@ class BatchProcessor:
     def stop(self) -> None:
         """Request to stop processing"""
         self._stop_requested = True
+        if self._worker_thread and self._worker_thread.isRunning():
+            self._worker_thread.requestInterruption()
+            self._worker_thread.wait(5000)
 
     def add_task(
         self,
@@ -134,14 +139,42 @@ class BatchProcessor:
                     seed_offset=0,
                 )
 
-    def run(self) -> List[BatchResult]:
-        """Execute batch processing
+    def run(self, callback: Optional[callable] = None) -> None:
+        """Execute batch processing in background thread
 
-        Returns:
-            List of processing results
+        Args:
+            callback: Called when complete with (results, completed, failed)
         """
+        from PySide6.QtCore import QThread, Signal, QTimer
+
         self._results.clear()
         self._stop_requested = False
+        self._run_callback = callback
+
+        class Worker(QThread):
+            finished_signal = Signal(list, int, int)
+
+            def __init__(self, processor):
+                super().__init__()
+                self._processor = processor
+
+            def run(self):
+                results = self._processor._run_sync()
+                completed = sum(1 for t in self._processor._tasks if t.status == "completed")
+                failed = sum(1 for t in self._processor._tasks if t.status == "failed")
+                self.finished_signal.emit(results, completed, failed)
+
+        def on_finished(results, completed, failed):
+            self._worker_thread = None
+            if self._run_callback:
+                self._run_callback(results, completed, failed)
+
+        self._worker_thread = Worker(self)
+        self._worker_thread.finished_signal.connect(on_finished)
+        self._worker_thread.start()
+
+    def _run_sync(self) -> List[BatchResult]:
+        """Synchronous run for internal use"""
         total = len(self._tasks)
 
         for i, task in enumerate(self._tasks):
@@ -195,7 +228,8 @@ class BatchProcessor:
         results = runner.run()  # dict: original, preprocess, <stage>, final
 
         # Export IQ
-        output_iq = output_dir / "processed.iq"
+        input_stem = Path(task.input_file).stem
+        output_iq = output_dir / f"{input_stem}_processed.iq"
         ExportUtils.export_iq(results["final"], output_iq)
 
         # Compute spectrum (on-demand, only for export)
@@ -215,7 +249,7 @@ class BatchProcessor:
             ]
             ExportUtils.export_spectrum_png(
                 data.stft_original,
-                output_dir / "original_spectrogram.png",
+                output_dir / f"{input_stem}_original_spectrogram.png",
                 title="Original Signal Spectrogram",
                 xlabel="Time (s)",
                 ylabel="Frequency (MHz)",
@@ -224,7 +258,7 @@ class BatchProcessor:
             )
             ExportUtils.export_spectrum_png(
                 data.stft_processed,
-                output_dir / "processed_spectrogram.png",
+                output_dir / f"{input_stem}_processed_spectrogram.png",
                 title="Processed Signal Spectrogram",
                 xlabel="Time (s)",
                 ylabel="Frequency (MHz)",
@@ -334,7 +368,7 @@ class BatchProcessorDialog:
     """
 
     def __init__(self, parent=None):
-        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFileDialog, QListWidget, QListWidgetItem, QProgressBar, QCheckBox, QSpinBox, QLineEdit
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFileDialog, QListWidget, QListWidgetItem, QProgressBar, QCheckBox, QSpinBox, QLineEdit, QTextEdit
         from PySide6.QtCore import Qt, QThread, Signal, QTimer
         from ChannelSimulation.viewer.core.ui_style import get_color
 
@@ -381,24 +415,26 @@ class BatchProcessorDialog:
         output_layout.addWidget(btn_output)
         layout.addLayout(output_layout)
 
-        # Sweep parameters
-        param_section = QLabel("Parameter Sweep (optional):")
-        param_section.setStyleSheet("font-weight: bold;")
-        layout.addWidget(param_section)
+        # YAML config text editor
+        config_section = QLabel("Processing Config (YAML):")
+        config_section.setStyleSheet("font-weight: bold;")
+        layout.addWidget(config_section)
 
-        self._sweep_list = QListWidget()
-        self._sweep_list.setMaximumHeight(80)
-        layout.addWidget(self._sweep_list)
+        self._config_yaml = QTextEdit()
+        self._config_yaml.setMaximumHeight(200)
+        self._config_yaml.setPlaceholderText("Enter YAML configuration here...")
+        self._config_yaml.setPlainText(self._get_default_yaml_template())
+        layout.addWidget(self._config_yaml)
 
-        sweep_btn_layout = QHBoxLayout()
-        btn_add_param = QPushButton("Add Parameter...")
-        btn_add_param.clicked.connect(self._add_sweep_param)
-        btn_remove_param = QPushButton("Remove")
-        btn_remove_param.clicked.connect(lambda: self._sweep_list.takeItem(self._sweep_list.currentRow()))
-        sweep_btn_layout.addWidget(btn_add_param)
-        sweep_btn_layout.addWidget(btn_remove_param)
-        sweep_btn_layout.addStretch()
-        layout.addLayout(sweep_btn_layout)
+        yaml_btn_layout = QHBoxLayout()
+        btn_load_yaml = QPushButton("Load YAML...")
+        btn_load_yaml.clicked.connect(self._load_yaml_file)
+        btn_reset_yaml = QPushButton("Reset Template")
+        btn_reset_yaml.clicked.connect(lambda: self._config_yaml.setPlainText(self._get_default_yaml_template()))
+        yaml_btn_layout.addWidget(btn_load_yaml)
+        yaml_btn_layout.addWidget(btn_reset_yaml)
+        yaml_btn_layout.addStretch()
+        layout.addLayout(yaml_btn_layout)
 
         # Progress
         self._progress_bar = QProgressBar()
@@ -430,7 +466,8 @@ class BatchProcessorDialog:
         self._dialog.exec()
 
     def _add_files(self) -> None:
-        from PySide6.QtWidgets import QFileDialog
+        from PySide6.QtWidgets import QFileDialog, QListWidgetItem
+        from PySide6.QtCore import Qt
         files, _ = QFileDialog.getOpenFileNames(
             self._dialog,
             "Select IQ Files",
@@ -452,19 +489,66 @@ class BatchProcessorDialog:
         if dir_path:
             self._output_dir.setText(dir_path)
 
-    def _add_sweep_param(self) -> None:
-        from PySide6.QtWidgets import QInputDialog
-        param, ok = QInputDialog.getText(self._dialog, "Add Sweep Parameter", "Parameter name (e.g., stage_configs.awgn.params.snr_db):")
-        if ok and param:
-            values_str, ok2 = QInputDialog.getText(self._dialog, "Add Sweep Parameter", "Values (comma-separated, e.g., 10,15,20):")
-            if ok2:
-                from PySide6.QtWidgets import QListWidgetItem
-                item = QListWidgetItem(f"{param}: {values_str}")
-                item.setData(Qt.ItemDataRole.UserRole, (param, [v.strip() for v in values_str.split(",")]))
-                self._sweep_list.addItem(item)
+    def _get_default_yaml_template(self) -> str:
+        return """version: '1.0'
+fc: 0.0
+fs: 100000000.0
+seed: 42
+preprocess:
+  dc_removal:
+    enabled: true
+  gain_control:
+    enabled: false
+    gain_db: 0.0
+  digital_filter:
+    enabled: false
+    type: lowpass
+    cutoff_hz: 50000000
+    filter_class: butterworth
+    order: 8
+  resampling:
+    enabled: false
+    target_fs: 200000000
+    filter_type: firls
+stage_configs:
+  awgn:
+    enabled: false
+  cfo:
+    enabled: false
+  fading:
+    enabled: false
+  doppler:
+    enabled: false
+  multipath:
+    enabled: false
+  iq_imbalance:
+    enabled: false
+  phase_noise:
+    enabled: false
+  crop_time_shift:
+    enabled: false
+"""
+
+    def _load_yaml_file(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        file_path, _ = QFileDialog.getOpenFileName(
+            self._dialog,
+            "Load YAML Config",
+            "",
+            "YAML Files (*.yaml *.yml);;All Files (*.*)",
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                self._config_yaml.setPlainText(f.read())
+        except Exception as e:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self._dialog, "Error", f"Failed to load YAML:\n{e}")
 
     def _run_batch(self) -> None:
         from PySide6.QtWidgets import QMessageBox
+        from PySide6.QtCore import Qt
         if self._file_list.count() == 0:
             QMessageBox.warning(self._dialog, "No Files", "Please add at least one input file.")
             return
@@ -478,13 +562,16 @@ class BatchProcessorDialog:
 
         files = [self._file_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self._file_list.count())]
         
-        # Get sweep parameters
-        sweep_params = {}
-        for i in range(self._sweep_list.count()):
-            item = self._sweep_list.item(i)
-            param_path, values = item.data(Qt.ItemDataRole.UserRole)
-            if param_path and values:
-                sweep_params[param_path] = [v for v in values]
+        # Parse YAML config from text editor
+        yaml_text = self._config_yaml.toPlainText()
+        try:
+            config = yaml.safe_load(yaml_text)
+            if not isinstance(config, dict):
+                config = {}
+        except yaml.YAMLError as e:
+            QMessageBox.critical(self._dialog, "YAML Error", f"Failed to parse YAML config:\n{e}")
+            self._btn_stop.setEnabled(False)
+            return
 
         # Create processor
         processor = BatchProcessor()
@@ -497,23 +584,20 @@ class BatchProcessorDialog:
         processor.set_progress_callback(update_progress)
         self._processor = processor
 
-        # Add tasks with sweep parameters
-        if sweep_params:
-            processor.add_parameter_sweep(files, output_dir, {}, sweep_params)
-        else:
-            for f in files:
-                processor.add_task(f, output_dir, {})
+        # Add tasks
+        for f in files:
+            processor.add_task(f, output_dir, config)
+
+        def on_complete(results, completed, failed):
+            self._progress_bar.setValue(100)
+            self._status_label.setText(f"Completed: {completed}, Failed: {failed}")
+            self._btn_stop.setEnabled(False)
+            QMessageBox.information(self._dialog, "Batch Complete", f"Completed: {completed}\nFailed: {failed}")
 
         try:
-            results = processor.run()
-            self._progress_bar.setValue(100)
-            completed = processor.get_completed_count()
-            failed = processor.get_failed_count()
-            self._status_label.setText(f"Completed: {completed}, Failed: {failed}")
-            QMessageBox.information(self._dialog, "Batch Complete", f"Completed: {completed}\nFailed: {failed}")
+            processor.run(callback=on_complete)
         except Exception as e:
             QMessageBox.critical(self._dialog, "Error", f"Batch processing failed:\n{str(e)}")
-        finally:
             self._btn_stop.setEnabled(False)
 
     def _stop_batch(self) -> None:

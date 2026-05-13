@@ -63,13 +63,8 @@ class MainWindow(QMainWindow):
         self._is_modified: bool = False
         self._is_processing: bool = False
         self._theme_dark: bool = False
-        self._suppress_undo: bool = False  # Block undo push during batch operations
 
-        # Undo / redo stacks
-        self._undo_stack: deque[dict[str, Any]] = deque(maxlen=50)
-        self._redo_stack: deque[dict[str, Any]] = deque(maxlen=50)
-
-        # Preset manager
+        # Preset manager (for 3GPP scenario presets)
         self._presets_manager = None
 
         # Initialize UI
@@ -153,53 +148,8 @@ class MainWindow(QMainWindow):
 
         config_menu.addSeparator()
 
-        self._action_undo = QAction("Undo", self)
-        self._action_undo.setShortcut(QKeySequence("Ctrl+Z"))
-        self._action_undo.setEnabled(False)
-        self._action_undo.triggered.connect(self._on_undo)
-        config_menu.addAction(self._action_undo)
-
-        self._action_redo = QAction("Redo", self)
-        self._action_redo.setShortcut(QKeySequence("Ctrl+Y"))
-        self._action_redo.setEnabled(False)
-        self._action_redo.triggered.connect(self._on_redo)
-        config_menu.addAction(self._action_redo)
-
-        config_menu.addSeparator()
-
-        self._action_load_config_b = QAction("Load Config B (Compare)...", self)
-        self._action_load_config_b.setShortcut(QKeySequence("Ctrl+Shift+C"))
-        self._action_load_config_b.triggered.connect(self._on_load_config_b)
-        config_menu.addAction(self._action_load_config_b)
-
-        config_menu.addSeparator()
-
-        # Preset selector
-        self._action_preset_menu = QWidgetAction(self)
-        self._preset_combo = QComboBox()
-        self._preset_combo.setMinimumWidth(160)
-        self._preset_combo.currentIndexChanged.connect(self._on_preset_selected)
-        self._preset_combo.setToolTip("Select a preset configuration")
-        self._action_preset_menu.setDefaultWidget(self._preset_combo)
-        config_menu.addAction(self._action_preset_menu)
-
-        self._action_load_presets()
-
-        # Add modification indicator
-        self._action_modified_indicator = QAction("Modified", self)
-        self._action_modified_indicator.setEnabled(False)
-        self._action_modified_indicator.setVisible(False)
-        config_menu.addAction(self._action_modified_indicator)
-
         # View menu
         view_menu = menubar.addMenu("View(&V)")
-
-        self._action_toggle_theme = QAction("Toggle Theme", self)
-        self._action_toggle_theme.setShortcut(QKeySequence("Ctrl+T"))
-        self._action_toggle_theme.triggered.connect(self._on_toggle_theme)
-        view_menu.addAction(self._action_toggle_theme)
-
-        view_menu.addSeparator()
 
         self._action_toggle_fullscreen = QAction("Fullscreen", self)
         self._action_toggle_fullscreen.setShortcut(QKeySequence("F11"))
@@ -220,27 +170,6 @@ class MainWindow(QMainWindow):
         self._action_cfo_estimator.setEnabled(False)
         self._action_cfo_estimator.triggered.connect(self._on_cfo_estimator)
         tools_menu.addAction(self._action_cfo_estimator)
-
-        # Advanced menu
-        advanced_menu = menubar.addMenu("Advanced(&A)")
-
-        self._action_load_script = QAction("Load Custom Script...", self)
-        self._action_load_script.setShortcut(QKeySequence("Ctrl+Shift+L"))
-        self._action_load_script.triggered.connect(self._on_load_custom_script)
-        self._action_load_script.setEnabled(False)
-        advanced_menu.addAction(self._action_load_script)
-
-        advanced_menu.addSeparator()
-
-        self._action_perf_monitor = QAction("Performance Monitor", self)
-        self._action_perf_monitor.setCheckable(True)
-        self._action_perf_monitor.setChecked(False)
-        self._action_perf_monitor.triggered.connect(self._on_toggle_perf_monitor)
-        advanced_menu.addAction(self._action_perf_monitor)
-
-        self._action_preset_manager = QAction("Manage Presets...", self)
-        self._action_preset_manager.triggered.connect(self._on_preset_manager)
-        advanced_menu.addAction(self._action_preset_manager)
 
         # Help menu
         help_menu = menubar.addMenu("Help(&H)")
@@ -568,9 +497,28 @@ class MainWindow(QMainWindow):
     def _on_load_recent_file(self, file_path: str) -> None:
         """Load a file from the recent files list."""
         if __import__('pathlib').Path(file_path).exists():
+            # Stop any running worker before loading new file
+            self._stop_worker()
+
             self._current_file = file_path
+
+            # Reset channel config panel to defaults (left panel state reset)
+            if hasattr(self._channel_config, 'reset'):
+                self._channel_config.reset()
+
+            # Clear previous data before loading new file to free memory
+            if hasattr(self._spectrum_viewer, 'clear_data'):
+                self._spectrum_viewer.clear_data()
+            # Reset signal info display
+            if hasattr(self._signal_info, '_reset_info'):
+                self._signal_info._reset_info()
+            # Reset metrics
+            if hasattr(self._signal_info, 'update_metrics'):
+                self._signal_info.update_metrics({})
             self._emit_load_iq(file_path)
             self._update_ui_state()
+            # Auto-run pipeline for the new IQ file
+            self._run_pipeline()
 
     def _clear_recent_files(self) -> None:
         """Clear the recent files list."""
@@ -609,27 +557,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _action_load_presets(self) -> None:
-        """Load preset names into the dropdown."""
-        try:
-            from ChannelSimulation.viewer.business.presets_manager import get_presets_manager
-            self._presets_manager = get_presets_manager()
-            self._preset_combo.blockSignals(True)
-            self._preset_combo.clear()
-            self._preset_combo.addItem("— Select Preset —")
-            presets = self._presets_manager.get_presets()
-            self._preset_combo.addItems(presets)
-            self._preset_combo.blockSignals(False)
-        except Exception as e:
-            print(f"[WARNING] Failed to load presets: {e}")
-
-    def _on_preset_selected(self, index: int) -> None:
-        """Apply selected preset to the channel config panel."""
-        if index <= 0 or self._presets_manager is None:
-            return
-        preset_name = self._preset_combo.currentText()
-        self._apply_preset(preset_name)
-
     def _on_apply_scenario(self, scenario_name: str) -> None:
         """Apply a 3GPP UAV scenario preset (UMa-AV or UMi-AV).
 
@@ -637,7 +564,16 @@ class MainWindow(QMainWindow):
             scenario_name: Name of the scenario preset to apply.
         """
         if self._presets_manager is None:
-            return
+            try:
+                from ChannelSimulation.viewer.business.presets_manager import get_presets_manager
+                self._presets_manager = get_presets_manager()
+            except Exception:
+                QMessageBox.warning(
+                    self,
+                    "Preset Error",
+                    "Failed to load presets manager."
+                )
+                return
 
         preset = self._presets_manager.get_preset(scenario_name)
         if preset is None:
@@ -648,9 +584,6 @@ class MainWindow(QMainWindow):
                 "Please ensure presets are properly configured."
             )
             return
-
-        # Push current config to undo stack
-        self._push_undo()
 
         # Apply preset (skip metadata fields)
         preset_to_apply = {k: v for k, v in preset.items()
@@ -668,86 +601,12 @@ class MainWindow(QMainWindow):
 
         self._current_config = preset_to_apply
         self._is_modified = True
-        self._action_modified_indicator.setVisible(True)
 
         # Display scenario info in status bar
         desc = preset.get('description', '')
         self._status_indicator.setText(f"Applied {scenario_name}: {desc[:60]}...")
 
         self.stage_config_changed.emit(preset_to_apply)
-
-    def _apply_preset(self, preset_name: str) -> None:
-        """Apply a preset by name.
-
-        Args:
-            preset_name: Name of the preset to apply.
-        """
-        preset = self._presets_manager.get_preset(preset_name)
-        if preset is None:
-            return
-
-        # Push current config to undo stack
-        self._push_undo()
-
-        # Apply preset (skip name/category fields)
-        preset_to_apply = {k: v for k, v in preset.items() if k not in ("name", "category", "description", "3gpp_metadata")}
-        if hasattr(self._channel_config, 'set_config'):
-            self._channel_config.set_config(preset_to_apply)
-        self._current_config = preset_to_apply
-        self._is_modified = True
-        self._action_modified_indicator.setVisible(True)
-        self.stage_config_changed.emit(preset_to_apply)
-
-    # =========================================================================
-    # Undo / Redo
-    # =========================================================================
-
-    def _push_undo(self) -> None:
-        """Push current config onto the undo stack."""
-        config = self._get_current_config()
-        self._undo_stack.append(deepcopy(config))
-        self._redo_stack.clear()
-        self._update_undo_redo_actions()
-
-    def _update_undo_redo_actions(self) -> None:
-        """Update undo/redo action enabled states."""
-        self._action_undo.setEnabled(len(self._undo_stack) > 0)
-        self._action_redo.setEnabled(len(self._redo_stack) > 0)
-
-    def _on_undo(self) -> None:
-        """Undo last parameter change."""
-        if not self._undo_stack:
-            return
-        current = deepcopy(self._get_current_config())
-        self._redo_stack.append(current)
-        previous = self._undo_stack.pop()
-        self._apply_config_to_ui(previous)
-        self._update_undo_redo_actions()
-
-    def _on_redo(self) -> None:
-        """Redo previously undone change."""
-        if not self._redo_stack:
-            return
-        current = deepcopy(self._get_current_config())
-        self._undo_stack.append(current)
-        nxt = self._redo_stack.pop()
-        self._apply_config_to_ui(nxt)
-        self._update_undo_redo_actions()
-
-    def _apply_config_to_ui(self, config: dict) -> None:
-        """Apply a config dict to all UI elements without triggering undo push."""
-        if hasattr(self._channel_config, 'set_config'):
-            self._channel_config.set_config(config)
-        if 'fs' in config:
-            self._input_fs.setText(str(config['fs']))
-        if 'fc' in config:
-            self._input_fc.setText(str(config['fc']))
-        if 'seed' in config:
-            self._input_seed.setText(str(config['seed']))
-        self._current_config = deepcopy(config)
-        self._is_modified = True
-        self._action_modified_indicator.setVisible(True)
-        self.stage_config_changed.emit(config)
 
     # =========================================================================
     # Menu and Toolbar Actions
@@ -768,13 +627,47 @@ class MainWindow(QMainWindow):
         )
 
         if file_path:
+            # Stop any running worker before loading new file
+            self._stop_worker()
+
             self._current_file = file_path
             self._add_to_recent_files(file_path)
+
+            # Reset channel config panel to defaults (left panel state reset)
+            if hasattr(self._channel_config, 'reset'):
+                self._channel_config.reset()
+
             # Clear previous data before loading new file to free memory
             if hasattr(self._spectrum_viewer, 'clear_data'):
                 self._spectrum_viewer.clear_data()
+
+            # Reset signal info display
+            if hasattr(self._signal_info, '_reset_info'):
+                self._signal_info._reset_info()
+            # Reset metrics
+            if hasattr(self._signal_info, 'update_metrics'):
+                self._signal_info.update_metrics({})
             self._emit_load_iq(file_path)
             self._update_ui_state()
+            # Auto-run pipeline for the new IQ file
+            self._run_pipeline()
+
+    def _stop_worker(self) -> None:
+        """Stop any running processing worker."""
+        if hasattr(self, '_worker') and self._worker is not None:
+            # Disconnect all signals from the old worker to prevent stale callbacks
+            try:
+                self._worker.finished.disconnect()
+                self._worker.progress.disconnect()
+                self._worker.error.disconnect()
+                self._worker.metrics_ready.disconnect()
+                self._worker.spectrum_ready.disconnect()
+                self._worker.stage_spectrum_cached.disconnect()
+            except Exception:
+                pass  # Signals may not have been connected
+            self._worker.stop()
+            self._worker.wait(2000)  # Wait up to 2 seconds
+            self._worker = None
 
     def _on_export_iq(self) -> None:
         """Export IQ file."""
@@ -845,12 +738,6 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             self._reset_config()
 
-    def _on_toggle_theme(self) -> None:
-        """Toggle theme."""
-        self._theme_dark = not self._theme_dark
-        self._apply_theme(self._theme_dark)
-        self.theme_changed.emit(self._theme_dark)
-
     def _on_toggle_fullscreen(self) -> None:
         """Toggle fullscreen mode."""
         if self.isFullScreen():
@@ -880,85 +767,6 @@ class MainWindow(QMainWindow):
                 dialog.set_signals(raw_orig, raw_proc, fs)
 
         dialog.exec()
-
-    def _on_load_custom_script(self) -> None:
-        """Open custom script loader dialog."""
-        from PySide6.QtWidgets import QFileDialog
-        from ChannelSimulation.viewer.advanced.custom_script_engine import CustomScriptEngine
-
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Load Custom Script",
-            "",
-            "Python Files (*.py);;All Files (*.*)",
-        )
-
-        if not file_path:
-            return
-
-        engine = CustomScriptEngine()
-        try:
-            script = engine.load_script_from_file(file_path)
-            valid, err = engine.validate_script(script)
-            if not valid:
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, "Script Error", f"Script validation failed:\n{err}")
-                return
-
-            # Apply script if we have a loaded signal
-            if self._spectrum_viewer is not None:
-                raw = getattr(self._spectrum_viewer, '_raw_original', None)
-                if raw is not None:
-                    try:
-                        result = engine.execute_script(script, raw, {})
-                        # Store result as a custom intermediate stage
-                        stage_signals = getattr(self._spectrum_viewer, '_stage_signals', {})
-                        stage_signals['custom'] = result
-                        self._spectrum_viewer.set_stage_signals(stage_signals)
-
-                        # Update processed signal to show custom result
-                        self._spectrum_viewer._raw_processed = result
-                        self._spectrum_viewer._redraw()
-
-                        self._status_indicator.setText(f"Custom script applied: {file_path}")
-                    except Exception as e:
-                        from PySide6.QtWidgets import QMessageBox
-                        QMessageBox.warning(self, "Script Error", f"Script execution failed:\n{str(e)}")
-                        return
-
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(
-                self, "Custom Script",
-                f"Script loaded successfully from:\n{file_path}\n\n"
-                "The custom processing result is available as 'Custom' stage in the Signal selector."
-            )
-
-        except Exception as e:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "Script Load Error", f"Failed to load script:\n{str(e)}")
-
-    def _on_toggle_perf_monitor(self, checked: bool) -> None:
-        """Toggle performance monitor panel."""
-        if not hasattr(self, '_perf_panel'):
-            from ChannelSimulation.viewer.advanced.performance_monitor import PerformanceMonitor, PerformancePanel
-            monitor = PerformanceMonitor(interval_ms=1000)
-            monitor.start()
-            self._perf_monitor = monitor
-            self._perf_panel = PerformancePanel(monitor)
-            # Dock to bottom of central widget
-            self._perf_dock = QWidget()
-            dock_layout = QVBoxLayout(self._perf_dock)
-            dock_layout.setContentsMargins(0, 0, 0, 0)
-            dock_layout.addWidget(self._perf_panel)
-            # Find the central widget splitter and add below right panel
-            central = self.centralWidget()
-            if central:
-                layout = central.layout()
-                if layout:
-                    layout.addWidget(self._perf_dock)
-
-        self._perf_dock.setVisible(checked)
-        self._action_perf_monitor.setChecked(checked)
 
     def _status(self, msg: str) -> None:
         """Update status bar text."""
@@ -1014,17 +822,14 @@ class MainWindow(QMainWindow):
         dialog = LogViewerDialog(log_manager, self)
         dialog.exec()
 
-    def _on_preset_manager(self) -> None:
-        """Open preset manager dialog."""
-        from ChannelSimulation.viewer.advanced.preset_manager_dialog import PresetManagerDialog
-        dialog = PresetManagerDialog(self)
-        dialog.exec()
-        # Reload presets after dialog closes
-        self._action_load_presets()
-
     def _on_preview(self) -> None:
         """Preview button clicked."""
         if self._current_file:
+            # Stop any running worker
+            self._stop_worker()
+            # Clear old data to ensure fresh start
+            if hasattr(self._spectrum_viewer, 'clear_data'):
+                self._spectrum_viewer.clear_data()
             self._run_pipeline()
 
     def _on_view_mode_changed(self, index: int) -> None:
@@ -1051,11 +856,7 @@ class MainWindow(QMainWindow):
         """Handle config change."""
         self._current_config = config
         self._is_modified = True
-        self._action_modified_indicator.setVisible(True)
         self._update_ui_state()
-        # Push current config to undo stack (skip during batch operations)
-        if not self._suppress_undo:
-            self._push_undo()
         # Note: stage_config_changed signal is NOT emitted here.
         # Pipeline run is deferred to the Preview button to avoid
         # continuous re-processing during parameter adjustment.
@@ -1171,6 +972,10 @@ class MainWindow(QMainWindow):
         if hasattr(self._spectrum_viewer, '_raw_processed'):
             self._spectrum_viewer._raw_processed = processed
 
+        # Update loaded signal ID to track which signal's spectrum data is current
+        if hasattr(self._spectrum_viewer, '_loaded_signal_id') and original is not None:
+            self._spectrum_viewer._loaded_signal_id = id(original)
+
         # Sync calculator params so time-domain axis uses the correct sampling rate
         if hasattr(self._spectrum_viewer, '_calculator'):
             self._spectrum_viewer._calculator.fs = fs
@@ -1180,39 +985,28 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_snr_view'):
             self._snr_view.set_signals(original, processed, fs)
 
-        # Store stage signals and trigger UI update (no immediate redraw, spectrum via signal)
+        # Store stage signals - set_stage_signals now correctly handles
+        # setting the stage to "final" (processed signal) by default
         stage_signals['original'] = original
         stage_signals['final'] = processed
-
-        # Save current stage state — set_stage_signals fires currentIndexChanged(0)
-        # which calls _on_stage_changed and would overwrite _raw_processed with an
-        # intermediate stage signal (the "noise gets wiped" bug). Restore it after.
-        saved_stage_id = getattr(self._spectrum_viewer, '_current_stage_id', 0)
-        saved_stage_name = getattr(self._spectrum_viewer, '_current_stage_name', 'final')
-        saved_raw_processed = self._spectrum_viewer._raw_processed
 
         if hasattr(self._spectrum_viewer, 'set_stage_signals'):
             self._spectrum_viewer.set_stage_signals(stage_signals)
 
-        # Restore after set_stage_signals (which fires currentIndexChanged internally)
-        self._spectrum_viewer._current_stage_id = saved_stage_id
-        self._spectrum_viewer._current_stage_name = saved_stage_name
-        self._spectrum_viewer._raw_processed = saved_raw_processed
+        # CRITICAL: Force re-read of data from L2 cache AFTER set_stage_signals.
+        # This ensures we have the latest processed data, not stale cached values.
+        # Reset _is_first_processing to ensure proper scale locking
+        if hasattr(self._spectrum_viewer, '_is_first_processing'):
+            self._spectrum_viewer._is_first_processing = True
+        if hasattr(self._spectrum_viewer, '_stft_vmin_locked'):
+            self._spectrum_viewer._stft_vmin_locked = None
+        if hasattr(self._spectrum_viewer, '_stft_vmax_locked'):
+            self._spectrum_viewer._stft_vmax_locked = None
 
-        # CRITICAL: reset _current_stage_name to "final" AFTER set_stage_signals returns.
-        # We need "final" so _ensure_data_for_current_view looks up the correct
-        # L2 cache entry (the one emitted via spectrum_ready).
-        self._spectrum_viewer._current_stage_name = "final"
-        avail = getattr(self._spectrum_viewer, '_available_stages', [])
-        self._spectrum_viewer._current_stage_id = avail.index("final") if "final" in avail else 0
-
-        # Ensure the current view is populated with the final stage's spectrum data.
-        # This covers the case where the user is already on the PSD view when
-        # processing finishes: _on_processing_finished runs before spectrum_ready
-        # delivers the final stage PSD, so we trigger _ensure_data_for_current_view
-        # to pull the "final" stage entry from the L2 cache and redraw.
+        # Force re-read from L2 cache
         if hasattr(self._spectrum_viewer, '_ensure_data_for_current_view'):
             self._spectrum_viewer._ensure_data_for_current_view()
+        if hasattr(self._spectrum_viewer, '_redraw'):
             self._spectrum_viewer._redraw()
 
         # Update signal info
@@ -1294,7 +1088,6 @@ class MainWindow(QMainWindow):
                 yaml.dump(full_config, f, default_flow_style=False, allow_unicode=True)
 
             self._is_modified = False
-            self._action_modified_indicator.setVisible(False)
             self._status_indicator.setText(f"Config saved: {file_path}")
 
         except Exception as e:
@@ -1325,7 +1118,6 @@ class MainWindow(QMainWindow):
 
             self._current_config = config
             self._is_modified = False
-            self._action_modified_indicator.setVisible(False)
             self._status_indicator.setText(f"Config loaded: {file_path}")
 
         except Exception as e:
@@ -1415,16 +1207,21 @@ class MainWindow(QMainWindow):
 
     def _reset_config(self) -> None:
         """Reset config to defaults."""
+        # Clear the spectrum display first (reset STFT view state)
+        if hasattr(self, '_spectrum_viewer') and self._spectrum_viewer is not None:
+            self._spectrum_viewer.clear_data()
+
+        # Reset channel config panel to defaults
         if hasattr(self._channel_config, 'reset'):
             self._channel_config.reset()
 
+        # Reset global parameters
         self._input_fs.setText("100000000")
         self._input_fc.setText("0")
         self._input_seed.setText("42")
 
         self._current_config = {}
         self._is_modified = False
-        self._action_modified_indicator.setVisible(False)
         self._status_indicator.setText("Config reset")
 
     # =========================================================================
@@ -1448,7 +1245,6 @@ class MainWindow(QMainWindow):
         self._action_export_fig.setEnabled(has_file)
         self._action_save_config.setEnabled(has_file or self._is_modified)
         self._action_cfo_estimator.setEnabled(has_file)
-        self._action_load_script.setEnabled(has_file)
 
         # Update title bar
         title = "RFUAV ChannelSim Viewer v1.3.0"

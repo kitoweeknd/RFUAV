@@ -206,14 +206,6 @@ class SpectrumViewer(QWidget):
         self._box_selection_start: tuple[float, float] | None = None
         self._box_selection_rect = None
 
-        # Compare mode (three-column config comparison)
-        self._compare_mode = False
-        self._config_b_original: np.ndarray | None = None
-        self._config_b_processed: np.ndarray | None = None
-        self._config_b_fs: float = 100_000_000
-        self._config_b_label: str = "Config B"
-        self._canvas_compare: SpectrumCanvas | None = None
-
         # STFT navigation (full recording bounds; not overwritten by zoom-recompute STFT crops)
         self._nav_t0: float | None = None
         self._nav_t1: float | None = None
@@ -223,10 +215,6 @@ class SpectrumViewer(QWidget):
         self._stft_center_f_mhz: float = 0.0
         self._slider_nav_block: bool = False
         self._slider_debounce_timer: "QTimer | None" = None  # Debounce slider drag
-
-        # Playback state
-        self._is_playing = False
-        self._play_frame = 0
 
         self._init_ui()
         self._setup_figure()
@@ -251,63 +239,6 @@ class SpectrumViewer(QWidget):
         toolbar_layout.addWidget(self._view_selector)
 
         toolbar_layout.addStretch()
-
-        # Pipeline flow mini-display (right-click to toggle box-select mode)
-        self._pipeline_flow = PipelineFlowWidget()
-        self._pipeline_flow.setToolTip("Pipeline flow — hover for stages")
-        self._pipeline_flow._is_right_click_target = True
-        self._pipeline_flow.mousePressEvent = lambda e: (
-            self._toggle_box_select_mode() if e.button() == Qt.MouseButton.RightButton else
-            QLabel.mousePressEvent(self._pipeline_flow, e)
-        )
-        self._pipeline_flow.setStyleSheet(
-            f"border: 1px solid {get_color('border')}; border-radius: 4px; padding: 2px 6px; "
-            f"background: {get_color('bg_secondary')};"
-        )
-        toolbar_layout.addWidget(self._pipeline_flow)
-
-        # Box selection mode toggle
-        self._btn_box_select = QLabel("□")
-        self._btn_box_select.setToolTip("Box Selection (B) — right-click canvas to reset")
-        self._btn_box_select.setStyleSheet(
-            f"font-size: 16px; padding: 2px 6px; "
-            f"color: {get_color('text_secondary')};"
-        )
-        self._btn_box_select.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_box_select.mousePressEvent = lambda e: self._toggle_box_select_mode()
-        toolbar_layout.addWidget(self._btn_box_select)
-
-        toolbar_layout.addWidget(QLabel("Signal:"))
-        # Stage selector
-        self._stage_selector = QComboBox()
-        self._stage_selector.addItems(["Original Signal", "Processed Signal"])
-        self._stage_selector.currentIndexChanged.connect(self._on_stage_changed)
-        toolbar_layout.addWidget(self._stage_selector)
-
-        # Compare Mode toggle
-        self._btn_compare = QLabel("☐")
-        self._btn_compare.setToolTip("Compare Mode — load two configs to compare side-by-side (Ctrl+Shift+C)")
-        self._btn_compare.setStyleSheet(
-            f"font-size: 14px; padding: 2px 6px; "
-            f"color: {get_color('text_secondary')};"
-        )
-        self._btn_compare.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_compare.mousePressEvent = lambda e: self._toggle_compare_mode()
-        toolbar_layout.addWidget(self._btn_compare)
-
-        # Play button
-        self._btn_play = QLabel("▶")
-        self._btn_play.setStyleSheet(f"color: {get_color('accent')}; font-size: 16px; padding: 2px 6px;")
-        self._btn_play.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_play.mousePressEvent = lambda e: self._toggle_play()
-        self._btn_play.setToolTip("Play animation")
-        toolbar_layout.addWidget(self._btn_play)
-
-        toolbar_layout.addWidget(QLabel("Cursor:"))
-        self._label_cursor = QLabel("—")
-        self._label_cursor.setMinimumWidth(160)
-        self._label_cursor.setStyleSheet("font-family: monospace; font-size: 11px;")
-        toolbar_layout.addWidget(self._label_cursor)
 
         layout.addWidget(toolbar)
 
@@ -362,10 +293,6 @@ class SpectrumViewer(QWidget):
         self._colorbar = ColorBarWidget()
         layout.addWidget(self._colorbar)
 
-        # Playback timer
-        self._play_timer = QTimer()
-        self._play_timer.timeout.connect(self._on_play_timeout)
-
         self._canvas_original._spectrum_zoom_reset = lambda: self.reset_zoom()
         self._canvas_processed._spectrum_zoom_reset = lambda: self.reset_zoom()
 
@@ -399,7 +326,6 @@ class SpectrumViewer(QWidget):
         self._stft_worker.stft_done.connect(self._on_stft_worker_done)
 
         self._update_spectrogram_canvas_modes()
-        self._update_stage_selector()
 
     def _setup_figure(self) -> None:
         """Setup Matplotlib canvas"""
@@ -422,111 +348,6 @@ class SpectrumViewer(QWidget):
         if index in (2, 3) and self._nav_t0 is not None:
             self._reset_stft_navigation()
         self._update_spectrogram_canvas_modes()
-
-    def _on_stage_changed(self, index: int) -> None:
-        """Handle stage change"""
-        self._current_stage_id = index
-        if self._available_stages and index < len(self._available_stages):
-            stage_name = self._available_stages[index]
-            self._current_stage_name = stage_name
-            # Update the processed signal reference to the selected stage signal
-            if stage_name in self._stage_signals:
-                self._raw_processed = self._stage_signals[stage_name]
-        self._ensure_data_for_current_view()
-        self._redraw()
-
-    def _toggle_compare_mode(self) -> None:
-        """Toggle three-column config comparison mode."""
-        self._compare_mode = not self._compare_mode
-        color = get_color('accent') if self._compare_mode else get_color('text_secondary')
-        self._btn_compare.setStyleSheet(
-            f"font-size: 14px; padding: 2px 6px; color: {color};"
-        )
-        self._btn_compare.setText("☑" if self._compare_mode else "☐")
-        self._update_compare_column()
-
-    def _update_compare_column(self) -> None:
-        """Show or hide the third comparison canvas."""
-        if self._compare_mode and self._canvas_compare is None:
-            # Create third canvas and insert after processed
-            self._canvas_compare = SpectrumCanvas(parent=self)
-            # Insert as third widget in splitter
-            idx = self._splitter.indexOf(self._canvas_processed) + 1
-            self._splitter.insertWidget(idx, self._canvas_compare)
-            # Sync signals for comparison canvas
-            self._canvas_compare.scroll_zoomed.connect(self._on_canvas_scroll_zoomed)
-            self._canvas_compare.reset_requested.connect(self.reset_zoom)
-            self._canvas_compare.cursor_moved.connect(self._on_canvas_cursor_moved)
-            self._canvas_compare.spectrogram_pan_step.connect(self._on_spectrogram_pan_step)
-            self._canvas_compare.spectrogram_pan_end.connect(self._on_canvas_compare_pan_end)
-            self._canvas_compare.set_interaction_mode("spectrogram")
-            self._canvas_compare._is_dark_theme = self._is_dark_theme
-            self._canvas_compare.initial_draw()
-            # Set stretch factors to 1:1:1
-            self._splitter.setStretchFactor(0, 1)
-            self._splitter.setStretchFactor(1, 1)
-            self._splitter.setStretchFactor(2, 1)
-        elif not self._compare_mode and self._canvas_compare is not None:
-            # Remove third canvas
-            self._canvas_compare.setParent(None)
-            self._canvas_compare.deleteLater()
-            self._canvas_compare = None
-            # Reset to 1:1
-            self._splitter.setStretchFactor(0, 1)
-            self._splitter.setStretchFactor(1, 1)
-        # Redraw
-        self._redraw()
-
-    def _on_canvas_compare_pan_end(self) -> None:
-        """Handle pan end on comparison canvas."""
-        if self._current_view_type == 2:
-            if self._stft_is_full_overview():
-                return
-            self._schedule_zoom_recompute()
-
-    def apply_config_b_data(self, original: np.ndarray, processed: np.ndarray, fs: float, label: str = "Config B") -> None:
-        """Apply data for the second config in comparison mode."""
-        self._config_b_original = original
-        self._config_b_processed = processed
-        self._config_b_fs = fs
-        self._config_b_label = label
-        if self._compare_mode and self._canvas_compare is not None:
-            self._canvas_compare._is_dark_theme = self._is_dark_theme
-        self._redraw()
-
-    def _toggle_play(self) -> None:
-        """Toggle playback state"""
-        self._is_playing = not self._is_playing
-        if self._is_playing:
-            self._btn_play.setText("⏸")
-            self._play_timer.start(50)  # 50ms interval, ~20 FPS
-        else:
-            self._btn_play.setText("▶")
-            self._play_timer.stop()
-
-    def _on_play_timeout(self) -> None:
-        """Playback timeout (animation frame update)"""
-        if self._data is None:
-            return
-
-        if self._current_view_type == 2 and self._stft_center_t is not None:
-            total_dur = len(self._raw_original) / self._calculator.fs if self._raw_original is not None else 1.0
-            self._play_frame = (self._play_frame + 1) % 100
-            progress = self._play_frame / 100.0
-            t_range = self._nav_t1 - self._nav_t0 if self._has_stft_nav() else total_dur * 0.1
-            window_center = self._stft_center_t + progress * t_range
-            if self._nav_t0 is not None and self._nav_t1 is not None:
-                half_span = t_range * 0.5
-                max_center = self._nav_t1 - half_span
-                min_center = self._nav_t0 + half_span
-                window_center = float(np.clip(window_center, min_center, max_center))
-            self._stft_center_t = window_center
-            self._clamp_stft_centers()
-            self._update_stft_nav_labels()
-            self._apply_stft_view_limits_to_figures()
-            self._schedule_zoom_recompute()
-
-        self._redraw()
 
     def _ensure_data_for_current_view(self) -> None:
         """Populate _data with spectrum for the current stage + view_type.
@@ -652,9 +473,6 @@ class SpectrumViewer(QWidget):
         self._canvas_original.set_interaction_mode("spectrogram" if is_stft else "default")
         # Processed canvas: spectrogram for both STFT and residual STFT
         self._canvas_processed.set_interaction_mode("spectrogram" if (is_stft or is_resid) else "default")
-        # Compare canvas: spectrogram in compare mode
-        if self._canvas_compare is not None:
-            self._canvas_compare.set_interaction_mode("spectrogram" if (is_stft or is_resid) else "default")
 
     def _clear_stft_navigation(self) -> None:
         self._nav_t0 = self._nav_t1 = None
@@ -943,11 +761,8 @@ class SpectrumViewer(QWidget):
             c.draw()
 
     def _on_canvas_cursor_moved(self, x: float, y: float) -> None:
-        """Update cursor coordinate display in toolbar."""
-        view_names = ["Time", "PSD", "STFT", "Residual"]
-        view = view_names[self._current_view_type]
-        stage = self._available_stages[self._current_stage_id] if self._available_stages and self._current_stage_id < len(self._available_stages) else "?"
-        self._label_cursor.setText(f"{view} | {stage} | x={x:.4g}  y={y:.4g}")
+        """Handle cursor position updates from canvas."""
+        pass
 
     def _schedule_zoom_recompute(self) -> None:
         """Debounce: wait for zoom to settle, then recompute STFT for visible window."""
@@ -1076,29 +891,9 @@ class SpectrumViewer(QWidget):
         fig_orig = self._canvas_original.figure
         fig_proc = self._canvas_processed.figure
 
-        if self._compare_mode and self._config_b_processed is not None:
-            # A: Config A processed | B: Config B processed | C: Diff
-            # Use decimated abs envelopes for all three to keep performance manageable
-            n_a = len(self._raw_processed) if self._raw_processed is not None else 0
-            step_a = max(1, n_a // self._calculator.MAX_PLOT_POINTS)
-            sig_a_abs = np.abs(self._raw_processed[::step_a]) if n_a > 0 else None
-            n_b = len(self._config_b_processed) if self._config_b_processed is not None else 0
-            step_b = max(1, n_b // self._calculator.MAX_PLOT_POINTS)
-            sig_b_abs = np.abs(self._config_b_processed[::step_b]) if n_b > 0 else None
-            sig_diff = self._compute_diff(self._raw_processed, self._config_b_processed)
-            self._draw_time_canvas(fig_orig, sig_a_abs, "Config A - Time Domain")
-            self._draw_time_canvas(fig_proc, sig_b_abs, "Config B - Time Domain")
-            if self._canvas_compare:
-                # Decimate diff signal for display
-                n_diff = len(sig_diff) if sig_diff is not None else 0
-                step_d = max(1, n_diff // self._calculator.MAX_PLOT_POINTS)
-                sig_diff_dec = sig_diff[::step_d] if sig_diff is not None and n_diff > 0 else sig_diff
-                self._draw_time_canvas(self._canvas_compare.figure, sig_diff_dec,
-                                      "Diff (A−B) - Time Domain")
-        else:
-            # A: Original | B: Processed
-            self._draw_time_canvas(fig_orig, self._data.time_domain_original, "Original Signal - Time Domain")
-            self._draw_time_canvas(fig_proc, self._data.time_domain_processed, "Processed Signal - Time Domain")
+        # A: Original | B: Processed
+        self._draw_time_canvas(fig_orig, self._data.time_domain_original, "Original Signal - Time Domain")
+        self._draw_time_canvas(fig_proc, self._data.time_domain_processed, "Processed Signal - Time Domain")
 
         self._colorbar.hide()
 
@@ -1133,56 +928,31 @@ class SpectrumViewer(QWidget):
         fig_orig = self._canvas_original.figure
         fig_proc = self._canvas_processed.figure
 
-        if self._compare_mode and self._config_b_processed is not None:
-            # Compare mode: A vs B vs Diff
-            freqs = self._data.freq_axis_psd
-            sig_a_psd = self._data.psd_processed
-            # Config B PSD — try L2 cache first
-            sig_b_id = id(self._config_b_processed)
-            cached_b = _SPECTRAL_CACHE.get("__config_b__", _VIEW_PSD, sig_b_id)
-            if cached_b is not None:
-                _, sig_b_psd = cached_b["psd_original"], cached_b["psd_processed"]
-            else:
-                calc_b = SpectrumCalculator(fs=self._config_b_fs)
-                _, sig_b_psd = calc_b.compute_psd(self._config_b_processed)
-                _SPECTRAL_CACHE.put("__config_b__", _VIEW_PSD, sig_b_id, {
-                    "psd_original": None, "psd_processed": sig_b_psd,
-                    "freq_axis_psd": freqs, "stage_name": "__config_b__",
-                    "signal_id": sig_b_id,
-                })
-            diff_psd = self._compute_psd_diff(sig_a_psd, sig_b_psd)
+        # Original signal PSD
+        fig_orig.clear()
+        ax_orig = fig_orig.add_subplot(111)
+        if self._data.psd_original is not None and self._data.freq_axis_psd is not None:
+            ax_orig.plot(self._data.freq_axis_psd / 1e6, self._data.psd_original, linewidth=0.8)
+            ax_orig.set_xlabel("Frequency (MHz)")
+            ax_orig.set_ylabel("Power Spectral Density (dB/Hz)")
+            ax_orig.set_title("Original Signal - Power Spectral Density")
+            ax_orig.grid(True, alpha=0.3)
+            ax_orig.set_xlim([self._data.freq_axis_psd.min() / 1e6, self._data.freq_axis_psd.max() / 1e6])
+            self._annotate_peaks(ax_orig, self._data.freq_axis_psd, self._data.psd_original, "#1a73e8")
+        self._canvas_original.draw()
 
-            self._draw_psd_canvas(fig_orig, freqs, sig_a_psd, "Config A - PSD", "#1a73e8")
-            self._draw_psd_canvas(fig_proc, freqs, sig_b_psd, "Config B - PSD", "#ea4335")
-            if self._canvas_compare:
-                self._draw_psd_canvas(self._canvas_compare.figure, freqs, diff_psd,
-                                    "Diff (A−B) PSD", "#fbbc04")
-        else:
-            # Original signal PSD
-            fig_orig.clear()
-            ax_orig = fig_orig.add_subplot(111)
-            if self._data.psd_original is not None and self._data.freq_axis_psd is not None:
-                ax_orig.plot(self._data.freq_axis_psd / 1e6, self._data.psd_original, linewidth=0.8)
-                ax_orig.set_xlabel("Frequency (MHz)")
-                ax_orig.set_ylabel("Power Spectral Density (dB/Hz)")
-                ax_orig.set_title("Original Signal - Power Spectral Density")
-                ax_orig.grid(True, alpha=0.3)
-                ax_orig.set_xlim([self._data.freq_axis_psd.min() / 1e6, self._data.freq_axis_psd.max() / 1e6])
-                self._annotate_peaks(ax_orig, self._data.freq_axis_psd, self._data.psd_original, "#1a73e8")
-            self._canvas_original.draw()
-
-            # Processed signal PSD
-            fig_proc.clear()
-            ax_proc = fig_proc.add_subplot(111)
-            if self._data.psd_processed is not None and self._data.freq_axis_psd is not None:
-                ax_proc.plot(self._data.freq_axis_psd / 1e6, self._data.psd_processed, linewidth=0.8)
-                ax_proc.set_xlabel("Frequency (MHz)")
-                ax_proc.set_ylabel("Power Spectral Density (dB/Hz)")
-                ax_proc.set_title("Processed Signal - Power Spectral Density")
-                ax_proc.grid(True, alpha=0.3)
-                ax_proc.set_xlim([self._data.freq_axis_psd.min() / 1e6, self._data.freq_axis_psd.max() / 1e6])
-                self._annotate_peaks(ax_proc, self._data.freq_axis_psd, self._data.psd_processed, "#ea4335")
-            self._canvas_processed.draw()
+        # Processed signal PSD
+        fig_proc.clear()
+        ax_proc = fig_proc.add_subplot(111)
+        if self._data.psd_processed is not None and self._data.freq_axis_psd is not None:
+            ax_proc.plot(self._data.freq_axis_psd / 1e6, self._data.psd_processed, linewidth=0.8)
+            ax_proc.set_xlabel("Frequency (MHz)")
+            ax_proc.set_ylabel("Power Spectral Density (dB/Hz)")
+            ax_proc.set_title("Processed Signal - Power Spectral Density")
+            ax_proc.grid(True, alpha=0.3)
+            ax_proc.set_xlim([self._data.freq_axis_psd.min() / 1e6, self._data.freq_axis_psd.max() / 1e6])
+            self._annotate_peaks(ax_proc, self._data.freq_axis_psd, self._data.psd_processed, "#ea4335")
+        self._canvas_processed.draw()
 
         self._colorbar.hide()
 
@@ -1206,93 +976,28 @@ class SpectrumViewer(QWidget):
 
         cmap = get_spectrogram_cmap()
 
-        if self._compare_mode and self._config_b_processed is not None:
-            # Compare mode: A processed vs B processed vs Diff
-            im_orig = self._draw_stft_canvas(
-                self._canvas_original.figure,
-                self._data.stft_original,
-                self._data.time_axis_stft,
-                self._data.freq_axis_stft,
-                "Config A - Spectrogram",
-                cmap,
-            )
-            # Config B STFT — cache lookup first, compute on miss
-            sig_b_id = id(self._config_b_processed)
-            zoom_key = None  # full-recording key
-            cached_b = _SPECTRAL_CACHE.get("__config_b__", _VIEW_STFT, sig_b_id, zoom_key)
-            if cached_b is not None:
-                stft_b = cached_b.get("stft_processed")
-                ff_b = cached_b.get("freq_axis_stft")
-                tt_b = cached_b.get("time_axis_stft")
-                calc_b = SpectrumCalculator(fs=self._config_b_fs)  # needed for diff below
-            else:
-                calc_b = SpectrumCalculator(fs=self._config_b_fs)
-                n = min(len(self._raw_original), len(self._config_b_processed))
-                sig_b = self._config_b_processed[:n]
-                try:
-                    stft_b, ff_b, tt_b = calc_b.compute_stft(sig_b)
-                    _SPECTRAL_CACHE.put("__config_b__", _VIEW_STFT, sig_b_id, {
-                        "stft_original": None, "stft_processed": stft_b,
-                        "freq_axis_stft": ff_b, "time_axis_stft": tt_b,
-                        "stage_name": "__config_b__", "signal_id": sig_b_id,
-                    }, zoom_key)
-                except Exception:
-                    stft_b, ff_b, tt_b = None, None, None
-            # Diff STFT: need Config A processed aligned to same length
-            sig_a_short = self._raw_processed[:min(len(self._raw_original), len(self._config_b_processed))]
-            try:
-                stft_a_short, _, _ = calc_b.compute_stft(sig_a_short)
-                diff_stft = (stft_a_short - stft_b) if (stft_a_short is not None and stft_b is not None) else None
-            except Exception:
-                diff_stft = None
-
-            im_proc = self._draw_stft_canvas(
-                self._canvas_processed.figure,
-                stft_b,
-                tt_b,
-                ff_b,
-                "Config B - Spectrogram",
-                cmap,
-            )
-            im_compare = None
-            if self._canvas_compare:
-                diff_cmap = "RdBu_r" if not self._is_dark_theme else "RdBu"
-                im_compare = self._draw_stft_canvas(
-                    self._canvas_compare.figure,
-                    diff_stft,
-                    tt_b if tt_b is not None else self._data.time_axis_stft,
-                    ff_b if ff_b is not None else self._data.freq_axis_stft,
-                    "Diff (A−B) Spectrogram",
-                    diff_cmap,
-                )
-            # Cache imshow refs for slider/pan extent updates (compare mode)
-            self._stft_im_orig = im_orig
-            self._stft_im_proc = im_proc
-            self._stft_ax_orig = self._canvas_original.figure.axes[0] if self._canvas_original.figure.axes else None
-            self._stft_ax_proc = self._canvas_processed.figure.axes[0] if self._canvas_processed.figure.axes else None
-        else:
-            # Normal mode: Original vs Processed
-            im_orig = self._draw_stft_canvas(
-                self._canvas_original.figure,
-                self._data.stft_original,
-                self._data.time_axis_stft,
-                self._data.freq_axis_stft,
-                "Original Signal - Spectrogram",
-                cmap,
-            )
-            im_proc = self._draw_stft_canvas(
-                self._canvas_processed.figure,
-                self._data.stft_processed,
-                self._data.time_axis_stft,
-                self._data.freq_axis_stft,
-                "Processed Signal - Spectrogram",
-                cmap,
-            )
-            # Cache imshow refs + axes so slider drag can update extent without full redraw
-            self._stft_im_orig = im_orig
-            self._stft_im_proc = im_proc
-            self._stft_ax_orig = self._canvas_original.figure.axes[0] if self._canvas_original.figure.axes else None
-            self._stft_ax_proc = self._canvas_processed.figure.axes[0] if self._canvas_processed.figure.axes else None
+        # Normal mode: Original vs Processed
+        im_orig = self._draw_stft_canvas(
+            self._canvas_original.figure,
+            self._data.stft_original,
+            self._data.time_axis_stft,
+            self._data.freq_axis_stft,
+            "Original Signal - Spectrogram",
+            cmap,
+        )
+        im_proc = self._draw_stft_canvas(
+            self._canvas_processed.figure,
+            self._data.stft_processed,
+            self._data.time_axis_stft,
+            self._data.freq_axis_stft,
+            "Processed Signal - Spectrogram",
+            cmap,
+        )
+        # Cache imshow refs + axes so slider drag can update extent without full redraw
+        self._stft_im_orig = im_orig
+        self._stft_im_proc = im_proc
+        self._stft_ax_orig = self._canvas_original.figure.axes[0] if self._canvas_original.figure.axes else None
+        self._stft_ax_proc = self._canvas_processed.figure.axes[0] if self._canvas_processed.figure.axes else None
 
         self._update_stft_nav_labels()
 
@@ -1495,9 +1200,6 @@ class SpectrumViewer(QWidget):
         Data is already in L2 cache; this method just unpacks and applies it
         to _data so _redraw can use the high-resolution values.
         """
-        # Guard: if no raw data has been loaded yet, ignore the spectrum data
-        if self._raw_original is None:
-            return
         if self._data is None:
             self._data = SpectrumData(fs=self._calculator.fs, fc=self._calculator.fc)
 
@@ -1547,8 +1249,6 @@ class SpectrumViewer(QWidget):
         self._is_dark_theme = dark
         self._canvas_original._is_dark_theme = dark
         self._canvas_processed._is_dark_theme = dark
-        if self._canvas_compare is not None:
-            self._canvas_compare._is_dark_theme = dark
         self._ensure_data_for_current_view()
         self._redraw()
 
@@ -1562,21 +1262,14 @@ class SpectrumViewer(QWidget):
         self._available_stages = list(stage_signals.keys())
         if "final" not in self._available_stages:
             self._available_stages.append("final")
-        self._update_stage_selector()
 
-        # Update pipeline flow widget
-        enabled_stages = set()
-        for name, cfg in stage_signals.items():
-            if name not in ("original", "preprocess", "final"):
-                # Check if this stage was in the config
-                pass
-        self._pipeline_flow.set_active_stages(self._available_stages)
+        # Set stage to "final" (processed signal) since that is the default view
+        self._current_stage_id = len(self._available_stages) - 1
+        self._current_stage_name = "final"
 
     def set_config(self, config: dict) -> None:
         """Update pipeline flow display with current config."""
-        stage_configs = config.get("stage_configs", {})
-        enabled = {name for name, cfg in stage_configs.items() if cfg.get("enabled", False)}
-        self._pipeline_flow.set_enabled_stages(enabled)
+        pass
 
     def clear_data(self) -> None:
         """Release all held signal and spectrum data to free memory.
@@ -1591,8 +1284,6 @@ class SpectrumViewer(QWidget):
         self._current_stage_name = "final"
         self._current_stage_id = 0
         self._current_view_type = 0
-        self._config_b_original = None
-        self._config_b_processed = None
         self._data = None
         self._clear_saved_axis_limits()
         self._clear_stft_navigation()
@@ -1613,35 +1304,17 @@ class SpectrumViewer(QWidget):
         self._is_first_processing = True
 
         # Release canvas figures
-        for canvas in (self._canvas_original, self._canvas_processed, self._canvas_compare):
+        for canvas in (self._canvas_original, self._canvas_processed):
             if canvas is not None and canvas.figure.axes:
                 canvas.figure.clear()
                 canvas.draw()
 
         # Clear stage selector
-        self._stage_selector.blockSignals(True)
-        self._stage_selector.clear()
-        self._stage_selector.addItems(["Original Signal", "Processed Signal"])
-        self._stage_selector.blockSignals(False)
-
-    def _update_stage_selector(self) -> None:
-        """Rebuild stage selector dropdown based on available stages."""
-        self._stage_selector.blockSignals(True)
-        self._stage_selector.clear()
-
-        labels = []
-        for s in self._available_stages:
-            labels.append(STAGE_DISPLAY_LABELS.get(s, s))
-
-        if labels:
-            self._stage_selector.addItems(labels)
-            self._stage_selector.setToolTip(
-                "Select intermediate stage | " + " | ".join(labels)
-            )
-        else:
+        if hasattr(self, '_stage_selector'):
+            self._stage_selector.blockSignals(True)
+            self._stage_selector.clear()
             self._stage_selector.addItems(["Original Signal", "Processed Signal"])
-
-        self._stage_selector.blockSignals(False)
+            self._stage_selector.blockSignals(False)
 
     def zoom_in(self) -> None:
         """Zoom in (narrow visible range; axis ticks reflect the window)."""
@@ -1666,7 +1339,7 @@ class SpectrumViewer(QWidget):
         self._zoom_axes(1.1)
 
     def _zoom_axes(self, scale: float) -> None:
-        for canvas in (self._canvas_original, self._canvas_processed, self._canvas_compare):
+        for canvas in (self._canvas_original, self._canvas_processed):
             if canvas is None or not canvas.figure.axes:
                 continue
             ax = canvas.figure.axes[0]
@@ -1702,20 +1375,6 @@ class SpectrumViewer(QWidget):
             self._nav_f_hi_mhz = float(np.max(f_ax)) / 1e6
             self._reset_stft_navigation()
         self._redraw()
-
-    def _compute_diff(self, sig_a: np.ndarray | None, sig_b: np.ndarray | None) -> np.ndarray | None:
-        """Compute amplitude difference A - B for time domain."""
-        if sig_a is None or sig_b is None:
-            return None
-        min_len = min(len(sig_a), len(sig_b))
-        return np.abs(sig_a[:min_len]) - np.abs(sig_b[:min_len])
-
-    def _compute_psd_diff(self, psd_a: np.ndarray | None, psd_b: np.ndarray | None) -> np.ndarray | None:
-        """Compute PSD difference A - B in dB."""
-        if psd_a is None or psd_b is None:
-            return None
-        min_len = min(len(psd_a), len(psd_b))
-        return psd_a[:min_len] - psd_b[:min_len]
 
     def _annotate_peaks(self, ax, freqs: np.ndarray, psd: np.ndarray, color: str) -> None:
         """Annotate top N peaks on the given axes."""
