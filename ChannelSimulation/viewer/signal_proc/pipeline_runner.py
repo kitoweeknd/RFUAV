@@ -365,6 +365,11 @@ class PipelineRunner:
             x = self._apply_stage(stage_name, x, rng)
             # Store as view — no extra copy; PipelineRunner holds the backing array.
             self._stage_signals[stage_name] = x
+            # When requested, also surface each intermediate stage in the returned
+            # dict so callers (the viewer's per-stage inspector / spectrum precompute)
+            # can see every enabled stage — not just preprocess/final.
+            if return_all_stages:
+                results[stage_name] = x
 
         results["final"] = x
         return results

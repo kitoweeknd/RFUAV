@@ -22,6 +22,7 @@ from typing import Optional, Tuple
 import numpy as np
 
 from .array_pool import get_pool
+from . import fft_backend as fb
 
 
 @dataclass
@@ -216,9 +217,12 @@ class SpectrumCalculator:
         Returns:
             Amplitude envelope |x(t)|
         """
-        # Downsample to control rendering points
-        amplitude = np.abs(signal)
-        return self._decimate_1d(amplitude, self.MAX_PLOT_POINTS)
+        # Decimate *before* taking the magnitude: |x| over the full array then
+        # discarding 99% of it wastes an O(N) abs on tens of millions of samples.
+        # step matches _compute_time_axis so the axes stay length-aligned.
+        n = len(signal)
+        step = max(1, n // self.MAX_PLOT_POINTS)
+        return np.abs(signal[::step])
 
     def _compute_time_axis(
         self,
@@ -296,9 +300,10 @@ class SpectrumCalculator:
             window_vals = np.ones(n, dtype=np.float64)
 
         windowed = signal * window_vals
-        spectrum = np.fft.fft(windowed)
+        spectrum = fb.fft(windowed)
         spectrum_single = spectrum[: n // 2]
-        psd = np.abs(spectrum_single) ** 2
+        # Power directly from real/imag avoids the sqrt in abs()**2.
+        psd = spectrum_single.real ** 2 + spectrum_single.imag ** 2
         window_power = np.sum(window_vals**2)
         psd = psd / (window_power * self._fs)
         # float32 output for display (saves ~50 % memory vs float64).
@@ -398,18 +403,25 @@ class SpectrumCalculator:
         if len(starts) == 0:
             return self._compute_stft_fallback_short(signal, fs)
 
-        # Slices into the full signal array (zero copy)
-        # Each row = one time frame
-        block = np.stack([signal[s:s + nperseg] for s in starts], axis=0)  # (n_frames, nperseg)
+        # Gather the frames as a (n_frames, nperseg) block. sliding_window_view is
+        # a zero-copy strided view of every length-nperseg window; fancy-indexing
+        # the chosen starts materialises only the frames we keep — no Python
+        # list-comprehension over thousands of slices, no np.stack.
+        windows = np.lib.stride_tricks.sliding_window_view(signal, nperseg)
+        block = windows[starts]                              # (n_frames, nperseg)
 
-        # Apply Hann window row-wise
-        hann = np.hanning(nperseg)
+        # Apply Hann window row-wise (cast to the signal's real dtype so a
+        # complex64 input stays complex64 — half the memory/bandwidth of c128).
+        hann = np.hanning(nperseg).astype(block.real.dtype, copy=False)
         block = block * hann
 
-        # All FFTs at once; output cast to float32.
-        spec = np.fft.fft(block, axis=1)                     # (n_frames, nperseg) = (ntime, nfreq)
-        spec = np.fft.fftshift(spec, axes=1)
-        stft_db = (20.0 * np.log10(np.abs(spec) + self.EPS)).astype(self.DISPLAY_DTYPE)
+        # All FFTs at once via the multithreaded backend; output cast to float32.
+        spec = fb.fft(block, axis=1)                         # (n_frames, nperseg) = (ntime, nfreq)
+        spec = fb.fftshift(spec, axes=1)
+        # Power-domain dB: 10*log10(|z|^2) avoids the sqrt in abs(); EPS**2 keeps
+        # the same silent-region floor as the previous 20*log10(|z|+EPS).
+        power = spec.real ** 2 + spec.imag ** 2
+        stft_db = (10.0 * np.log10(power + self.EPS ** 2)).astype(self.DISPLAY_DTYPE)
         stft_db = stft_db.T                                   # → (nfreq, ntime)  for imshow
 
         # Time axis: mid-point of each non-overlapping block

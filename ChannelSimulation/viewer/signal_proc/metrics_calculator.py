@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import fft_backend as fb
+
 
 class MetricsCalculator:
     """Signal quality metrics calculator"""
@@ -119,8 +121,9 @@ class MetricsCalculator:
             return 100.0
 
         error = degraded - reference
-        p_error = np.mean(np.abs(error) ** 2)
-        p_reference = np.mean(np.abs(reference) ** 2)
+        # |z|^2 via real^2+imag^2 avoids the sqrt inside np.abs on full-length arrays.
+        p_error = float(np.mean(error.real ** 2 + error.imag ** 2))
+        p_reference = float(np.mean(reference.real ** 2 + reference.imag ** 2))
 
         if p_reference < self._eps:
             return 100.0
@@ -142,12 +145,10 @@ class MetricsCalculator:
         if len(signal) == 0:
             return 0.0
 
-        # Peak power
-        peak_amplitude = np.max(np.abs(signal))
-        p_peak = peak_amplitude ** 2
-
-        # Average power
-        p_avg = np.mean(np.abs(signal) ** 2)
+        # Compute instantaneous power once (no sqrt), then reuse for peak & average.
+        power = signal.real ** 2 + signal.imag ** 2
+        p_peak = float(power.max())
+        p_avg = float(power.mean())
 
         if p_avg < self._eps:
             return 0.0
@@ -223,11 +224,11 @@ class MetricsCalculator:
         # adjacent channel), so truncating to the positive half would make any
         # negative center_ratio band never match a bin.
         n = len(signal)
-        spectrum = np.fft.fft(signal)
+        spectrum = fb.fft(signal)
         freqs = np.fft.fftfreq(n, 1 / fs)
 
-        # Calculate power spectral density over the full spectrum
-        psd = np.abs(spectrum) ** 2
+        # Power directly from real/imag (no sqrt) over the full spectrum.
+        psd = spectrum.real ** 2 + spectrum.imag ** 2
 
         # Determine frequency range
         max_freq = fs / 2
@@ -264,7 +265,7 @@ class MetricsCalculator:
             return -np.inf
 
         # Assume full scale is 1.0 (normalized signal)
-        p_signal = np.mean(np.abs(signal) ** 2)
+        p_signal = float(np.mean(signal.real ** 2 + signal.imag ** 2))
         p_fullscale = 1.0
 
         if p_signal < self._eps:
@@ -295,12 +296,12 @@ class MetricsCalculator:
         if len(reference) == 0:
             return 100.0
 
-        # Signal power
-        p_signal = np.mean(np.abs(reference) ** 2)
+        # Signal power (no sqrt).
+        p_signal = float(np.mean(reference.real ** 2 + reference.imag ** 2))
 
-        # Noise power (difference between before and after processing)
+        # Noise power (difference between before and after processing).
         error = degraded - reference
-        p_noise = np.mean(np.abs(error) ** 2)
+        p_noise = float(np.mean(error.real ** 2 + error.imag ** 2))
 
         if p_noise < self._eps:
             return 100.0

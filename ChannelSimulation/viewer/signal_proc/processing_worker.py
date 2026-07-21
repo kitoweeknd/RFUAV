@@ -299,32 +299,41 @@ class ProcessingWorker(QThread):
             # Emit immediately so UI updates right away
             self.spectrum_ready.emit(result_final)
 
+            # Cache the final stage under EVERY view so switching back to it — or to
+            # any of its views — is a pure cache hit, never a GUI-thread recompute.
+            for _vt in (_VIEW_TIME, _VIEW_PSD, _VIEW_STFT, _VIEW_RESIDUAL):
+                _SPECTRAL_CACHE.put("final", _vt, sig_id, result_final)
+
             if self._should_stop:
                 return
 
             # ── Pre-compute intermediate stage spectra (populate L2 cache) ─────
+            # NOTE: this runs SEQUENTIALLY on purpose. A thread-pool fan-out was
+            # measured to be ~10× SLOWER here: the per-stage cost is dominated by
+            # GIL-held numpy elementwise ops (log10/|·|²/fftshift), not the FFT, so
+            # concurrent threads just contend on the GIL and thrash memory bandwidth.
+            # The parallelism that *does* pay off is inside each STFT's batched FFT
+            # (the multithreaded fft_backend), which each stage already uses.
             stage_items = [
                 (k, v)
                 for k, v in results.items()
                 if k not in ("original", "final") and isinstance(v, np.ndarray)
             ]
             n_stages = len(stage_items)
-            if n_stages > 0:
-                for i, (sname, ssignal) in enumerate(stage_items):
-                    frac = 0.60 + 0.25 * ((i + 1) / max(n_stages, 1))
-                    self.progress.emit(frac, f"Computing {sname}...")
-                    if self._should_stop:
-                        return
-                    stft_s, _, _ = calc.compute_stft(ssignal)
-                    psd_s, _ = calc.compute_psd(ssignal)
-                    stage_result = self._build_spectrum_dict(
-                        original, ssignal,
-                        sname, sig_id,
-                        orig_data, stft_s, psd_s, calc,
-                    )
-                    _SPECTRAL_CACHE.put(sname, _VIEW_STFT, sig_id, stage_result)
-                    _SPECTRAL_CACHE.put(sname, _VIEW_PSD, sig_id, stage_result)
-                    self.stage_spectrum_cached.emit(sname, stage_result)
+            for i, (sname, ssignal) in enumerate(stage_items):
+                if self._should_stop:
+                    return
+                frac = 0.60 + 0.25 * ((i + 1) / max(n_stages, 1))
+                self.progress.emit(frac, f"Computing {sname}...")
+                stft_s, _, _ = calc.compute_stft(ssignal)
+                psd_s, _ = calc.compute_psd(ssignal)
+                stage_result = self._build_spectrum_dict(
+                    original, ssignal, sname, sig_id, orig_data, stft_s, psd_s, calc,
+                )
+                # Complete dict → cache under every view for instant switching.
+                for _vt in (_VIEW_TIME, _VIEW_PSD, _VIEW_STFT, _VIEW_RESIDUAL):
+                    _SPECTRAL_CACHE.put(sname, _vt, sig_id, stage_result)
+                self.stage_spectrum_cached.emit(sname, stage_result)
 
             if self._should_stop:
                 return
@@ -384,8 +393,9 @@ class ProcessingWorker(QThread):
             "stage_name": stage_name,
             "signal_id": sig_id,
             "time_axis": self._decimate_time_axis(len(original)),
-            "time_domain_original": self._decimate_1d(np.abs(original), 2_000_000),
-            "time_domain_processed": self._decimate_1d(np.abs(processed), 2_000_000),
+            # Decimate first, then take |.| — avoids an O(N) abs over the full signal.
+            "time_domain_original": np.abs(self._decimate_1d(original, 2_000_000)),
+            "time_domain_processed": np.abs(self._decimate_1d(processed, 2_000_000)),
             # Reuse original spectra from precompute (no recompute)
             "stft_original": orig_data["stft_original"],
             "stft_processed": stft_p,
@@ -394,9 +404,11 @@ class ProcessingWorker(QThread):
             "psd_original": orig_data["psd_original"],
             "psd_processed": psd_p,
             "freq_axis_psd": orig_data["freq_axis_psd"],
-            # Residual deferred — computed on demand by SpectrumViewer when needed
-            "residual_stft": None,
-            "residual_psd": None,
+            # Residual (this stage vs the original) — nearly free: both STFT/PSD dB
+            # arrays already exist, so filling it here makes the Residual view a pure
+            # cache hit instead of a synchronous GUI-thread recompute on view switch.
+            "residual_stft": calc.compute_residual_stft(orig_data["stft_original"], stft_p),
+            "residual_psd": calc.compute_residual_psd(orig_data["psd_original"], psd_p),
             "zoom_key": None,
         }
         return result
