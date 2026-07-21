@@ -13,6 +13,7 @@ Top-level exports:
 from ChannelSimulation.channels import (
     apply_awgn,
     apply_cfo,
+    apply_doppler,
     apply_iq_imbalance,
     apply_multipath,
     apply_phase_noise,
@@ -44,6 +45,7 @@ __all__ = [
     # channels
     "apply_awgn",
     "apply_cfo",
+    "apply_doppler",
     "apply_iq_imbalance",
     "apply_multipath",
     "apply_phase_noise",

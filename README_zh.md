@@ -324,6 +324,106 @@ data_augmentation(dataset_path=data_path,
                   methods=method)
 ```
 
+### 2.8 无线信道仿真（ChannelSimulation）
+
+`ChannelSimulation/` 是一个独立的子项目（`RFUAV-ChannelSimulation`），用于对原始 IQ 信号施加真实的无线信道损伤。你可以用它为训练集生成经过信道退化的增强样本，或在不同传播条件下对检测/识别模型进行鲁棒性压力测试。它处理 **float32 交织 IQ** 文件（`.iq`），并且可以为每个阶段渲染时频图，直观展示每种效应如何改变频谱。
+
+**支持的信道损伤**（流水线阶段，按此顺序依次施加）：
+
+| 阶段 | 方法 | 说明 |
+|------|------|------|
+| `fading` | `rayleigh`、`rician`、`rice_mild` | 小尺度块衰落 |
+| `doppler` | `jakes` | 多普勒频移 + 多普勒扩展 |
+| `multipath` | `tdl` | 抽头延迟线多径 |
+| `cfo` | `constant` | 载波频率偏移 |
+| `phase_noise` | `wiener` | 振荡器（维纳）相位噪声 |
+| `iq_imbalance` | `widely_linear` | I/Q 增益与相位失衡 |
+| `awgn` | `gaussian` | 按目标 SNR 添加的加性高斯白噪声 |
+| `crop_time_shift` | `basic` | 随机裁剪 + 时间平移 |
+
+**安装**
+
+流水线依赖（numpy / scipy / matplotlib / pyyaml，GUI 另需 PySide6）已包含在[快速开始](#1-快速开始)的顶层 `pip install -r requirements.txt` 中，无需单独安装——在仓库根目录下运行即可，此时 `ChannelSimulation` 可作为包被导入。（若只想装 GUI 依赖：`pip install "PySide6>=6.5"`。）
+
+**命令行用法**
+
+在仓库根目录下运行：
+
+```bash
+# 单文件、全部阶段 —— 将处理后的 IQ + 各阶段时频图 + 元数据写入 ./results
+python -m ChannelSimulation.channel_pipeline \
+    --input data/input.iq --fs 100e6 --stages all --out-dir ./results
+
+# 只运行选定的阶段
+python -m ChannelSimulation.channel_pipeline \
+    --input data/input.iq --fs 100e6 --stages fading,doppler,awgn
+
+# 批量处理目录下的 .iq 文件
+python -m ChannelSimulation.channel_pipeline \
+    --input-dir data/iq_batch --input-glob "*.iq" --fs 100e6 --out-dir ./results
+
+# 通过 YAML 配置驱动全部参数（参见 ChannelSimulation/channel_pipeline.sample.yaml）
+python -m ChannelSimulation.channel_pipeline --config ChannelSimulation/channel_pipeline.sample.yaml
+
+# 大文件：以受限内存流式处理（每 1000 万个复采样约 160 MB）
+python -m ChannelSimulation.channel_pipeline \
+    --input big.iq --fs 100e6 --chunk-size 10000000
+```
+
+**Python API**
+
+```python
+from ChannelSimulation import (
+    run_channel_pipeline, default_stage_configs,
+    read_interleaved_iq, save_interleaved_iq,
+)
+
+iq = read_interleaved_iq("data/input.iq")          # float32 交织 IQ -> 复数
+cfg = default_stage_configs()
+cfg["awgn"]["params"]["snr_db"] = 10.0             # 目标 10 dB SNR
+
+out = run_channel_pipeline(
+    iq, fs=100e6, out_dir="./results",
+    stage_configs=cfg,
+    enabled_stages=["original", "fading", "awgn"],
+    seed=42,                                        # 可复现
+)
+save_interleaved_iq("./results/processed.iq", out)
+```
+
+各个损伤效应也可以单独调用，例如 `from ChannelSimulation import apply_awgn, apply_rayleigh_or_rician_fading`。
+
+**配置**
+
+每个阶段以 `method` + `params` 进行配置，并可选地设置 `save: true`，从而将该阶段的中间 IQ 结果额外写入 `<out_dir>/<stage>.iq`。完整注释的模板位于 `ChannelSimulation/channel_pipeline.sample.yaml`。每次运行都可通过 `seed` 参数复现。
+
+**GUI 查看器**
+
+交互式 PySide6 查看器支持加载 IQ 文件、开关/调节每种损伤，并实时查看频谱图、功率谱密度（PSD）以及质量指标（EVM、SNR、ACLR、峰均比）：
+
+```bash
+python -m ChannelSimulation.viewer.app
+```
+
+> **说明：** 下面的图片是占位图。请按照 *如何截取这些效果图* 的步骤截图，并保存到对应路径，之后即可自动显示。
+
+| 主窗口 | 信道配置 | 质量指标 |
+|:---:|:---:|:---:|
+| ![ChannelSim 查看器 —— 主窗口](./abstract/channelsim_overview.png) | ![ChannelSim 查看器 —— 信道配置面板](./abstract/channelsim_pipeline.png) | ![ChannelSim 查看器 —— 质量指标](./abstract/channelsim_metrics.png) |
+
+<details>
+<summary>如何截取这些效果图</summary>
+
+1. 安装 GUI 依赖：`pip install "PySide6>=6.5"`（已包含在顶层 `requirements.txt` 中）。
+2. 启动查看器：`python -m ChannelSimulation.viewer.app`。
+3. 加载一个 `.iq` 文件，开启几种损伤（例如 `fading` + `awgn` + `doppler`），并在频谱图 / PSD / 指标视图之间切换。
+4. 对窗口截图，并将 PNG 保存到：
+   - `abstract/channelsim_overview.png` —— 主窗口总览
+   - `abstract/channelsim_pipeline.png` —— 信道配置面板
+   - `abstract/channelsim_metrics.png` —— 质量指标视图
+
+</details>
+
 ## 3. 注意事项
 
 ### 3.1 原始数据参数说明

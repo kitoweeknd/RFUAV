@@ -1,7 +1,7 @@
 <h1 style="text-align:center;"> The RFUAV DATASET </h1>
 
 <div style="text-align: center; margin: 10px 0;">
-  <a href="README_zh.md" style="text-decoration: none; color: var(--link-color); font-size: 16px;">📖 中文版 / Chinese Version</a>
+  <a href="README_zh.md" style="text-decoration: none; color: var(--link-color); font-size: 16px;">📖 中文版</a>
 </div>
 
 ## Abstract
@@ -321,6 +321,106 @@ data_augmentation(dataset_path=data_path,
                   output_path=output_path,
                   methods=method)
 ```
+
+### 2.8 Wireless Channel Simulation (ChannelSimulation)
+
+`ChannelSimulation/` is a self-contained sub-project (`RFUAV-ChannelSimulation`) that applies realistic wireless-channel impairments to raw IQ signals. Use it to augment the training set with channel-degraded samples, or to stress-test the detection/identification models under different propagation conditions. It operates on **float32 interleaved IQ** files (`.iq`) and, for every stage, can render a time-frequency plot so you can see how each effect reshapes the spectrum.
+
+**Supported impairments** (pipeline stages, applied in this order):
+
+| Stage | Methods | Description |
+|-------|---------|-------------|
+| `fading` | `rayleigh`, `rician`, `rice_mild` | Small-scale block fading |
+| `doppler` | `jakes` | Mean Doppler shift + Doppler spread |
+| `multipath` | `tdl` | Tapped-delay-line multipath |
+| `cfo` | `constant` | Carrier frequency offset |
+| `phase_noise` | `wiener` | Oscillator (Wiener) phase noise |
+| `iq_imbalance` | `widely_linear` | I/Q gain & phase imbalance |
+| `awgn` | `gaussian` | Additive white Gaussian noise at a target SNR |
+| `crop_time_shift` | `basic` | Random crop + time shift |
+
+**Installation**
+
+The pipeline's dependencies (numpy / scipy / matplotlib / pyyaml, plus PySide6 for the GUI) are already covered by the top-level `pip install -r requirements.txt` from the [Quick Start](#1-quick-start). No separate install is needed — run everything from the repository root, where `ChannelSimulation` is importable as a package. (If you only want the GUI dependency: `pip install "PySide6>=6.5"`.)
+
+**Command-line usage**
+
+Run from the repository root:
+
+```bash
+# Single file, all stages -> writes processed IQ + per-stage plots + metadata to ./results
+python -m ChannelSimulation.channel_pipeline \
+    --input data/input.iq --fs 100e6 --stages all --out-dir ./results
+
+# Run only selected stages
+python -m ChannelSimulation.channel_pipeline \
+    --input data/input.iq --fs 100e6 --stages fading,doppler,awgn
+
+# Batch a directory of .iq files
+python -m ChannelSimulation.channel_pipeline \
+    --input-dir data/iq_batch --input-glob "*.iq" --fs 100e6 --out-dir ./results
+
+# Drive everything from a YAML config (see ChannelSimulation/channel_pipeline.sample.yaml)
+python -m ChannelSimulation.channel_pipeline --config ChannelSimulation/channel_pipeline.sample.yaml
+
+# Large files: stream in bounded memory (~160 MB per 10M complex samples)
+python -m ChannelSimulation.channel_pipeline \
+    --input big.iq --fs 100e6 --chunk-size 10000000
+```
+
+**Python API**
+
+```python
+from ChannelSimulation import (
+    run_channel_pipeline, default_stage_configs,
+    read_interleaved_iq, save_interleaved_iq,
+)
+
+iq = read_interleaved_iq("data/input.iq")          # float32 interleaved IQ -> complex
+cfg = default_stage_configs()
+cfg["awgn"]["params"]["snr_db"] = 10.0             # target 10 dB SNR
+
+out = run_channel_pipeline(
+    iq, fs=100e6, out_dir="./results",
+    stage_configs=cfg,
+    enabled_stages=["original", "fading", "awgn"],
+    seed=42,                                        # reproducible
+)
+save_interleaved_iq("./results/processed.iq", out)
+```
+
+Individual effects can also be called directly, e.g. `from ChannelSimulation import apply_awgn, apply_rayleigh_or_rician_fading`.
+
+**Configuration**
+
+Each stage is configured as `method` + `params`, plus an optional `save: true` that also writes that stage's intermediate IQ to `<out_dir>/<stage>.iq`. A fully documented template is provided at `ChannelSimulation/channel_pipeline.sample.yaml`. Every run is reproducible through the `seed` parameter.
+
+**GUI viewer**
+
+An interactive PySide6 viewer lets you load an IQ file, toggle/tune each impairment, and inspect the spectrogram, PSD and quality metrics (EVM, SNR, ACLR, crest factor) in real time:
+
+```bash
+python -m ChannelSimulation.viewer.app
+```
+
+> **Note:** the images below are placeholders. Capture them as described in *How to capture these screenshots* and save them to the paths shown; they will then render automatically.
+
+| Main window | Channel configuration | Quality metrics |
+|:---:|:---:|:---:|
+| ![ChannelSim viewer — main window](./abstract/channelsim_overview.png) | ![ChannelSim viewer — channel config panel](./abstract/channelsim_pipeline.png) | ![ChannelSim viewer — quality metrics](./abstract/channelsim_metrics.png) |
+
+<details>
+<summary>How to capture these screenshots</summary>
+
+1. Install the GUI dependency: `pip install "PySide6>=6.5"` (already included in the top-level `requirements.txt`).
+2. Launch the viewer: `python -m ChannelSimulation.viewer.app`.
+3. Load an `.iq` file, enable a few impairments (e.g. `fading` + `awgn` + `doppler`), and switch between the spectrogram / PSD / metrics views.
+4. Take a screenshot of the window and save the PNGs to:
+   - `abstract/channelsim_overview.png` — the main window overview
+   - `abstract/channelsim_pipeline.png` — the channel configuration panel
+   - `abstract/channelsim_metrics.png` — the quality-metrics view
+
+</details>
 
 ## 3. Notice
 

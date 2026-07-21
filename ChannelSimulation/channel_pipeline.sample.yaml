@@ -23,7 +23,7 @@ meta_json: ./results/run_meta.json
 # -----------------------------
 stages: all
 # Or as a list:
-# stages: [original, fading, multipath, cfo, phase_noise, iq_imbalance, awgn, crop_time_shift]
+# stages: [original, fading, doppler, multipath, cfo, phase_noise, iq_imbalance, awgn, crop_time_shift]
 show_progress: true
 
 # -----------------------------
@@ -55,6 +55,13 @@ stage_configs:
     params:
       k_factor: 5.0
       block_size: 256  # rice_mild uses 1024 by default
+
+  doppler:
+    method: jakes
+    save: true
+    params:
+      doppler_shift_hz: 0.0     # mean Doppler shift (frequency offset)
+      doppler_spread_hz: 100.0  # RMS width of the Doppler spectrum
 
   multipath:
     method: tdl
