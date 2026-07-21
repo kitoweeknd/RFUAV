@@ -8,11 +8,12 @@ Uses standardized naming and grouping for easy management and maintenance.
 
 from __future__ import annotations
 
+import html
 from enum import Enum, auto
+from functools import cached_property
 from typing import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence
 
 
 class ShortcutCategory(Enum):
@@ -41,10 +42,19 @@ class Shortcut:
         self.label = label
         self.key_sequence = key_sequence
         self.description = description
-        self.qkey_sequence = QKeySequence(key_sequence)
 
     def __repr__(self) -> str:
         return f"Shortcut({self.id}, {self.key_sequence})"
+
+    @cached_property
+    def qkey_sequence(self) -> "QKeySequence":
+        """Lazily-constructed QKeySequence.
+
+        Building the QKeySequence is deferred to first access (and cached) so
+        importing this module does not perform QtGui work for all 20+ shortcuts.
+        """
+        from PySide6.QtGui import QKeySequence
+        return QKeySequence(self.key_sequence)
 
 
 # All shortcut definitions
@@ -278,13 +288,19 @@ def get_shortcut_table_html() -> str:
     rows = []
     for shortcut in SHORTCUTS:
         if shortcut.key_sequence:
-            keys = shortcut.key_sequence.replace("+", "</kbd>+<kbd>")
-            shortcut_str = f"<kbd>{keys}</kbd>"
+            # Split on "+" separators while preserving a literal "+" key
+            # (e.g. "Ctrl++" -> ["Ctrl", "+"]) so the zoom-in binding renders.
+            seq = shortcut.key_sequence
+            if seq.endswith("++"):
+                keys = [k for k in seq[:-2].split("+") if k] + ["+"]
+            else:
+                keys = seq.split("+")
+            shortcut_str = "+".join(f"<kbd>{html.escape(k)}</kbd>" for k in keys)
         else:
             shortcut_str = "-"
         rows.append(
-            f"<tr><td>{shortcut.label}</td>"
-            f"<td>{shortcut.description}</td>"
+            f"<tr><td>{html.escape(shortcut.label)}</td>"
+            f"<td>{html.escape(shortcut.description)}</td>"
             f"<td>{shortcut_str}</td></tr>"
         )
 

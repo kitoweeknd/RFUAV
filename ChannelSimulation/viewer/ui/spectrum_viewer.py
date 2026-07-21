@@ -17,7 +17,6 @@ import numpy as np
 try:
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
     from matplotlib.figure import Figure
-    import matplotlib.pyplot as plt
 except ImportError:
     FigureCanvasQTAgg = object  # type: ignore
     Figure = object  # type: ignore
@@ -687,9 +686,10 @@ class SpectrumViewer(QWidget):
             im.set_extent([crop_t[0], crop_t[-1], y_lo, y_hi])
             sc.figure.axes[0].set_xlim(crop_t[0], crop_t[-1])
             sc.figure.axes[0].set_ylim(y_lo, y_hi)
-            # Redraw synchronously so the user sees the update during drag
+            # Coalesce repaints during drag: draw_idle batches to one render per
+            # event-loop turn instead of a blocking full draw per motion event.
             sc._background = None
-            sc.draw()
+            sc.draw_idle()
 
     def _do_slider_delayed_recompute(self) -> None:
         """Called ~150 ms after the last slider change — triggers zoom recompute."""
@@ -1032,7 +1032,7 @@ class SpectrumViewer(QWidget):
                 aspect="auto",
                 origin="lower",
                 cmap=cmap,
-                interpolation="antialiased",
+                interpolation="nearest",  # fastest resampler; fine for spectrograms
                 vmin=vo,
                 vmax=vc,
                 extent=[x_lo, x_hi, y_lo, y_hi],  # [left, right, bottom, top]
@@ -1107,7 +1107,7 @@ class SpectrumViewer(QWidget):
                 aspect="auto",
                 origin="lower",
                 cmap="hot",
-                interpolation="antialiased",
+                interpolation="nearest",  # fastest resampler; fine for spectrograms
                 extent=[x_lo, x_hi, y_lo, y_hi],  # [left, right, bottom, top]
             )
             ax_proc.set_xlim(x_lo, x_hi)
@@ -1363,6 +1363,9 @@ class SpectrumViewer(QWidget):
         self._clear_saved_axis_limits()
         if self._nav_t0 is not None:
             self._reset_stft_navigation()
+        if self._data is None:
+            # No signal loaded yet (e.g. R / toolbar reset before any load).
+            return
         self._data.stft_original = None
         self._data.stft_processed = None
         self._ensure_data_for_current_view()

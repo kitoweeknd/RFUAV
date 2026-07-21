@@ -41,6 +41,8 @@ THEME_LIGHT: Final[dict[str, str]] = {
     "danger": "#ea4335",
     "danger_hover": "#c5221f",
     "success": "#34a853",
+    "success_hover": "#2d9648",
+    "success_pressed": "#257a3d",
     "warning": "#fbbc04",
     # Borders
     "border": "#dadce0",
@@ -53,7 +55,6 @@ THEME_LIGHT: Final[dict[str, str]] = {
     "slider_handle": "#1a73e8",
     # Channel card
     "card_bg": "#ffffff",
-    "card_shadow": "0 3px 6px rgba(0,0,0,0.08)",
     # Spectrum
     "spectrum_bg": "#ffffff",
     "grid_line": "#e0e0e0",
@@ -77,6 +78,8 @@ THEME_DARK: Final[dict[str, str]] = {
     "danger": "#f2574a",
     "danger_hover": "#ff6b63",
     "success": "#3dba5f",
+    "success_hover": "#57c878",
+    "success_pressed": "#2f9a4c",
     "warning": "#fcc934",
     # Borders
     "border": "#404040",
@@ -89,20 +92,24 @@ THEME_DARK: Final[dict[str, str]] = {
     "slider_handle": "#4a90e2",
     # Channel card
     "card_bg": "#2d2d2d",
-    "card_shadow": "0 3px 6px rgba(0,0,0,0.3)",
     # Spectrum
     "spectrum_bg": "#1e1e1e",
     "grid_line": "#404040",
 }
 
 # Current theme (default light)
-_current_theme: dict[str, str] = THEME_LIGHT.copy()
+_current_theme: dict[str, str] = THEME_LIGHT
 _is_dark_theme: bool = False
+
+# Cache of fully composed stylesheets keyed by the dark-theme flag.
+# Themes are immutable Final constants, so a stylesheet built for a given
+# flag never goes stale; both entries may coexist across theme switches.
+_stylesheet_cache: dict[bool, str] = {}
 
 
 def get_theme() -> dict[str, str]:
     """Get current theme color dictionary"""
-    return _current_theme.copy()
+    return _current_theme
 
 
 def is_dark_theme() -> bool:
@@ -113,7 +120,9 @@ def is_dark_theme() -> bool:
 def set_theme(dark: bool) -> None:
     """Set theme type"""
     global _current_theme, _is_dark_theme
-    _current_theme = THEME_DARK.copy() if dark else THEME_LIGHT.copy()
+    if dark == _is_dark_theme:
+        return
+    _current_theme = THEME_DARK if dark else THEME_LIGHT
     _is_dark_theme = dark
 
 
@@ -315,13 +324,13 @@ def get_button_qss() -> str:
     }}
 
     QPushButton#btnScenario:hover {{
-        background-color: #2d9648;
-        border-color: #2d9648;
+        background-color: {get_color('success_hover')};
+        border-color: {get_color('success_hover')};
     }}
 
     QPushButton#btnScenario:pressed {{
-        background-color: #257a3d;
-        border-color: #257a3d;
+        background-color: {get_color('success_pressed')};
+        border-color: {get_color('success_pressed')};
     }}
 
     QPushButton#btnScenario:disabled {{
@@ -783,6 +792,9 @@ def get_textedit_qss() -> str:
 
 def get_all_stylesheet() -> str:
     """Get complete stylesheet (all component styles combined)"""
+    cached = _stylesheet_cache.get(_is_dark_theme)
+    if cached is not None:
+        return cached
     parts = [
         get_main_window_qss(),
         get_menu_qss(),
@@ -804,7 +816,9 @@ def get_all_stylesheet() -> str:
         get_dialog_qss(),
         get_textedit_qss(),
     ]
-    return "\n".join(parts)
+    stylesheet = "\n".join(parts)
+    _stylesheet_cache[_is_dark_theme] = stylesheet
+    return stylesheet
 
 
 # ============================================================================

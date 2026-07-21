@@ -21,19 +21,16 @@ except ImportError:
     Figure = object  # type: ignore
 
 from PySide6.QtCore import Qt, Signal, QThread
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
     QSplitter,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -43,18 +40,30 @@ from ChannelSimulation.viewer.core.ui_style import get_color
 
 
 class _SNRWorker(QThread):
-    """Background thread for SNR estimation — processes ONE signal."""
+    """Background thread for SNR estimation — processes ONE signal.
 
-    finished = Signal(object)  # SNRResult or None
+    Carries a ``gen`` (run-generation id) that is echoed back with the
+    result so the view can discard results from superseded/cancelled runs.
+    Supports cooperative cancellation: :meth:`stop` sets a flag that is
+    checked at the coarse checkpoints available in ``run()``.
+    """
 
-    def __init__(self, signal, fs, bw, nfft, parent=None):
+    # (SNRResult or None, gen)
+    finished = Signal(object, int)
+
+    def __init__(self, signal, fs, bw, nfft, gen, parent=None):
         super().__init__(parent)
         self._signal = signal
         self._fs = fs
         self._bw = bw
         self._nfft = nfft
+        self._gen = gen
+        self._cancelled = False
 
     def run(self):
+        # Bail out early if cancelled before we even started computing.
+        if self._cancelled:
+            return
         estimator = SNREstimator(fs=self._fs, bw=self._bw, nfft=self._nfft)
         result = None
         try:
@@ -63,11 +72,15 @@ class _SNRWorker(QThread):
         except Exception:
             import traceback
             traceback.print_exc()
-        self.finished.emit(result)
+        # A cancel may have arrived while computing — drop the stale result
+        # and stay silent so no handler runs for an abandoned run.
+        if self._cancelled:
+            return
+        self.finished.emit(result, self._gen)
 
     def stop(self) -> None:
-        """Request stop (no-op for thread, kept for API compatibility)."""
-        pass
+        """Request cooperative cancellation of this worker."""
+        self._cancelled = True
 
 
 class SNRView(QWidget):
@@ -76,9 +89,6 @@ class SNRView(QWidget):
     Displays the three-step OFDM signal detection and SNR estimation process
     with before/after SNR comparison.
     """
-
-    # Emitted when user changes parameters so the parent can trigger re-estimation
-    parameters_changed = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -91,10 +101,25 @@ class SNRView(QWidget):
         self._signal_proc: np.ndarray | None = None
         self._worker_orig: _SNRWorker | None = None
         self._worker_proc: _SNRWorker | None = None
+        # Workers whose wait() has not yet returned — kept referenced so a
+        # still-running QThread is never garbage-collected (which would raise
+        # "QThread: Destroyed while thread is still running").
+        self._old_workers: list[_SNRWorker] = []
+        # Run-generation id: bumped on every _start_worker so results from a
+        # superseded/cancelled run are ignored by the done-handlers.
+        self._run_gen = 0
+        # Completion flags for the current run (do NOT rely on isRunning()).
+        self._orig_done = False
+        self._proc_done = False
         self._pending_draw = False
 
         self._init_ui()
         self._setup_figures()
+
+        # Sync params from the toolbar controls so the value used on the first
+        # Estimate matches what is displayed (combo defaults to 16384, not 2048).
+        self._bw = self._spin_bw.value()
+        self._nfft = int(self._combo_nfft.currentText())
 
     # ─────────────────────────────────────────────────────────────────
     #  Public API
@@ -113,16 +138,21 @@ class SNRView(QWidget):
         self._start_worker()
 
     def set_parameters(self, params: dict) -> None:
-        """Update SNR estimation parameters (fs, bw, nfft)."""
-        changed = False
-        if "bw" in params and params["bw"] != self._bw:
+        """Update SNR estimation parameters (bw, nfft).
+
+        The values are applied to the toolbar controls but re-estimation is
+        NOT started automatically — the user triggers it with the Estimate
+        button. This matches the behaviour of editing the controls directly,
+        so both parameter-entry paths are manual (least-surprising given the
+        explicit Estimate button).
+        """
+        if "bw" in params:
             self._bw = float(params["bw"])
-            changed = True
-        if "nfft" in params and params["nfft"] != self._nfft:
+            self._spin_bw.setValue(self._bw)
+        if "nfft" in params:
             self._nfft = int(params["nfft"])
-            changed = True
-        if changed:
-            self._start_worker()
+            self._combo_nfft.setCurrentText(str(self._nfft))
+        self._label_status.setText("Parameters changed — click Estimate to recalculate")
 
     def get_snr_results(self) -> tuple[SNRResult | None, SNRResult | None]:
         """Return (original_snr_result, processed_snr_result)."""
@@ -177,11 +207,11 @@ class SNRView(QWidget):
         h.addWidget(self._spin_bw)
 
         h.addWidget(QLabel("FFT:"))
-        self._spin_nfft = QComboBox()
-        self._spin_nfft.addItems(["512", "1024", "2048", "4096", "8192", "16384", "32768"])
-        self._spin_nfft.setCurrentText("16384")
-        self._spin_nfft.currentIndexChanged.connect(self._on_param_changed)
-        h.addWidget(self._spin_nfft)
+        self._combo_nfft = QComboBox()
+        self._combo_nfft.addItems(["512", "1024", "2048", "4096", "8192", "16384", "32768"])
+        self._combo_nfft.setCurrentText("16384")
+        self._combo_nfft.currentIndexChanged.connect(self._on_param_changed)
+        h.addWidget(self._combo_nfft)
 
         h.addSpacing(8)
         self._btn_estimate = QPushButton("Estimate")
@@ -403,15 +433,23 @@ class SNRView(QWidget):
             self._btn_estimate.setEnabled(True)
             return
 
-        # Stop any running workers
+        # Supersede any running workers before starting a new run.
+        self._run_gen += 1
+        gen = self._run_gen
         self._stop_workers()
+
+        # Reset per-run state.
+        self._result_orig = None
+        self._result_proc = None
+        self._orig_done = False
+        self._proc_done = False
 
         self._label_status.setText("Estimating…")
         self._btn_estimate.setEnabled(False)
 
         # Launch two workers in parallel — one per signal
         self._worker_orig = _SNRWorker(
-            self._signal_orig, self._fs, self._bw, effective_nfft, self,
+            self._signal_orig, self._fs, self._bw, effective_nfft, gen, self,
         )
         self._worker_orig.finished.connect(self._on_orig_done)
 
@@ -420,47 +458,71 @@ class SNRView(QWidget):
             proc_nfft = min(self._nfft, proc_len)
             proc_nfft = max(64, proc_nfft)
             self._worker_proc = _SNRWorker(
-                self._signal_proc, self._fs, self._bw, proc_nfft, self,
+                self._signal_proc, self._fs, self._bw, proc_nfft, gen, self,
             )
             self._worker_proc.finished.connect(self._on_proc_done)
             self._worker_proc.start()
         else:
             self._result_proc = None
             self._worker_proc = None
+            # Nothing to wait for on the processed side.
+            self._proc_done = True
 
         self._worker_orig.start()
 
     def _stop_workers(self) -> None:
-        """Stop and wait for running workers."""
+        """Cooperatively cancel running workers and detach their signals.
+
+        Does NOT hard-null a worker that may still be running; such workers
+        are moved to ``self._old_workers`` so the QThread object stays alive
+        until it actually finishes (avoids "QThread: Destroyed while thread
+        is still running").
+        """
         for w in (self._worker_orig, self._worker_proc):
-            if w is not None:
+            if w is None:
+                continue
+            try:
                 w.finished.disconnect()
-                w.quit()
-                w.wait(500)
+            except (RuntimeError, TypeError):
+                pass  # was never connected / already disconnected
+            w.stop()  # cooperative cancel flag
+            if not w.wait(200):
+                # Still computing — keep a reference so it isn't GC'd mid-run.
+                self._old_workers.append(w)
         self._worker_orig = None
         self._worker_proc = None
+        self._prune_old_workers()
 
-    def _on_orig_done(self, r_orig: SNRResult | None) -> None:
+    def _prune_old_workers(self) -> None:
+        """Drop references to superseded workers that have finished running."""
+        self._old_workers = [w for w in self._old_workers if w.isRunning()]
+
+    def _on_orig_done(self, r_orig: SNRResult | None, gen: int) -> None:
         """Called when original signal estimation completes."""
+        if gen != self._run_gen:
+            return  # stale result from a superseded/cancelled run
         self._result_orig = r_orig
-        self._check_and_finish()
+        self._orig_done = True
+        self._maybe_finish()
 
-    def _on_proc_done(self, r_proc: SNRResult | None) -> None:
+    def _on_proc_done(self, r_proc: SNRResult | None, gen: int) -> None:
         """Called when processed signal estimation completes."""
+        if gen != self._run_gen:
+            return  # stale result from a superseded/cancelled run
         self._result_proc = r_proc
-        self._check_and_finish()
+        self._proc_done = True
+        self._maybe_finish()
 
-    def _check_and_finish(self) -> None:
-        """Update UI once both workers have finished."""
-        # Only finish if both workers are done (or None if no proc signal)
-        orig_done = self._worker_orig is None or not self._worker_orig.isRunning()
-        proc_done = self._worker_proc is None or not self._worker_proc.isRunning()
-
-        if not (orig_done and proc_done):
+    def _maybe_finish(self) -> None:
+        """Update UI once the expected results for this run have arrived."""
+        # Rely on explicit completion flags, NOT QThread.isRunning() (the
+        # thread may still be technically running when its result arrives).
+        if not (self._orig_done and self._proc_done):
             return
 
-        self._worker_orig = None
-        self._worker_proc = None
+        # Both results are in; the workers have emitted, so let them be
+        # cleaned up on the next _start_worker via _stop_workers.
+        self._prune_old_workers()
 
         if self._result_orig is not None:
             self._update_metric_card(
@@ -700,7 +762,7 @@ class SNRView(QWidget):
 
     def _on_param_changed(self) -> None:
         self._bw = self._spin_bw.value()
-        self._nfft = int(self._spin_nfft.currentText())
+        self._nfft = int(self._combo_nfft.currentText())
         self._label_status.setText("Parameters changed — click Estimate to recalculate")
 
     def _on_estimate_clicked(self) -> None:

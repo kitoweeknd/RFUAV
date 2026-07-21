@@ -3,11 +3,13 @@ Common Utility Functions
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 Provides common utility functions for file size formatting, progress percentage,
-numeric display, etc.
+numeric display, and application data/log directory paths. The directory
+helpers only resolve and create paths; they do not configure Python logging.
 """
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 from pathlib import Path
@@ -145,19 +147,19 @@ def parse_frequency_string(s: str) -> float | None:
     """
     s = s.strip().lower()
 
-    # Try to parse unit
+    # Try to parse unit (longest suffix first so single letters can't shadow
+    # multi-character ones)
     multipliers = {
         "g": 1e9,
         "m": 1e6,
         "k": 1e3,
-        "": 1,
     }
 
-    for suffix, mult in multipliers.items():
+    for suffix in sorted(multipliers, key=len, reverse=True):
         if s.endswith(suffix):
             try:
                 num_str = s[:-len(suffix)].strip()
-                return float(num_str) * mult
+                return float(num_str) * multipliers[suffix]
             except ValueError:
                 continue
 
@@ -193,18 +195,23 @@ def parse_size_string(s: str) -> int | None:
         "kb": 1024,
         "k": 1024,
         "b": 1,
-        "": 1,
     }
 
-    for suffix, mult in multipliers.items():
+    # Match the longest suffix first so single letters (g/m/k/b) can't shadow
+    # the multi-character units (gb/mb/kb).
+    for suffix in sorted(multipliers, key=len, reverse=True):
         if s.endswith(suffix):
             try:
                 num_str = s[:-len(suffix)].strip()
-                return int(float(num_str) * mult)
+                return int(float(num_str) * multipliers[suffix])
             except ValueError:
                 continue
 
-    return None
+    # Fall back to a bare byte count
+    try:
+        return int(float(s))
+    except ValueError:
+        return None
 
 
 def clamp(value: float, min_val: float, max_val: float) -> float:
@@ -221,24 +228,41 @@ def clamp(value: float, min_val: float, max_val: float) -> float:
     return max(min_val, min(max_val, value))
 
 
+@functools.lru_cache(maxsize=1)
 def get_app_data_dir() -> Path:
     """Get application data directory
+
+    Prefers Qt's platform-appropriate writable location (derived from the
+    application's organization/app names), falling back to a hand-rolled
+    per-OS path when Qt is unavailable or returns nothing:
 
     On Windows: %APPDATA%/channelsim_viewer
     On macOS: ~/Library/Application Support/channelsim_viewer
     On Linux: ~/.config/channelsim_viewer
 
+    Cached with ``lru_cache`` so the mkdir/stat only runs once per process.
+
     Returns:
         Application data directory path
     """
-    if sys.platform == "win32":
-        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = Path.home() / ".config"
+    base_dir = ""
+    try:
+        from PySide6.QtCore import QStandardPaths
+        base_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    except Exception:
+        base_dir = ""
 
-    app_dir = base / "channelsim_viewer"
+    if base_dir:
+        app_dir = Path(base_dir)
+    else:
+        if sys.platform == "win32":
+            base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+        elif sys.platform == "darwin":
+            base = Path.home() / "Library" / "Application Support"
+        else:
+            base = Path.home() / ".config"
+        app_dir = base / "channelsim_viewer"
+
     app_dir.mkdir(parents=True, exist_ok=True)
     return app_dir
 

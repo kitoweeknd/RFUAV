@@ -7,6 +7,7 @@ Displays IQ file information and signal quality metric cards.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict
 
 from PySide6.QtCore import Qt
@@ -14,7 +15,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
-    QHBoxLayout,
     QLabel,
     QSizePolicy,
     QVBoxLayout,
@@ -22,6 +22,12 @@ from PySide6.QtWidgets import (
 )
 
 from ChannelSimulation.viewer.core.ui_style import get_color
+from ChannelSimulation.viewer.core.utils import (
+    format_duration,
+    format_frequency,
+    format_power,
+    format_samples,
+)
 from ChannelSimulation.viewer.ui.collapsible_section import CollapsibleSection
 
 
@@ -137,15 +143,6 @@ class SignalInfoPanel(QWidget):
             row=2, col=0,
         )
 
-        # Residual error card
-        self._metrics_cards["error"] = self._create_metric_card(
-            "Residual Error",
-            "--",
-            "Difference before/after processing",
-            metrics_layout,
-            row=2, col=1,
-        )
-
         self._metrics_section = CollapsibleSection(
             "Signal Quality Metrics", metrics_inner, expanded=True
         )
@@ -213,6 +210,12 @@ class SignalInfoPanel(QWidget):
         self._label_power.setText("--")
         self._label_fc.setText("--")
 
+        # Raw (unformatted) signal state, kept so get_info() can round-trip.
+        self._raw_info: Dict[str, Any] = {}
+
+        # Tracks whether the metrics section was auto-expanded once already.
+        self._metrics_expanded_once = False
+
         # Reset metric cards
         for key in self._metrics_cards:
             self._metrics_cards[key]["value"].setText("--")
@@ -223,27 +226,29 @@ class SignalInfoPanel(QWidget):
         Args:
             info: Dictionary containing signal information
         """
-        from pathlib import Path
-        from ChannelSimulation.viewer.core.utils import format_samples, format_duration, format_frequency, format_power
-
         # File info
         if "file_path" in info:
+            self._raw_info["file_path"] = info["file_path"]
             self._label_file.setText(Path(info["file_path"]).name)
 
         if "n_samples" in info:
             n_samples = info["n_samples"]
+            self._raw_info["n_samples"] = n_samples
             self._label_samples.setText(format_samples(n_samples))
 
         if "duration" in info:
             duration = info["duration"]
+            self._raw_info["duration"] = duration
             self._label_duration.setText(format_duration(duration))
 
         if "fs" in info:
             fs = info["fs"]
+            self._raw_info["fs"] = fs
             self._label_fs.setText(format_frequency(fs))
 
         if "fc" in info:
             fc = info.get("fc", 0.0)
+            self._raw_info["fc"] = fc
             if fc > 0:
                 self._label_fc.setText(format_frequency(fc))
             else:
@@ -251,6 +256,7 @@ class SignalInfoPanel(QWidget):
 
         if "power" in info:
             power = info["power"]
+            self._raw_info["power"] = power
             if power is not None:
                 self._label_power.setText(format_power(power, "dB"))
             else:
@@ -262,9 +268,12 @@ class SignalInfoPanel(QWidget):
         Args:
             metrics: Dictionary containing metrics
         """
-        # Auto-expand the section if it's collapsed so the user can see new data
-        if hasattr(self, '_metrics_section') and not self._metrics_section.is_expanded():
-            self._metrics_section.set_expanded(True)
+        # Auto-expand the section only the first time real data arrives, so we
+        # do not override the user manually collapsing it on later updates.
+        if metrics and not self._metrics_expanded_once and hasattr(self, '_metrics_section'):
+            if not self._metrics_section.is_expanded():
+                self._metrics_section.set_expanded(True)
+            self._metrics_expanded_once = True
 
         # EVM
         if "evm" in metrics:
@@ -307,21 +316,20 @@ class SignalInfoPanel(QWidget):
             snr = metrics["snr"]
             self._metrics_cards["snr"]["value"].setText(f"{snr:.2f} dB")
 
-        # Residual error (based on EVM)
-        if "evm" in metrics:
-            error = metrics["evm"]
-            self._metrics_cards["error"]["value"].setText(f"{error:.2f}%")
-
     def set_info(self, info: Dict[str, Any]) -> None:
         """Set signal information (one-time update)"""
         self.update_info(info)
 
     def get_info(self) -> Dict[str, Any]:
-        """Get current signal information"""
+        """Get current signal information.
+
+        Returns raw numeric/native values (not formatted display strings) so
+        the state can round-trip. Keys not yet set are returned as ``None``.
+        """
         return {
-            "n_samples": self._label_samples.text(),
-            "duration": self._label_duration.text(),
-            "fs": self._label_fs.text(),
-            "fc": self._label_fc.text(),
-            "power": self._label_power.text(),
+            "n_samples": self._raw_info.get("n_samples"),
+            "duration": self._raw_info.get("duration"),
+            "fs": self._raw_info.get("fs"),
+            "fc": self._raw_info.get("fc"),
+            "power": self._raw_info.get("power"),
         }

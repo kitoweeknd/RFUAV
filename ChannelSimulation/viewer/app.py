@@ -19,16 +19,12 @@ try:
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
 
-    # Enable high DPI scaling — only for PySide6 < 6.5 (deprecated afterwards).
-    # PySide6 6.5+ handles HiDPI automatically.
-    import importlib.metadata
-    try:
-        pyside_version = importlib.metadata.version("PySide6")
-    except Exception:
-        pyside_version = "0.0.0"
-    major_minor = tuple(int(x) for x in pyside_version.split(".")[:2])
-    if major_minor < (6, 5):
+    # Enable high DPI scaling for PySide6 < 6.5, where these attributes still
+    # exist. PySide6 6.5+ handles HiDPI automatically and no longer exposes
+    # them, so a cheap hasattr guard avoids a per-startup metadata lookup.
+    if hasattr(Qt, "AA_EnableHighDpiScaling"):
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    if hasattr(Qt, "AA_UseHighDpiPixmaps"):
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 except ImportError:
     print("[ERROR] PySide6 not installed. Please run: pip install PySide6>=6.5")
@@ -54,8 +50,12 @@ def get_app() -> QApplication:
     return _app_instance
 
 
-def _create_splash_pixmap(message: str) -> "QPixmap":
-    """Create splash screen pixmap with message."""
+def _create_splash_pixmap() -> "QPixmap":
+    """Create the base splash screen pixmap (title + version only).
+
+    The per-message status text is overlaid separately via
+    ``QSplashScreen.showMessage`` so this pixmap only needs to be built once.
+    """
     from PySide6.QtGui import QPixmap, QColor, QPainter, QFont
     pixmap = QPixmap(400, 200)
     pixmap.fill(QColor("#1a73e8"))
@@ -65,8 +65,6 @@ def _create_splash_pixmap(message: str) -> "QPixmap":
     painter.drawText(pixmap.rect(), Qt.AlignCenter, "RFUAV ChannelSim Viewer")
     painter.setFont(QFont("Segoe UI", 10))
     painter.drawText(pixmap.rect().adjusted(0, 30, 0, 0), Qt.AlignCenter, "v1.3.0")
-    painter.setFont(QFont("Segoe UI", 9))
-    painter.drawText(pixmap.rect().adjusted(0, 60, 0, 0), Qt.AlignCenter, message)
     painter.end()
     return pixmap
 
@@ -82,13 +80,14 @@ def show_splash_screen(message: str = "Initializing...") -> "QSplashScreen | Non
     """
     try:
         from PySide6.QtCore import Qt
-        from PySide6.QtGui import QPixmap, QColor
+        from PySide6.QtGui import QColor
         from PySide6.QtWidgets import QSplashScreen
 
-        pixmap = _create_splash_pixmap(message)
+        pixmap = _create_splash_pixmap()
         splash = QSplashScreen(pixmap, Qt.WindowStaysOnTopHint)
         splash.setWindowFlag(Qt.FramelessWindowHint)
         splash.show()
+        splash.showMessage(message, Qt.AlignBottom | Qt.AlignHCenter, QColor("#ffffff"))
         return splash
     except Exception as e:
         print(f"[WARNING] Failed to create splash screen: {e}")
@@ -105,11 +104,9 @@ def update_splash_message(splash, message: str) -> None:
     if splash is not None:
         try:
             from PySide6.QtCore import Qt
-            from PySide6.QtGui import QPixmap, QColor
-            from PySide6.QtWidgets import QSplashScreen
+            from PySide6.QtGui import QColor
 
-            pixmap = _create_splash_pixmap(message)
-            splash.setPixmap(pixmap)
+            splash.showMessage(message, Qt.AlignBottom | Qt.AlignHCenter, QColor("#ffffff"))
             splash.repaint()
             get_app().processEvents()
         except Exception:
@@ -138,21 +135,27 @@ def setup_unhandled_exception_handler() -> None:
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
             return
 
-        # Log the exception
-        log_dir = get_log_dir()
-        from datetime import datetime
-        log_file = log_dir / f"crash_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        # Log the exception to a crash file, but never let an I/O error here
+        # mask the original traceback.
+        try:
+            log_dir = get_log_dir()
+            from datetime import datetime
+            log_file = log_dir / f"crash_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
-        with open(log_file, "w", encoding="utf-8") as f:
-            f.write(f"RFUAV ChannelSim Viewer Crash Report\n")
-            f.write(f"Time: {datetime.now().isoformat()}\n")
-            f.write(f"Python: {sys.version}\n")
-            f.write(f"\nException Type: {exc_type.__name__}\n")
-            f.write(f"Exception Message: {exc_value}\n")
-            f.write(f"\nStack Trace:\n")
-            f.write("".join(traceback.format_exception(exc_type, exc_value, exc_traceback)))
+            with open(log_file, "w", encoding="utf-8") as f:
+                f.write(f"RFUAV ChannelSim Viewer Crash Report\n")
+                f.write(f"Time: {datetime.now().isoformat()}\n")
+                f.write(f"Python: {sys.version}\n")
+                f.write(f"\nException Type: {exc_type.__name__}\n")
+                f.write(f"Exception Message: {exc_value}\n")
+                f.write(f"\nStack Trace:\n")
+                f.write("".join(traceback.format_exception(exc_type, exc_value, exc_traceback)))
 
-        print(f"[CRITICAL] Unhandled exception occurred. Saved to: {log_file}")
+            print(f"[CRITICAL] Unhandled exception occurred. Saved to: {log_file}")
+        except Exception as log_error:
+            print(f"[CRITICAL] Unhandled exception occurred (failed to write crash log: {log_error})")
+
+        # Always print the original traceback, regardless of logging success.
         traceback.print_exception(exc_type, exc_value, exc_traceback)
 
     sys.excepthook = exception_handler
@@ -254,8 +257,6 @@ def save_window_state(window) -> None:
 
 def _ensure_presets_exist() -> None:
     """Ensure default presets exist, create if missing."""
-    from ChannelSimulation.viewer.business.presets_manager import PresetsManager
-
     presets_dir = Path(__file__).parent / "core" / "presets"
     if not presets_dir.exists() or not list(presets_dir.glob("*.yaml")):
         from ChannelSimulation.viewer.business.presets_manager import create_default_presets
@@ -281,7 +282,6 @@ def main() -> int:
 
         # Lazy import core modules
         update_splash_message(splash, "Loading UI styles...")
-        from ChannelSimulation.viewer.core.ui_style import get_all_stylesheet
         setup_theme(app)
 
         update_splash_message(splash, "Loading main window...")

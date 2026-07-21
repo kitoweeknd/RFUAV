@@ -8,8 +8,7 @@ containing menu bar, toolbar, central layout, and signal connections.
 
 from __future__ import annotations
 
-from collections import deque
-from copy import deepcopy
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -35,7 +34,6 @@ from PySide6.QtWidgets import (
     QToolBar,
     QVBoxLayout,
     QWidget,
-    QWidgetAction,
 )
 
 from ChannelSimulation.viewer.core.ui_style import get_color
@@ -476,15 +474,15 @@ class MainWindow(QMainWindow):
         except Exception:
             recent = []
 
-        valid = [p for p in recent if p and __import__('pathlib').Path(p).exists()]
+        valid = [p for p in recent if p and Path(p).exists()]
         if not valid:
-            no_item = QLabel("  (no recent files)")
-            no_item.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 11px; padding: 4px;")
-            self._recent_menu.addAction(no_item)
+            # QMenu.addAction takes text/QAction, not a QWidget — use a disabled item.
+            no_item = self._recent_menu.addAction("(no recent files)")
+            no_item.setEnabled(False)
             return
 
         for file_path in valid[:10]:
-            action = QAction(__import__('pathlib').Path(file_path).name, self)
+            action = QAction(Path(file_path).name, self)
             action.setToolTip(file_path)
             action.triggered.connect(lambda checked, p=file_path: self._on_load_recent_file(p))
             self._recent_menu.addAction(action)
@@ -496,7 +494,7 @@ class MainWindow(QMainWindow):
 
     def _on_load_recent_file(self, file_path: str) -> None:
         """Load a file from the recent files list."""
-        if __import__('pathlib').Path(file_path).exists():
+        if Path(file_path).exists():
             # Stop any running worker before loading new file
             self._stop_worker()
 
@@ -871,11 +869,11 @@ class MainWindow(QMainWindow):
 
     def _schedule_pipeline_run(self) -> None:
         """Schedule pipeline run with debounce."""
-        if hasattr(self, '_debounce_timer'):
+        if getattr(self, '_debounce_timer', None) is not None:
             self._debounce_timer.stop()
         else:
             from PySide6.QtCore import QTimer
-            self._debounce_timer = QTimer()
+            self._debounce_timer = QTimer(self)  # parented so it's cleaned up with the window
             self._debounce_timer.setSingleShot(True)
             self._debounce_timer.timeout.connect(self._run_pipeline)
 
@@ -885,6 +883,11 @@ class MainWindow(QMainWindow):
         """Run pipeline."""
         if not self._current_file:
             return
+
+        # Stop/await any in-flight worker first, otherwise the old QThread is
+        # orphaned and its still-connected signals fire stale callbacks into
+        # the UI (the debounce path reaches here without going through a loader).
+        self._stop_worker()
 
         self._set_processing_state(True)
         self._status_indicator.setText("Processing...")
@@ -896,22 +899,10 @@ class MainWindow(QMainWindow):
         # Get config
         config = self._get_current_config()
 
-        # Get sampling rate
-        try:
-            fs = float(self._input_fs.text()) if self._input_fs.text() else 100_000_000
-        except ValueError:
-            fs = 100_000_000
-
-        try:
-            fc = float(self._input_fc.text()) if self._input_fc.text() else 0.0
-        except ValueError:
-            fc = 0.0
-
-        # Get random seed
-        try:
-            seed = int(self._input_seed.text()) if self._input_seed.text() else 42
-        except ValueError:
-            seed = 42
+        # Sampling rate / center frequency / seed (shared parsing helpers)
+        fs = self.get_fs()
+        fc = self.get_fc()
+        seed = self.get_seed()
 
         # Start background processing
         from ChannelSimulation.viewer.signal_proc.processing_worker import ProcessingWorker
@@ -1337,10 +1328,22 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
 
-        # Stop background worker
-        if hasattr(self, '_worker') and self._worker is not None:
-            self._worker.stop()
-            self._worker.wait(5000)
+        # Stop the pending debounce shot so it can't fire on a closing window
+        if getattr(self, '_debounce_timer', None) is not None:
+            self._debounce_timer.stop()
+
+        # Stop background workers (both the main pipeline worker and Config-B)
+        self._stop_worker()
+        worker_b = getattr(self, '_worker_b', None)
+        if worker_b is not None:
+            try:
+                worker_b.finished.disconnect()
+                worker_b.error.disconnect()
+            except Exception:
+                pass
+            worker_b.stop()
+            worker_b.wait(5000)
+            self._worker_b = None
 
         # Release large data held by spectrum viewer
         if hasattr(self, '_spectrum_viewer') and self._spectrum_viewer is not None:
