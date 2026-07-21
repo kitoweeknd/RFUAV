@@ -97,9 +97,9 @@ THEME_DARK: Final[dict[str, str]] = {
     "grid_line": "#404040",
 }
 
-# Current theme (default light)
-_current_theme: dict[str, str] = THEME_LIGHT
-_is_dark_theme: bool = False
+# Current theme (default dark — the norm for signal-analysis / SDR tools).
+_current_theme: dict[str, str] = THEME_DARK
+_is_dark_theme: bool = True
 
 # Cache of fully composed stylesheets keyed by the dark-theme flag.
 # Themes are immutable Final constants, so a stylesheet built for a given

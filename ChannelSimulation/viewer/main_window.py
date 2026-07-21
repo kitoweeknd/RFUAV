@@ -18,6 +18,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDockWidget,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -60,7 +62,7 @@ class MainWindow(QMainWindow):
         self._current_config: dict[str, Any] = {}
         self._is_modified: bool = False
         self._is_processing: bool = False
-        self._theme_dark: bool = False
+        self._theme_dark: bool = True  # dark by default
 
         # Preset manager (for 3GPP scenario presets)
         self._presets_manager = None
@@ -193,6 +195,7 @@ class MainWindow(QMainWindow):
     def _init_toolbar(self) -> None:
         """Initialize toolbar."""
         toolbar = QToolBar("Main Toolbar", self)
+        toolbar.setObjectName("MainToolbar")  # required for saveState/restoreState
         toolbar.setMovable(False)
         toolbar.setIconSize(self._get_icon_size())
         self.addToolBar(toolbar)
@@ -325,87 +328,77 @@ class MainWindow(QMainWindow):
         statusbar.addPermanentWidget(self._progress_bar)
 
     def _init_central_widget(self) -> None:
-        """Initialize central widget."""
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+        """Initialize the dockable layout.
 
-        # Main layout
-        main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(8)
-
-        # Create horizontal splitter
-        self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_layout.addWidget(self._main_splitter)
-
-        # Left panel (wider so preprocessing / channel cards are usable)
-        self._left_panel = self._create_left_panel()
-        self._left_panel.setMinimumWidth(300)
-        self._left_panel.setMaximumWidth(480)
-        self._main_splitter.addWidget(self._left_panel)
-
-        # Right main area
-        self._right_panel = self._create_right_panel()
-        self._main_splitter.addWidget(self._right_panel)
-
-        # Set stretch factors
-        self._main_splitter.setStretchFactor(0, 0)  # Left fixed
-        self._main_splitter.setStretchFactor(1, 1)  # Right adaptive
-
-    def _create_left_panel(self) -> QWidget:
-        """Create left panel (channel config area)."""
-        from ChannelSimulation.viewer.ui.channel_config_panel import ChannelConfigPanel
-
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        # Signal overview + metrics (each block collapsible)
-        from ChannelSimulation.viewer.ui.signal_info_panel import SignalInfoPanel
-        self._signal_info = SignalInfoPanel()
-        layout.addWidget(self._signal_info)
-
-        # Random seed (collapsible)
-        from ChannelSimulation.viewer.ui.collapsible_section import CollapsibleSection
-        seed_core = self._create_seed_widget()
-        seed_section = CollapsibleSection("Random Seed", seed_core, expanded=True)
-        layout.addWidget(seed_section)
-
-        # Channel / preprocessing — takes all remaining vertical space
-        self._channel_config = ChannelConfigPanel()
-        self._channel_config.config_changed.connect(self._on_config_changed)
-        self._channel_config.setSizePolicy(
-            QSizePolicy.Policy.Preferred,
-            QSizePolicy.Policy.Expanding,
-        )
-        layout.addWidget(self._channel_config, stretch=1)
-
-        return panel
-
-    def _create_right_panel(self) -> QWidget:
-        """Create right panel (stacked: spectrum or SNR view)."""
+        Central = the analysis view stack (Spectrum / SNR). Controls and signal
+        readouts live in movable/floatable/closable QDockWidgets so the layout can
+        be rearranged like a modern signal-analysis tool (and is persisted across
+        sessions via QMainWindow.saveState).
+        """
         from ChannelSimulation.viewer.ui.spectrum_viewer import SpectrumViewer
         from ChannelSimulation.viewer.ui.snr_view import SNRView
 
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
+        self.setDockNestingEnabled(True)
+
+        # ── Central: stacked analysis views ────────────────────────────────
+        self._view_stack = QStackedWidget()
+        self._spectrum_viewer = SpectrumViewer()
+        self._snr_view = SNRView()
+        self._view_stack.addWidget(self._spectrum_viewer)
+        self._view_stack.addWidget(self._snr_view)
+        self.setCentralWidget(self._view_stack)
+
+        # ── Left dock: channel / preprocessing controls + seed ─────────────
+        self._dock_controls = self._create_controls_dock()
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dock_controls)
+
+        # ── Right dock: signal overview + quality metrics ──────────────────
+        self._dock_signal = self._create_signal_dock()
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._dock_signal)
+
+        # Sensible initial dock widths (overridden by restored state if present).
+        self.resizeDocks(
+            [self._dock_controls, self._dock_signal], [340, 300],
+            Qt.Orientation.Horizontal,
+        )
+
+    def _create_controls_dock(self) -> QDockWidget:
+        """Left dock: random seed + channel/preprocessing config (scrollable)."""
+        from ChannelSimulation.viewer.ui.channel_config_panel import ChannelConfigPanel
+        from ChannelSimulation.viewer.ui.collapsible_section import CollapsibleSection
+
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(8)
 
-        # Stacked widget for view switching
-        self._view_stack = QStackedWidget()
-        layout.addWidget(self._view_stack)
+        seed_section = CollapsibleSection("Random Seed", self._create_seed_widget(), expanded=True)
+        layout.addWidget(seed_section)
 
-        # Spectrum view
-        self._spectrum_viewer = SpectrumViewer()
-        self._view_stack.addWidget(self._spectrum_viewer)
+        self._channel_config = ChannelConfigPanel()
+        self._channel_config.config_changed.connect(self._on_config_changed)
+        self._channel_config.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self._channel_config, stretch=1)
 
-        # SNR estimation view
-        self._snr_view = SNRView()
-        self._view_stack.addWidget(self._snr_view)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(body)
 
-        return panel
+        dock = QDockWidget("Channel Controls", self)
+        dock.setObjectName("dockControls")  # required for saveState/restoreState
+        dock.setWidget(scroll)
+        return dock
+
+    def _create_signal_dock(self) -> QDockWidget:
+        """Right dock: signal overview + quality metrics."""
+        from ChannelSimulation.viewer.ui.signal_info_panel import SignalInfoPanel
+
+        self._signal_info = SignalInfoPanel()
+        dock = QDockWidget("Signal & Metrics", self)
+        dock.setObjectName("dockSignal")  # required for saveState/restoreState
+        dock.setWidget(self._signal_info)
+        return dock
 
     def _create_seed_widget(self) -> QWidget:
         """Create random seed input widget (content only; title from CollapsibleSection)."""
@@ -785,9 +778,10 @@ class MainWindow(QMainWindow):
             <p><br/>
             <b>Dependency Versions:</b><br/>
             PySide6 &ge; 6.5<br/>
+            pyqtgraph &ge; 0.13<br/>
             NumPy &ge; 1.24<br/>
             SciPy &ge; 1.10<br/>
-            Matplotlib &ge; 3.7<br/>
+            numexpr &ge; 2.8 (optional)<br/>
             PyYAML &ge; 6.0
             </p>
             <p><br/>

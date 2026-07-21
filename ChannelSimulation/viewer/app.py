@@ -229,6 +229,12 @@ def restore_window_state(window) -> bool:
         if state.get("maximized"):
             window.showMaximized()
 
+        # Restore dock/toolbar layout (movable panels) if present.
+        dock_state = state.get("dock_state")
+        if dock_state:
+            from PySide6.QtCore import QByteArray
+            window.restoreState(QByteArray.fromBase64(dock_state.encode("ascii")))
+
         return True
     except Exception as e:
         print(f"[WARNING] Failed to restore window state: {e}")
@@ -285,6 +291,8 @@ def save_window_state(window) -> None:
                 "height": geo.height(),
             },
             "maximized": window.isMaximized(),
+            # Dock/toolbar arrangement (base64) so a rearranged layout persists.
+            "dock_state": bytes(window.saveState().toBase64()).decode("ascii"),
         }
 
         with open(state_file, "w", encoding="utf-8") as f:
@@ -318,9 +326,9 @@ def main() -> int:
         # Ensure default presets exist
         _ensure_presets_exist()
 
-        # Lazy import core modules
+        # Lazy import core modules (dark theme by default)
         update_splash_message(splash, "Loading UI styles...")
-        setup_theme(app)
+        setup_theme(app, dark=True)
 
         update_splash_message(splash, "Loading main window...")
         from ChannelSimulation.viewer.main_window import MainWindow
