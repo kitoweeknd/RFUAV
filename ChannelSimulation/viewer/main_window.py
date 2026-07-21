@@ -957,48 +957,16 @@ class MainWindow(QMainWindow):
         fc = result.get('fc', 0.0)
         stage_signals = result.get('stage_signals', {})
 
-        # Update IQ reference immediately (prevents reference to large temp arrays)
-        if hasattr(self._spectrum_viewer, '_raw_original'):
-            self._spectrum_viewer._raw_original = original
-        if hasattr(self._spectrum_viewer, '_raw_processed'):
-            self._spectrum_viewer._raw_processed = processed
-
-        # Update loaded signal ID to track which signal's spectrum data is current
-        if hasattr(self._spectrum_viewer, '_loaded_signal_id') and original is not None:
-            self._spectrum_viewer._loaded_signal_id = id(original)
-
-        # Sync calculator params so time-domain axis uses the correct sampling rate
-        if hasattr(self._spectrum_viewer, '_calculator'):
-            self._spectrum_viewer._calculator.fs = fs
-            self._spectrum_viewer._calculator.fc = fc
+        # Push the result into the spectrum viewer (encapsulated update: raw
+        # signals, calculator sync, stage signals, scale-lock reset, redraw).
+        if hasattr(self._spectrum_viewer, 'apply_processing_result'):
+            self._spectrum_viewer.apply_processing_result(
+                original, processed, fs, fc, stage_signals
+            )
 
         # Update SNR estimation view
         if hasattr(self, '_snr_view'):
             self._snr_view.set_signals(original, processed, fs)
-
-        # Store stage signals - set_stage_signals now correctly handles
-        # setting the stage to "final" (processed signal) by default
-        stage_signals['original'] = original
-        stage_signals['final'] = processed
-
-        if hasattr(self._spectrum_viewer, 'set_stage_signals'):
-            self._spectrum_viewer.set_stage_signals(stage_signals)
-
-        # CRITICAL: Force re-read of data from L2 cache AFTER set_stage_signals.
-        # This ensures we have the latest processed data, not stale cached values.
-        # Reset _is_first_processing to ensure proper scale locking
-        if hasattr(self._spectrum_viewer, '_is_first_processing'):
-            self._spectrum_viewer._is_first_processing = True
-        if hasattr(self._spectrum_viewer, '_stft_vmin_locked'):
-            self._spectrum_viewer._stft_vmin_locked = None
-        if hasattr(self._spectrum_viewer, '_stft_vmax_locked'):
-            self._spectrum_viewer._stft_vmax_locked = None
-
-        # Force re-read from L2 cache
-        if hasattr(self._spectrum_viewer, '_ensure_data_for_current_view'):
-            self._spectrum_viewer._ensure_data_for_current_view()
-        if hasattr(self._spectrum_viewer, '_redraw'):
-            self._spectrum_viewer._redraw()
 
         # Update signal info
         if hasattr(self._signal_info, 'update_info'):

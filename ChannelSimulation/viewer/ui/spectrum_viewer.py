@@ -976,6 +976,13 @@ class SpectrumViewer(QWidget):
 
         cmap = get_spectrogram_cmap()
 
+        # Compute the original spectrogram's colour limits once and reuse them
+        # for both the original canvas and the colorbar (processed keeps its own).
+        self._stft_last_clim = (
+            self._stft_color_limits(self._data.stft_original)
+            if self._data.stft_original is not None else None
+        )
+
         # Normal mode: Original vs Processed
         im_orig = self._draw_stft_canvas(
             self._canvas_original.figure,
@@ -984,6 +991,7 @@ class SpectrumViewer(QWidget):
             self._data.freq_axis_stft,
             "Original Signal - Spectrogram",
             cmap,
+            clim=self._stft_last_clim,
         )
         im_proc = self._draw_stft_canvas(
             self._canvas_processed.figure,
@@ -1001,17 +1009,20 @@ class SpectrumViewer(QWidget):
 
         self._update_stft_nav_labels()
 
-        # Show colorbar
+        # Show colorbar — reuse the limits already computed for the original
+        # canvas (avoids a 3rd full-array percentile pass over the spectrogram).
         self._colorbar.show()
-        if self._data.stft_original is not None:
-            vo, vc = self._stft_color_limits(self._data.stft_original)
-            self._colorbar.set_range(vo, vc)
+        if self._stft_last_clim is not None:
+            self._colorbar.set_range(*self._stft_last_clim)
 
-    def _draw_stft_canvas(self, fig, stft, time_axis, freq_axis, title, cmap) -> "matplotlib.image.AxesImage | None":
+    def _draw_stft_canvas(self, fig, stft, time_axis, freq_axis, title, cmap, clim=None) -> "matplotlib.image.AxesImage | None":
         """Draw STFT spectrogram on a single canvas.
 
         imshow: X-axis = TIME (seconds), Y-axis = FREQUENCY (MHz).
         extent=[x_left, x_right, y_bottom, y_top].
+
+        ``clim`` : optional pre-computed (vmin, vmax); when given, avoids a
+        redundant full-array percentile pass over ``stft``.
         """
         fig.clear()
         ax = fig.add_subplot(111)
@@ -1026,7 +1037,7 @@ class SpectrumViewer(QWidget):
                 y_lo = float(np.min(freq_axis)) / 1e6
                 y_hi = float(np.max(freq_axis)) / 1e6
 
-            vo, vc = self._stft_color_limits(stft)
+            vo, vc = clim if clim is not None else self._stft_color_limits(stft)
             im = ax.imshow(
                 stft,          # (nfreq, ntime) — matches imshow convention
                 aspect="auto",
@@ -1189,6 +1200,37 @@ class SpectrumViewer(QWidget):
         self._data.time_domain_processed = np.abs(processed[::step])
 
         # Redraw in case spectrum data hasn't arrived yet
+        self._redraw()
+
+    def apply_processing_result(self, original, processed, fs, fc, stage_signals=None) -> None:
+        """Apply a completed pipeline result to the viewer.
+
+        Encapsulates the post-processing update that MainWindow previously
+        performed by poking private attributes: store the raw signals, sync the
+        calculator params, track the loaded signal id, push the stage signals,
+        reset the STFT colour-scale lock, then re-read the current view from the
+        L2 cache and redraw. Behaviour matches the old inline sequence.
+        """
+        self._raw_original = original
+        self._raw_processed = processed
+        if original is not None:
+            self._loaded_signal_id = id(original)
+        self._calculator.fs = fs
+        self._calculator.fc = fc
+
+        stage_signals = dict(stage_signals) if stage_signals else {}
+        stage_signals['original'] = original
+        stage_signals['final'] = processed
+        self.set_stage_signals(stage_signals)
+
+        # Reset the scale lock so the colourmap re-derives for this run.
+        self._is_first_processing = True
+        self._stft_vmin_locked = None
+        self._stft_vmax_locked = None
+
+        # Re-read the current view from the L2 cache (the high-res STFT/PSD is
+        # injected separately via apply_spectrum_data) and redraw.
+        self._ensure_data_for_current_view()
         self._redraw()
 
     def apply_spectrum_data(self, spectrum_data: dict) -> None:
