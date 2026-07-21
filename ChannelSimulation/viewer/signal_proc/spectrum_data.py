@@ -69,10 +69,17 @@ class SpectrumCalculator:
     # Beyond this length, PSD uses Welch instead of a full-length FFT (avoids 1e8-point FFT).
     MAX_PSD_DIRECT_FFT = 524_288
     PSD_WELCH_NPERSEG = 8192
+    # Welch averages every segment (O(N)). For display we only need a smooth estimate, so we
+    # average a fixed number of evenly-spaced segments → O(PSD_MAX_SEGMENTS·nperseg), size-independent.
+    PSD_MAX_SEGMENTS = 256
 
     # Long captures: never decimate IQ before STFT (that shrinks Nyquist and breaks MHz axis).
     # Instead use sparse window placement (hop may exceed nperseg) to cap frame count.
-    STFT_LONG_THRESHOLD = 50_000_000  # 0.5 s @ 100 Msps — below this use scipy stft with overlap
+    # Threshold kept low: a full overlapped scipy.stft over millions of samples computes
+    # ~N/hop frames and then throws 99% away when decimating to MAX_STFT_COLS. Above this
+    # size we compute only the ~MAX_STFT_COLS frames we actually display (O(display), not O(N)).
+    # Below it, the dense overlapped path is cheap and gives finer columns for short captures.
+    STFT_LONG_THRESHOLD = 500_000  # ~5 ms @ 100 Msps
     STFT_NPERSEG_LONG = 4096  # FFT size per column; full [-fs/2, fs/2] at original fs
 
     # Zoom-recompute STFT: must never let nfft grow with 1/bandwidth (was allocating 100+ GiB).
@@ -242,11 +249,25 @@ class SpectrumCalculator:
         nperseg = min(self.PSD_WELCH_NPERSEG, n)
         noverlap = min(nperseg // 2, nperseg - 1)
         win = "hann" if window == "hanning" else window
+
+        # Cap the number of averaged segments: Welch over the full signal touches every
+        # sample (O(N)). A fixed count of evenly-spaced segments gives a statistically
+        # equivalent display PSD at O(PSD_MAX_SEGMENTS·nperseg), independent of N.
+        n_blocks = n // nperseg
+        if n_blocks > self.PSD_MAX_SEGMENTS:
+            starts = np.linspace(0, n - nperseg, self.PSD_MAX_SEGMENTS, dtype=np.int64)
+            subset = np.concatenate([signal[s:s + nperseg] for s in starts])
+            welch_input = subset
+            welch_noverlap = 0  # each nperseg block is one clean, independent segment
+        else:
+            welch_input = signal
+            welch_noverlap = noverlap
+
         freqs, psd = welch(
-            signal,
+            welch_input,
             fs=self._fs,
             nperseg=nperseg,
-            noverlap=noverlap,
+            noverlap=welch_noverlap,
             window=win,
             return_onesided=False,
             scaling="density",
@@ -254,7 +275,7 @@ class SpectrumCalculator:
         )
         freqs = np.fft.fftshift(freqs)
         psd = np.fft.fftshift(psd)
-        psd_db = 10 * np.log10(psd + self.EPS)
+        psd_db = (10 * np.log10(psd + self.EPS)).astype(self.DISPLAY_DTYPE)
         if self._fc != 0:
             freqs = freqs + self._fc
         return psd_db, freqs

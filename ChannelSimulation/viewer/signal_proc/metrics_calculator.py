@@ -16,6 +16,12 @@ class MetricsCalculator:
     def __init__(self):
         self._eps = 1e-12
 
+    # Bounded windows (samples) that keep metrics O(window) instead of O(N) on large
+    # signals. The time-shift lag is global and ACLR is a band-power ratio, so a
+    # representative window gives statistically equivalent results.
+    _ALIGN_WINDOW = 1 << 20  # ~1.05M samples — lag estimation only (max_shift ≈ 300 ≪ this)
+    _ACLR_WINDOW = 1 << 20   # ~1.05M samples — adjacent-channel power ratio
+
     def _align_signals(
         self,
         reference: np.ndarray,
@@ -25,9 +31,9 @@ class MetricsCalculator:
 
         Stages such as ``crop_time_shift`` translate the signal in time, so a
         sample-wise ``degraded - reference`` would measure the shift instead of
-        the channel degradation. We estimate the integer lag that maximises the
-        cross-correlation, undo it, and return the overlapping region. When the
-        signals are already aligned the estimated lag is 0 and this is a no-op.
+        the channel degradation. The integer lag is estimated from a bounded
+        prefix window (cheap) and then applied to the FULL arrays, so EVM/SNR
+        stay exact. When the signals are aligned the lag is 0 and this is a no-op.
         """
         n = min(len(reference), len(degraded))
         if n == 0:
@@ -35,21 +41,21 @@ class MetricsCalculator:
         a = reference[:n]
         b = degraded[:n]
 
-        # FFT-based cross-correlation. Zero-pad to 2n to get linear (not
-        # circular) correlation; the argmax gives the lag of b relative to a.
-        size = 1 << int(np.ceil(np.log2(2 * n)))
-        fa = np.fft.fft(a, size)
-        fb = np.fft.fft(b, size)
-        xcorr = np.fft.ifft(fb * np.conj(fa))
-        mag = np.abs(xcorr)
-        # Lags [0, n) are positive delays; the tail maps to negative delays.
-        peak = int(np.argmax(mag))
-        lag = peak if peak < n else peak - size
+        # Estimate the lag from a bounded window (O(window), not O(N)).
+        w = min(n, self._ALIGN_WINDOW)
+        aw, bw = a[:w], b[:w]
+        size = 1 << int(np.ceil(np.log2(2 * w)))
+        fa = np.fft.fft(aw, size)
+        fb = np.fft.fft(bw, size)
+        xcorr = np.abs(np.fft.ifft(fb * np.conj(fa)))
+        peak = int(np.argmax(xcorr))
+        lag = peak if peak < w else peak - size  # +ve: b delayed; -ve: b advanced
 
-        if lag > 0:      # degraded delayed: drop its leading `lag` samples
+        # Apply the lag to the FULL-length arrays (EVM/SNR difference stays exact).
+        if lag > 0:
             a = a[: n - lag]
             b = b[lag:]
-        elif lag < 0:    # degraded advanced: drop reference's leading samples
+        elif lag < 0:
             a = a[-lag:]
             b = b[: n + lag]
         return a, b
@@ -205,6 +211,12 @@ class MetricsCalculator:
         """
         if len(signal) == 0:
             return -np.inf
+
+        # ACLR is a band-power *ratio* (adjacent / total), so a bounded window of a
+        # stationary signal gives the same result — cap the FFT to keep it O(window)
+        # instead of a full-length O(N) FFT (and this ran once per channel = 3×).
+        if len(signal) > self._ACLR_WINDOW:
+            signal = signal[: self._ACLR_WINDOW]
 
         # FFT — keep the full two-sided spectrum. For complex IQ signals the
         # negative frequencies are physically meaningful (they carry the lower

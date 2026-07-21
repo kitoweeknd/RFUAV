@@ -329,13 +329,10 @@ class ProcessingWorker(QThread):
             if self._should_stop:
                 return
 
-            self.progress.emit(0.90, "Calculating metrics...")
-            metrics = self._calculate_metrics(original, processed)
-            self.metrics_ready.emit(metrics)
-
+            # Emit the finished result (spectra + signals) FIRST so the UI becomes
+            # interactive immediately; metrics flow separately via metrics_ready and
+            # fill in a beat later, instead of blocking completion at "90%".
             elapsed = time.perf_counter() - start_time
-            self.progress.emit(1.0, "Complete")
-
             result = {
                 "original": original,
                 "processed": processed,
@@ -353,8 +350,13 @@ class ProcessingWorker(QThread):
                     "power_processed": self._calc_power(processed),
                 },
             }
-
             self.finished.emit(result)
+
+            # Metrics last (bounded-window, cheap now, but still after first paint).
+            self.progress.emit(0.90, "Calculating metrics...")
+            metrics = self._calculate_metrics(original, processed)
+            self.metrics_ready.emit(metrics)
+            self.progress.emit(1.0, "Complete")
 
         except Exception as e:
             import traceback
