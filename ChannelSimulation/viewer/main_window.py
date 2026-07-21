@@ -1004,12 +1004,13 @@ class MainWindow(QMainWindow):
             self._spectrum_viewer.apply_spectrum_data(spectrum_data)
 
     def _on_stage_spectrum_cached(self, stage_name: str, spectrum_data: dict) -> None:
-        """Intermediate stage spectrum has been cached in L2 cache.
+        """Forward an intermediate stage's precomputed spectrum to the viewer.
 
-        The cached data lives in _SPECTRAL_CACHE keyed by (stage_name, view_type, signal_id).
-        SpectrumViewer will query it on demand when the user switches to that stage.
+        The viewer keeps its own stage→spectrum map so per-stage switching is an
+        instant dict lookup (no dependency on the worker's internal signal id).
         """
-        pass  # L2 cache is already populated by ProcessingWorker; viewer reads it on stage switch
+        if hasattr(self._spectrum_viewer, 'apply_stage_spectrum'):
+            self._spectrum_viewer.apply_stage_spectrum(stage_name, spectrum_data)
 
     def _on_metrics_ready(self, metrics: dict) -> None:
         """Metrics ready callback."""

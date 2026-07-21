@@ -884,6 +884,31 @@ def get_spectrogram_cmap() -> str:
     return SPECTROGRAM_CMAP_DARK if is_dark_theme() else SPECTROGRAM_CMAP_LIGHT
 
 
+def get_pg_colormap():
+    """Return a pyqtgraph ColorMap for the spectrogram (matplotlib 'turbo').
+
+    Bridges the theme's colormap name to a pyqtgraph ColorMap so ImageItem /
+    HistogramLUTItem render with the same palette the old matplotlib canvas used.
+    """
+    import pyqtgraph as pg
+    return pg.colormap.getFromMatplotlib(get_spectrogram_cmap())
+
+
+def apply_pyqtgraph_theme() -> None:
+    """Set pyqtgraph's global background/foreground from the active theme.
+
+    Called once at startup and again on theme switch so every pyqtgraph plot
+    (spectrogram, PSD, time, SNR) picks up the dark/light palette.
+    """
+    import pyqtgraph as pg
+    pg.setConfigOptions(
+        background=get_color("spectrum_bg"),
+        foreground=get_color("text_primary"),
+        antialias=True,
+        imageAxisOrder="row-major",  # image arrays are (row=freq, col=time)
+    )
+
+
 # ============================================================================
 # Helper functions
 # ============================================================================
