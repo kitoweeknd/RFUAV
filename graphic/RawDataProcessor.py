@@ -181,6 +181,7 @@ def generate_images(datapack: str = None,
                          duration_time=duration_time, onside=False)
         f = np.fft.fftshift(f)
         Zxx = np.fft.fftshift(Zxx, axes=0)
+        aug = 10 * np.log10(np.abs(Zxx))
         aug = np.clip(aug, a_min=1e-10, a_max=None)
         extent = [t.min(), t.max(), f.min(), f.max()]
 
@@ -387,11 +388,9 @@ def show_half_only(datapack: str = '',
     slice_point = int(fs * duration_time)
 
     print("reading raw data ...")
-    bytes_per_sample = np.dtype(file_type).itemsize
-    raw = np.fromfile(datapack, dtype=file_type, offset=0,
-                      count=slice_point * 2)
-    dataI = raw[::2]
-    dataQ = raw[1::2]
+    data = _complex_from_file(datapack, 0, slice_point, file_type)
+    dataI = data.real
+    dataQ = data.imag
 
     print("STFT transforming ...")
     f_I, t_I, Zxx_I = STFT(dataI, fs=fs, stft_point=stft_point, duration_time=duration_time)

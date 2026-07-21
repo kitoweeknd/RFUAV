@@ -91,7 +91,7 @@ class TwoStagesDetector:
 
         if self.S1.S1model:
             if save:
-                with torch.no_grad:
+                with torch.no_grad():
                     res = self.S1.S1model.inference(source=source, save_dir=self.target_dir)
             else:
                 source.seek(0)
@@ -313,8 +313,8 @@ def put_res_on_img(img,
         Image with added text.
     """
 
-        # Add text on image
-        cv2.putText(img=img,
+    # Add text on image
+    cv2.putText(img=img,
                 text=text + f" {probability:.2f}%",
                 org=position,
                 fontFace=cv2.FONT_HERSHEY_SIMPLEX,

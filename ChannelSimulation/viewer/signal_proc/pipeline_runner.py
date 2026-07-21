@@ -490,6 +490,7 @@ class PipelineRunner:
                     fs=self._fs,
                     doppler_shift_hz=float(params.get("doppler_shift_hz", 0.0)),
                     doppler_spread_hz=float(params.get("doppler_spread_hz", 100.0)),
+                    rng=rng,
                 )
 
             elif stage_name == "multipath":

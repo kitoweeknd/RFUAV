@@ -30,7 +30,7 @@ def check_cfg(cfg: str):
         raise ValueError("The model you specified is not available")
     if not isinstance(opt['num_classes'], int):
         raise ValueError("The number of classes must be an integer")
-    if opt['weights'] == None or not os.path.exists(opt['weights']):
+    if opt['weights'] is None or not os.path.exists(opt['weights']):
         logging.info("No pretrained weights specified, training from scratch")
         opt['pretrained'] = False
     if opt['device'] != 'cpu' and not torch.cuda.is_available():

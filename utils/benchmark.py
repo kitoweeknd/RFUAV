@@ -1,4 +1,5 @@
 import glob
+import json
 import os
 import time
 
@@ -6,6 +7,7 @@ import cv2
 import imageio
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+from scipy.optimize import linear_sum_assignment
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -102,7 +104,6 @@ class ClassifyModel(nn.Module):
         - source (str): Path to the source data.
         - save_path (str): Path to save the results.
         """
-        torch.no_grad()
         if self.save:
             if not os.path.exists(save_path):
                 os.mkdir(save_path)
@@ -165,11 +166,14 @@ class ClassifyModel(nn.Module):
         """
 
         self.logger.log_with_color(f"Using device: {self.device}")
-        model = model_init_(self.cfg['model'], self.cfg['num_classes'], pretrained=True)
+        # The checkpoint below is loaded right after, so there is no need to also
+        # download ImageNet-pretrained weights (which would fail in offline setups).
+        has_weights = os.path.exists(self.weight_path)
+        model = model_init_(self.cfg['model'], self.cfg['num_classes'], pretrained=not has_weights)
 
-        if os.path.exists(self.weight_path):
+        if has_weights:
             self.logger.log_with_color(f"Loading init weights from: {self.weight_path}")
-            state_dict = torch.load(self.weight_path, map_location=self.device)
+            state_dict = torch.load(self.weight_path, map_location=self.device, weights_only=True)
             model.load_state_dict(state_dict)
             self.logger.log_with_color(f"Successfully loaded pretrained weights from: {self.weight_path}")
         else:
@@ -191,7 +195,8 @@ class ClassifyModel(nn.Module):
         origin_image = Image.open(source).convert('RGB')
         preprocessed_image = self.preprocess(source)
 
-        temp = self.model(preprocessed_image)
+        with torch.no_grad():
+            temp = self.model(preprocessed_image)
 
         probabilities = torch.softmax(temp, dim=1)
 
@@ -199,7 +204,7 @@ class ClassifyModel(nn.Module):
         predicted_class_name = get_key_from_value(self.cfg['class_names'], predicted_class_index)
 
         end_time = time.time()
-        self.logger.log_with_color(f"Inference time: {(end_time - start_time) / 100 :.8f} sec")
+        self.logger.log_with_color(f"Inference time: {(end_time - start_time):.8f} sec")
         self.logger.log_with_color(f"{source} contains Drone: {predicted_class_name}, "
                                    f"confidence1: {probabilities[0][predicted_class_index].item() * 100 :.2f} %,"
                                    f" start saving result")
@@ -220,10 +225,11 @@ class ClassifyModel(nn.Module):
         """
         res = []
         images = generate_images(source)
-        name = os.path.splitext(os.path.basename(source))
+        name = os.path.splitext(os.path.basename(source))[0]
 
         for image in images:
-            temp = self.model(self.preprocess(image))
+            with torch.no_grad():
+                temp = self.model(self.preprocess(image))
 
             probabilities = torch.softmax(temp, dim=1)
 
@@ -308,10 +314,12 @@ class ClassifyModel(nn.Module):
 
         if not save_path:
             save_path = os.path.join(data_path, 'benchmark result')
-            if not os.path.exists(save_path): os.mkdir(save_path)
 
         if not os.path.exists(save_path):
-            os.mkdir(save_path)
+            os.makedirs(save_path, exist_ok=True)
+
+        num_classes = self.cfg['num_classes']
+        cm_raw = np.zeros((num_classes, num_classes), dtype=int)  # accumulated over all snr/CM dirs
         with torch.no_grad():
             for snr in snrs:
                 CMS = os.listdir(os.path.join(data_path, snr))
@@ -332,7 +340,6 @@ class ClassifyModel(nn.Module):
                     probabilities = []
                     total_labels = []
                     classes_name = tuple(self.cfg['class_names'].keys())
-                    cm_raw = np.zeros((5, 5), dtype=int)
                     for images, labels in dataset:
                         images, labels = images.to(self.cfg['device']), labels.to(self.cfg['device'])
                         outputs = self.model(images)
@@ -342,8 +349,7 @@ class ClassifyModel(nn.Module):
                             probabilities.append(list(torch.softmax(output, dim=0)))
                         _, predicted = outputs.max(1)
                         for p, t in zip(predicted.cpu(), labels.cpu()):
-                            cm_raw[p,t]+=1
-                        cm_raw[p, t] += 1   # Row = pred, Column = gt
+                            cm_raw[p, t] += 1   # Row = pred, Column = gt
                         total += labels.size(0)
                         correct += predicted.eq(labels).sum().item()
                         total_labels.append(labels)
@@ -354,19 +360,19 @@ class ClassifyModel(nn.Module):
                                         labels=_total_labels,
                                         num_classes=self.cfg['num_classes'],
                                         tasks=('f1', 'precision', 'CM'),
-                                        topk=(1, 3, 5),
+                                        topk=(1, 2, 3),
                                         save_path=save_path,
                                         classes_name=classes_name,
                                         pic_name=f'{snr}_{CM}')
                     metrics['acc'] = 100 * correct / total
 
-                    s = (f'{snr} ' + f'CM: {CM} eva result:' + ' acc: ' + f'{metrics["acc"]}' + ' top-1: ' +
-                         f'{metrics["Top-k"]["top1"]}' + ' top-1: ' + f'{metrics["Top-k"]["top1"]}' +
+                    s = (f'{snr} ' + f'CM: {CM} eva result:' + ' acc: ' + f'{metrics["acc"]}' +
+                         ' top-1: ' + f'{metrics["Top-k"]["top1"]}' +
                          ' top-2 ' + f'{metrics["Top-k"]["top2"]}' + ' top-3 ' + f'{metrics["Top-k"]["top3"]}' +
                          ' mAP: ' + f'{metrics["mAP"]["mAP"]}' + ' macro_f1: ' + f'{metrics["f1"]["macro_f1"]}' +
                          ' micro_f1 : ' + f' {metrics["f1"]["micro_f1"]}\n')
                     txt_path = os.path.join(save_path, 'benchmark_result.txt')
-                    colorful_logger(f'cost {(time.time()-stat_time)/60} mins')
+                    self.logger.log_with_color(f'cost {(time.time()-stat_time)/60} mins')
                     with open(txt_path, 'a') as file:
                         file.write(s)
 
@@ -376,8 +382,7 @@ class ClassifyModel(nn.Module):
         mapping_pred2gt = {int(r): int(c) for r, c in zip(row_ind, col_ind)}
         self.logger.log_with_color(f"\n★ pred → gt: {mapping_pred2gt}")
 
-        import json
-        json.dump(mapping_pred2gt, open('class_to_idx_pred2gt.json', 'w'))
+        json.dump(mapping_pred2gt, open(os.path.join(save_path, 'class_to_idx_pred2gt.json'), 'w'))
         self.logger.log_with_color("saved to class_to_idx_pred2gt.json")
 
 class DetectionModel:
@@ -417,6 +422,7 @@ class DetectionModel:
     """
 
     def __init__(self, cfg=None, model_name=None, weight_path=None):
+        self.logger = colorful_logger('Inference')
         if cfg:
             model_name = cfg['model_name']
             weight_path = cfg['weight_path']
@@ -439,6 +445,7 @@ class DetectionModel:
                 self.S1model = YOLOV5S(weights=weight_path)
                 self.S1model.inference = self.yolov5_detect
 
+    @torch.no_grad()
     def yolov5_detect(self,
                       source='../example/source/',
                       save_dir='../res',
@@ -454,7 +461,6 @@ class DetectionModel:
         color = Colors()
         detmodel = self.S1model
         stride, names = detmodel.stride, detmodel.names
-        torch.no_grad()
         # Run inference
         if isinstance(source, np.ndarray):
             detmodel.eval()
@@ -515,7 +521,7 @@ class DetectionModel:
                     p, im0, frame = path, im0s.copy(), getattr(dataset, 'frame', 0)
 
                     p = Path(p)  # to Path
-                    save_path = str(save_dir + p.name)  # im.jpg
+                    save_path = os.path.join(save_dir, p.name)  # im.jpg
                     s += '%gx%g ' % im.shape[2:]  # print string
                     annotator = Annotator(im0, line_width=line_thickness, example=str(names))
                     if len(det):

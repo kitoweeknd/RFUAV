@@ -16,6 +16,44 @@ class MetricsCalculator:
     def __init__(self):
         self._eps = 1e-12
 
+    def _align_signals(
+        self,
+        reference: np.ndarray,
+        degraded: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Align ``degraded`` to ``reference`` by their best cross-correlation lag.
+
+        Stages such as ``crop_time_shift`` translate the signal in time, so a
+        sample-wise ``degraded - reference`` would measure the shift instead of
+        the channel degradation. We estimate the integer lag that maximises the
+        cross-correlation, undo it, and return the overlapping region. When the
+        signals are already aligned the estimated lag is 0 and this is a no-op.
+        """
+        n = min(len(reference), len(degraded))
+        if n == 0:
+            return reference[:0], degraded[:0]
+        a = reference[:n]
+        b = degraded[:n]
+
+        # FFT-based cross-correlation. Zero-pad to 2n to get linear (not
+        # circular) correlation; the argmax gives the lag of b relative to a.
+        size = 1 << int(np.ceil(np.log2(2 * n)))
+        fa = np.fft.fft(a, size)
+        fb = np.fft.fft(b, size)
+        xcorr = np.fft.ifft(fb * np.conj(fa))
+        mag = np.abs(xcorr)
+        # Lags [0, n) are positive delays; the tail maps to negative delays.
+        peak = int(np.argmax(mag))
+        lag = peak if peak < n else peak - size
+
+        if lag > 0:      # degraded delayed: drop its leading `lag` samples
+            a = a[: n - lag]
+            b = b[lag:]
+        elif lag < 0:    # degraded advanced: drop reference's leading samples
+            a = a[-lag:]
+            b = b[: n + lag]
+        return a, b
+
     def calculate_all(
         self,
         reference: np.ndarray,
@@ -34,13 +72,17 @@ class MetricsCalculator:
         """
         metrics = {}
 
-        metrics["evm"] = self.calculate_evm(reference, degraded)
+        # Align once and share between EVM and SNR (both difference the signals);
+        # avoids running the FFT cross-correlation twice per call.
+        ref_aligned, deg_aligned = self._align_signals(reference, degraded)
+
+        metrics["evm"] = self._evm_from_aligned(ref_aligned, deg_aligned)
         metrics["crest_factor"] = self.calculate_crest_factor(degraded)
         metrics["aclr_main"] = self.calculate_acl_main(degraded, fs)
         metrics["aclr_lower"] = self.calculate_acl_lower(degraded, fs)
         metrics["aclr_upper"] = self.calculate_acl_upper(degraded, fs)
         metrics["power_dbfs"] = self.calculate_power_dbfs(degraded)
-        metrics["snr"] = self.calculate_snr(reference, degraded)
+        metrics["snr"] = self._snr_from_aligned(ref_aligned, deg_aligned)
 
         return metrics
 
@@ -60,10 +102,15 @@ class MetricsCalculator:
         Returns:
             EVM percentage
         """
-        if len(reference) != len(degraded):
-            min_len = min(len(reference), len(degraded))
-            reference = reference[:min_len]
-            degraded = degraded[:min_len]
+        # _align_signals also trims to the common length, so no separate
+        # length-matching step is needed here.
+        reference, degraded = self._align_signals(reference, degraded)
+        return self._evm_from_aligned(reference, degraded)
+
+    def _evm_from_aligned(self, reference: np.ndarray, degraded: np.ndarray) -> float:
+        """EVM for already time-aligned, equal-length signals."""
+        if len(reference) == 0:
+            return 100.0
 
         error = degraded - reference
         p_error = np.mean(np.abs(error) ** 2)
@@ -159,18 +206,16 @@ class MetricsCalculator:
         if len(signal) == 0:
             return -np.inf
 
-        # FFT
+        # FFT — keep the full two-sided spectrum. For complex IQ signals the
+        # negative frequencies are physically meaningful (they carry the lower
+        # adjacent channel), so truncating to the positive half would make any
+        # negative center_ratio band never match a bin.
         n = len(signal)
         spectrum = np.fft.fft(signal)
         freqs = np.fft.fftfreq(n, 1 / fs)
 
-        # Convert to positive frequencies
-        half_n = n // 2
-        freqs_pos = freqs[:half_n]
-        spectrum_pos = spectrum[:half_n]
-
-        # Calculate power spectral density
-        psd = np.abs(spectrum_pos) ** 2
+        # Calculate power spectral density over the full spectrum
+        psd = np.abs(spectrum) ** 2
 
         # Determine frequency range
         max_freq = fs / 2
@@ -180,7 +225,7 @@ class MetricsCalculator:
         freq_max = center + width / 2
 
         # Integrate power in the frequency band
-        mask = (freqs_pos >= freq_min) & (freqs_pos < freq_max)
+        mask = (freqs >= freq_min) & (freqs < freq_max)
         power = np.sum(psd[mask])
 
         # Normalize
@@ -229,10 +274,14 @@ class MetricsCalculator:
         Returns:
             SNR (dB)
         """
-        if len(reference) != len(degraded):
-            min_len = min(len(reference), len(degraded))
-            reference = reference[:min_len]
-            degraded = degraded[:min_len]
+        # _align_signals also trims to the common length.
+        reference, degraded = self._align_signals(reference, degraded)
+        return self._snr_from_aligned(reference, degraded)
+
+    def _snr_from_aligned(self, reference: np.ndarray, degraded: np.ndarray) -> float:
+        """SNR for already time-aligned, equal-length signals."""
+        if len(reference) == 0:
+            return 100.0
 
         # Signal power
         p_signal = np.mean(np.abs(reference) ** 2)

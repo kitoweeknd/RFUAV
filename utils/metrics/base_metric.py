@@ -97,7 +97,7 @@ class BaseMetric(metaclass=ABCMeta):
 
 
 class EVAMetric:
-    def __new__(self,
+    def __new__(cls,
                 preds: Tensor,
                 labels: Tensor,
                 tasks: tuple[str, ...] = ('f1', 'precision', 'CM'),
@@ -160,7 +160,7 @@ class EVAMetric:
 
         from utils.metrics.topk import Accuracy
         logger.log_with_color('start computing the Top-k')
-        acc = Accuracy(topk=(1, 2, 3))
+        acc = Accuracy(topk=topk if topk is not None else (1, 2, 3))
         res['Top-k'] = acc(preds, labels)
 
         return res

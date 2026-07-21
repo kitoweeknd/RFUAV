@@ -15,16 +15,16 @@ Memory optimisation notes
 
 from __future__ import annotations
 
+import logging
 import time
 import threading
-import weakref
 from typing import Any
 
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 
-from .array_pool import get_pool
-from .memory_manager import get_memory_manager
+
+logger = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------------------------
@@ -37,6 +37,21 @@ _VIEW_PSD = 1
 _VIEW_STFT = 2
 _VIEW_RESIDUAL = 3
 _VIEW_STFT_ZOOM = 4  # STFT zoomed to a specific time/freq window
+
+
+# Monotonic signal-identity counter. Using id(array) as the cache identity is
+# unsafe: once an array is garbage-collected, CPython may reuse its id() for a
+# new array, causing the cache to return a previous signal's spectra. A
+# never-reused counter avoids that aliasing entirely.
+_signal_id_lock = threading.Lock()
+_signal_id_seq = 0
+
+
+def _next_signal_id() -> int:
+    global _signal_id_seq
+    with _signal_id_lock:
+        _signal_id_seq += 1
+        return _signal_id_seq
 
 
 class _SpectralCache:
@@ -251,7 +266,7 @@ class ProcessingWorker(QThread):
             # ── Build a SINGLE SpectrumCalculator and reuse for all stages ─────
             # This is critical: creating a new SpectrumCalculator() inside each
             # _compute_all_spectra_for_stage call re-creates scipy signal objects.
-            sig_id = id(original)
+            sig_id = _next_signal_id()
             calc = SpectrumCalculator(fs=self._fs, fc=self._fc)
 
             # ── Compute original spectra ONCE (reuse for final + every stage) ───
@@ -480,7 +495,7 @@ class StftWorker(QThread):
                 return
             self.stft_done.emit(sig_key, so, sp, ff, tt)
         except Exception:
-            pass
+            logger.exception("Zoom STFT computation failed")
 
 
 class StreamingWorker(QThread):
@@ -520,11 +535,6 @@ class StreamingWorker(QThread):
         start_time = time.perf_counter()
 
         try:
-            import tempfile
-            from pathlib import Path
-
-            temp_dir = Path(tempfile.mkdtemp())
-
             self.progress.emit(0.1, "Preparing streaming processing...")
 
             from ChannelSimulation.viewer.signal_proc.pipeline_runner import PipelineRunner

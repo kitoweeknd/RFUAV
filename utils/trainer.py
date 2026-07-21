@@ -54,6 +54,20 @@ from .DetModels.yolo import val as validate
 TQDM_BAR_FORMAT = '{l_bar}{bar:10}{r_bar}'
 
 
+def _make_grad_scaler(enabled: bool):
+    """Create a CUDA GradScaler compatibly across torch versions.
+
+    ``torch.amp.GradScaler('cuda', ...)`` is the modern API (torch >= 2.4);
+    older versions (torch 2.0-2.3) only expose ``torch.cuda.amp.GradScaler``.
+    Prefer the new form and fall back so the stated ``torch >= 2.0.1``
+    requirement keeps working without emitting the 2.4+ deprecation warning.
+    """
+    try:
+        return torch.amp.GradScaler('cuda', enabled=enabled)
+    except (AttributeError, TypeError):
+        return torch.cuda.amp.GradScaler(enabled=enabled)
+
+
 class Basetrainer:
 
     """
@@ -201,7 +215,7 @@ class Basetrainer:
 
         # initializing optimizer
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-        self.grad_scaler = torch.cuda.amp.GradScaler(enabled=self.amp)
+        self.grad_scaler = _make_grad_scaler(enabled=self.amp)
         self.ema = None
         if self.ema_decay > 0:
             self.ema = ModelEMA(self.model, decay=self.ema_decay)
@@ -220,7 +234,7 @@ class Basetrainer:
                 labels = labels.to(self.device, non_blocking=True)
 
                 # forward
-                with torch.cuda.amp.autocast(enabled=self.amp):
+                with torch.amp.autocast(self.device.type, enabled=self.amp):
                     outputs = self.model(images)
                     raw_loss = self.criterion(outputs, labels)
                     loss = raw_loss / self.grad_accum_steps
@@ -290,7 +304,7 @@ class Basetrainer:
             for val_images, val_labels in self.val_set:
                 val_images = val_images.to(self.device, non_blocking=True)
                 val_labels = val_labels.to(self.device, non_blocking=True)
-                with torch.cuda.amp.autocast(enabled=self.amp):
+                with torch.amp.autocast(self.device.type, enabled=self.amp):
                     val_outputs = eval_model(val_images)
                     val_loss += self.criterion(val_outputs, val_labels).item()
                 val_probabilities.append(torch.softmax(val_outputs, dim=1))
@@ -351,7 +365,7 @@ class Basetrainer:
 
         if os.path.exists(weight_path):
             self.logger.log_with_color(f"Loading pretrained weights from: {weight_path}")
-            state_dict = torch.load(weight_path, map_location=self.device)
+            state_dict = torch.load(weight_path, map_location=self.device, weights_only=True)
             self.model.load_state_dict(state_dict)
             self.logger.log_with_color(f"Successfully loaded pretrained weights from: {weight_path}")
         else:
@@ -766,7 +780,7 @@ class CustomTrainer(Basetrainer):
                 prefetch_factor=self.parameters.get('prefetch_factor', 2),
             )
         else:
-            super().__init__(Basetrainer)
+            raise ValueError(f"Invalid configuration file: {cfg}")
 
         self.class_idx = self.train_set.dataset.class_to_idx
         if self.save_yaml:
@@ -795,7 +809,7 @@ class CustomTrainer(Basetrainer):
                 labels = labels.to(self.device, non_blocking=True)
 
                 # forward propagation
-                with torch.cuda.amp.autocast(enabled=self.amp):
+                with torch.amp.autocast(self.device.type, enabled=self.amp):
                     outputs = self.model(images)
                     loss = self.criterion(outputs, labels)
 
@@ -973,7 +987,7 @@ class DetTrainer:
         maps = np.zeros(nc)  # mAP per class
         results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
         scheduler.last_epoch = start_epoch - 1  # do not move
-        scaler = torch.cuda.amp.GradScaler(enabled=amp)
+        scaler = _make_grad_scaler(enabled=amp)
         stopper, stop = EarlyStopping(patience=opt.patience), False
         compute_loss = ComputeLoss(model)  # init loss class
         callbacks.run('on_train_start')
@@ -1031,7 +1045,7 @@ class DetTrainer:
                         imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
                     # Forward
-                with torch.cuda.amp.autocast(amp):
+                with torch.amp.autocast(device.type, enabled=amp):
                     pred = model(imgs)  # forward
                     loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
                     if opt.quad:

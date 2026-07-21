@@ -10,6 +10,7 @@ try:
     from ChannelSimulation.channels.awgn import apply_awgn
     from ChannelSimulation.channels.cfo import apply_cfo
     from ChannelSimulation.channels.crop_shift import apply_random_crop_and_time_shift
+    from ChannelSimulation.channels.doppler import apply_doppler
     from ChannelSimulation.channels.fading import apply_rayleigh_or_rician_fading
     from ChannelSimulation.channels.iq_imbalance import apply_iq_imbalance
     from ChannelSimulation.channels.multipath import apply_multipath
@@ -28,6 +29,7 @@ except ImportError:  # Compatible with direct script execution
     from ChannelSimulation.channels.awgn import apply_awgn
     from ChannelSimulation.channels.cfo import apply_cfo
     from ChannelSimulation.channels.crop_shift import apply_random_crop_and_time_shift
+    from ChannelSimulation.channels.doppler import apply_doppler
     from ChannelSimulation.channels.fading import apply_rayleigh_or_rician_fading
     from ChannelSimulation.channels.iq_imbalance import apply_iq_imbalance
     from ChannelSimulation.channels.multipath import apply_multipath
@@ -47,6 +49,7 @@ except ImportError:  # Compatible with direct script execution
 STAGE_ORDER = [
     "original",
     "fading",
+    "doppler",
     "multipath",
     "cfo",
     "phase_noise",
@@ -55,8 +58,10 @@ STAGE_ORDER = [
     "crop_time_shift",
 ]
 
-# Chunks that require the full signal (cannot be processed per-chunk independently)
-_STATEFUL_STAGES = frozenset({"crop_time_shift"})
+# Chunks that require the full signal (cannot be processed per-chunk independently).
+# Doppler builds a continuous phase (arange-based rotation + cumulative phase noise),
+# so processing it per-chunk would reset the phase and create boundary discontinuities.
+_STATEFUL_STAGES = frozenset({"crop_time_shift", "doppler"})
 
 
 def parse_enabled_stages(stage_spec: str | list[str]) -> list[str]:
@@ -120,6 +125,16 @@ def _stage_fading_rice_mild(x: np.ndarray, fs: float, rng: np.random.Generator, 
     )
 
 
+def _stage_doppler_jakes(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
+    return apply_doppler(
+        x,
+        fs=fs,
+        doppler_shift_hz=float(params.get("doppler_shift_hz", 0.0)),
+        doppler_spread_hz=float(params.get("doppler_spread_hz", 100.0)),
+        rng=rng,
+    )
+
+
 def _stage_multipath_tdl(x: np.ndarray, fs: float, rng: np.random.Generator, **params) -> np.ndarray:
     return apply_multipath(
         x,
@@ -166,6 +181,9 @@ STAGE_REGISTRY: dict[str, dict[str, Callable[..., np.ndarray]]] = {
         "rician": _stage_fading_rician,
         "rice_mild": _stage_fading_rice_mild,
     },
+    "doppler": {
+        "jakes": _stage_doppler_jakes,
+    },
     "multipath": {
         "tdl": _stage_multipath_tdl,
     },
@@ -190,6 +208,7 @@ STAGE_REGISTRY: dict[str, dict[str, Callable[..., np.ndarray]]] = {
 def default_stage_configs() -> dict[str, dict[str, object]]:
     return {
         "fading": {"method": "rayleigh", "params": {"k_factor": 5.0, "block_size": 256}},
+        "doppler": {"method": "jakes", "params": {"doppler_shift_hz": 0.0, "doppler_spread_hz": 100.0}},
         "multipath": {"method": "tdl", "params": {"max_delay_samp": 20, "n_paths": 4, "exp_decay": 0.35}},
         "cfo": {"method": "constant", "params": {"cfo_hz": 0.0}},
         "phase_noise": {"method": "wiener", "params": {"phase_std_per_sample": 2e-3}},
@@ -301,8 +320,8 @@ def run_channel_pipeline(
     # so that each AWGN stage's SNR target is relative to the same reference.
     ref_power = float(np.mean(np.abs(x) ** 2))
 
-    for stage in ["fading", "multipath", "cfo", "phase_noise", "iq_imbalance", "awgn", "crop_time_shift"]:
-        if stage not in enabled_stages:
+    for stage in STAGE_ORDER:
+        if stage == "original" or stage not in enabled_stages:
             continue
         if show_progress:
             _print_stage_progress(enabled_stages, stage, prefix=progress_prefix)
@@ -407,10 +426,9 @@ def run_channel_pipeline_streaming(
     """
     total_samples = count_complex_samples(input_path)
     n_chunks = (total_samples + chunk_size - 1) // chunk_size
-    rng = np.random.default_rng(seed)
 
     # Stages that require full signal (cannot stream per chunk independently)
-    accumulate = "crop_time_shift" in enabled_stages
+    accumulate = any(s in _STATEFUL_STAGES for s in enabled_stages)
 
     # Stages with save=True also need accumulation (full signal written to disk)
     stages_to_save = [
@@ -436,15 +454,19 @@ def run_channel_pipeline_streaming(
             print(f"{progress_prefix}  chunk {i + 1}/{n_chunks}  "
                   f"({len(chunk):,} samples) ...")
 
+        # Deterministic per-chunk RNG derived from (seed, chunk index). This keeps
+        # the main output independent of which stages are saved, and lets each
+        # save-pass re-derive the identical draws so the saved intermediate is an
+        # exact prefix of the main pipeline output for that chunk.
         processed = _run_stages_on_chunk(
-            chunk, fs, rng, enabled_stages, stage_configs,
+            chunk, fs, np.random.default_rng([seed, i]), enabled_stages, stage_configs,
         )
 
         if needs_accumulation:
             buf.append(processed)
             for stage in stages_to_save:
                 stage_out = _run_stages_on_chunk(
-                    chunk, fs, rng,
+                    chunk, fs, np.random.default_rng([seed, i]),
                     [s for s in enabled_stages
                      if enabled_stages.index(s) <= enabled_stages.index(stage)
                      and s not in _STATEFUL_STAGES],
@@ -459,7 +481,10 @@ def run_channel_pipeline_streaming(
         full_signal = normalize_power(np.concatenate(buf))
         del buf
 
-        rng_acc = np.random.default_rng(seed)
+        # Stateful stages run once over the full accumulated signal. Use a
+        # dedicated deterministic stream so their draws do not depend on the
+        # number of chunks processed above.
+        rng_acc = np.random.default_rng([seed, n_chunks])
 
         # Write intermediate IQ for stages with save=True
         for stage in stages_to_save:

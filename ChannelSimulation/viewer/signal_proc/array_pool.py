@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import gc
 import threading
+import weakref
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -86,6 +87,7 @@ class _BucketEntry:
     last_touch: float = 0.0   # Monotonic timestamp (time.monotonic())
     refcount: int = 0         # How many callers currently hold this entry
     fixed_key: str | None = None  # None = generic bucket; else a registered fixed slot
+    epoch: int = 0            # Bumped on every acquire/release so stale GC finalizers no-op
 
 
 # ----------------------------------------------------------------------
@@ -128,7 +130,8 @@ class ArrayPool:
 
         # Bucket key = f"{fixed_key}|{dtype_str}|{size_power2}"
         self._buckets: dict[str, list[_BucketEntry]] = {}
-        self._total_bytes = 0
+        self._total_bytes = 0          # evictable (bucket) bytes only
+        self._fixed_bytes = 0          # never-evicted fixed-slot bytes
         self._lock = threading.RLock()
 
         # Hit / miss counters
@@ -145,6 +148,32 @@ class ArrayPool:
     def set_pressure_callback(self, cb: Callable[[int, int], None]) -> None:
         """Register a callback ``cb(used_bytes, max_bytes)`` called at 80 % pressure."""
         self._on_pressure = cb
+
+    def _tracked_view(self, entry: "_BucketEntry") -> np.ndarray:
+        """Return a view into ``entry`` and auto-decrement its refcount on GC.
+
+        Calling ``release`` explicitly is still supported and improves reuse
+        promptness, but many call sites forget to. Registering a weakref
+        finalizer on the returned view guarantees the refcount is eventually
+        restored when the caller drops the array, so buffers are not pinned
+        forever (which would degrade the pool to a 100 %-miss allocator).
+
+        The finalizer captures the entry's ``epoch`` at hand-out time and only
+        releases when it still matches. Any explicit ``release`` or subsequent
+        ``acquire`` bumps the epoch, so a stale finalizer firing after the
+        entry was re-used is a safe no-op (avoids double-freeing a live entry).
+        """
+        gen = entry.epoch
+        view = entry.arr.view()
+
+        def _on_gc(entry=entry, gen=gen, lock=self._lock):
+            with lock:
+                if entry.epoch == gen and entry.refcount > 0:
+                    entry.refcount = 0
+                    entry.epoch += 1
+
+        weakref.finalize(view, _on_gc)
+        return view
 
     def acquire(
         self,
@@ -185,11 +214,12 @@ class ArrayPool:
                 for entry in self._buckets[key]:
                     if entry.refcount == 0 and entry.arr.shape == shape and entry.arr.dtype == dtype:
                         entry.refcount = 1
+                        entry.epoch += 1
                         entry.last_touch = time_monotonic()
                         if zero:
                             entry.arr.fill(0)
                         self._hits += 1
-                        return entry.arr.view()
+                        return self._tracked_view(entry)
 
             # No hit – allocate
             self._misses += 1
@@ -212,7 +242,7 @@ class ArrayPool:
             # Pressure check
             self._check_pressure()
 
-            return arr.view()
+            return self._tracked_view(entry)
 
     def acquire_like(self, template: np.ndarray, zero: bool = True) -> np.ndarray:
         """Acquire a buffer with the same shape & dtype as ``template``."""
@@ -230,6 +260,7 @@ class ArrayPool:
                 for entry in bucket:
                     if np.shares_memory(entry.arr, arr):
                         entry.refcount = max(0, entry.refcount - 1)
+                        entry.epoch += 1  # invalidate this hand-out's GC finalizer
                         return  # found – done
 
     def register_fixed(self, key: str, shape: tuple[int, ...], dtype: np.dtype) -> np.ndarray:
@@ -243,9 +274,12 @@ class ArrayPool:
                 return self._fixed[key]
             arr = np.zeros(shape, dtype=np.dtype(dtype))
             self._fixed[key] = arr
-            # Also put it in the pool so acquire() can reuse it
+            # Fixed buffers are never evicted, so track them separately from the
+            # evictable bucket budget. Counting them in `_total_bytes` would let
+            # accumulating windows shrink the reusable pool and trigger
+            # premature eviction of real buffers.
             sz = _estimate_bytes(shape, dtype)
-            self._total_bytes += sz
+            self._fixed_bytes += sz
             return arr
 
     def get_fixed(self, key: str) -> np.ndarray | None:
@@ -258,12 +292,13 @@ class ArrayPool:
             self._buckets.clear()
             self._fixed.clear()
             self._total_bytes = 0
+            self._fixed_bytes = 0
         gc.collect()
 
     def stats(self) -> PoolStats:
         """Return pool usage statistics."""
         with self._lock:
-            total = self._total_bytes
+            total = self._total_bytes + self._fixed_bytes
             n = sum(len(v) for v in self._buckets.values())
             hits = self._hits
             misses = self._misses
@@ -340,9 +375,9 @@ class ArrayPool:
     def _check_pressure(self) -> None:
         if (
             self._on_pressure is not None
-            and self._total_bytes / self._max_bytes >= self._pressure_threshold
+            and (self._total_bytes + self._fixed_bytes) / self._max_bytes >= self._pressure_threshold
         ):
-            self._on_pressure(self._total_bytes, self._max_bytes)
+            self._on_pressure(self._total_bytes + self._fixed_bytes, self._max_bytes)
 
 
 def time_monotonic() -> float:

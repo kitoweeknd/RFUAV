@@ -241,7 +241,8 @@ class SNREstimator:
 
         # Noise floor estimate (avoid edges where spectral leakage occurs)
         margin = max(10, nfft // 20)
-        noise_floor = float(np.percentile(psd_db_raw[margin:-margin], 15))
+        core = psd_db_raw[margin:-margin] if len(psd_db_raw) > 2 * margin else psd_db_raw
+        noise_floor = float(np.percentile(core, 15))
 
         # Threshold = noise floor + 6 dB
         threshold = noise_floor + 6.0
@@ -267,7 +268,8 @@ class SNREstimator:
         psd_db = _db10(psd)
 
         margin = max(10, nfft // 20)
-        noise_floor = float(np.percentile(psd_db[margin:-margin], 15))
+        core = psd_db[margin:-margin] if len(psd_db) > 2 * margin else psd_db
+        noise_floor = float(np.percentile(core, 15))
         threshold = noise_floor + 6.0
         above = psd_db > threshold
 
