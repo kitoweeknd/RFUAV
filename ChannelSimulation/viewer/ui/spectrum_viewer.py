@@ -170,6 +170,10 @@ class SpectrumViewer(QWidget):
         self._current_stage_id = 0
         self._current_stage_name = "final"  # tracks current stage name for cache key matching
         self._is_dark_theme = False
+        # When True, the next _redraw rebuilds all persistent artists from
+        # scratch (fig.clear + fresh artist) so line colors / spectrogram cmap
+        # refresh. Set by set_theme, consumed at the end of _redraw.
+        self._force_rebuild = False
 
         # Data
         self._data: SpectrumData | None = None
@@ -443,6 +447,10 @@ class SpectrumViewer(QWidget):
             self._draw_stft()
         elif self._current_view_type == 3:
             self._draw_residual()
+
+        # Consume the forced-rebuild flag only after ALL canvases for this view
+        # have been drawn (both canvases must see the same flag value).
+        self._force_rebuild = False
 
         self._capture_default_limits()
 
@@ -883,91 +891,158 @@ class SpectrumViewer(QWidget):
 
         self._redraw()
 
+    def _ensure_axes_for_view(
+        self,
+        canvas: "SpectrumCanvas",
+        view_type: int,
+        kind: str,
+        xlabel: str = "",
+        ylabel: str = "",
+        line_color: str | None = None,
+    ) -> tuple[Any, Any, bool]:
+        """Return ``(ax, artist, rebuilt)`` for a canvas, reusing artists.
+
+        A full rebuild (``fig.clear()`` + ``add_subplot(111)`` + ONE placeholder
+        artist) happens ONLY when the canvas's drawn view_type/kind changes, when
+        it has never been drawn, or when a forced rebuild is pending (theme
+        switch). Otherwise the persistent axes + artist are returned so the
+        caller can update them in place — no per-redraw teardown.
+
+        ``kind`` is 'line' (creates a Line2D placeholder) or 'image' (creates an
+        AxesImage placeholder).
+        """
+        need_rebuild = (
+            self._force_rebuild
+            or canvas._persistent_ax is None
+            or canvas._persistent_artist is None
+            or canvas._drawn_view_type != view_type
+            or canvas._drawn_kind != kind
+        )
+        if not need_rebuild:
+            return canvas._persistent_ax, canvas._persistent_artist, False
+
+        fig = canvas.figure
+        fig.clear()
+        ax = fig.add_subplot(111)
+        if kind == "image":
+            artist = ax.imshow(
+                np.zeros((2, 2)),
+                aspect="auto",
+                origin="lower",
+                interpolation="nearest",
+            )
+        else:
+            artist = ax.plot([], [], linewidth=0.8)[0]
+            if line_color is not None:
+                artist.set_color(line_color)
+            ax.grid(True, alpha=0.3)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+
+        # Stash persistent refs on the canvas.
+        canvas._persistent_ax = ax
+        canvas._persistent_artist = artist
+        canvas._drawn_view_type = view_type
+        canvas._drawn_kind = kind
+
+        # The previous axes (and any remove()-managed artists that lived on it)
+        # are gone after fig.clear(); null those refs so their next .remove()
+        # no-ops and they get lazily recreated on the fresh axes.
+        canvas._cross_vline = None
+        canvas._cross_hline = None
+        canvas._box_artist = None
+        canvas._peak_annotations = []
+        canvas._cached_im = None
+
+        return ax, artist, True
+
+    def _mark_canvas_line(self, canvas: "SpectrumCanvas") -> None:
+        """Record that ``canvas`` now shows a line (not an STFT image).
+
+        Nulls the cached image refs so the slider/pan fast-path guard
+        (``im is None or im.axes is None``) short-circuits for this canvas.
+        """
+        canvas._cached_im = None
+        if canvas is self._canvas_original:
+            self._stft_im_orig = None
+            self._stft_ax_orig = None
+        else:
+            self._stft_im_proc = None
+            self._stft_ax_proc = None
+
     def _draw_time_domain(self) -> None:
         """Draw time domain plot"""
         if self._data is None:
             return
 
-        fig_orig = self._canvas_original.figure
-        fig_proc = self._canvas_processed.figure
-
         # A: Original | B: Processed
-        self._draw_time_canvas(fig_orig, self._data.time_domain_original, "Original Signal - Time Domain")
-        self._draw_time_canvas(fig_proc, self._data.time_domain_processed, "Processed Signal - Time Domain")
+        self._draw_time_canvas(self._canvas_original, self._data.time_domain_original, "Original Signal - Time Domain")
+        self._draw_time_canvas(self._canvas_processed, self._data.time_domain_processed, "Processed Signal - Time Domain")
 
         self._colorbar.hide()
 
-    def _draw_time_canvas(self, fig, signal, title) -> None:
-        """Draw time domain on a single canvas.
+    def _draw_time_canvas(self, canvas, signal, title) -> None:
+        """Draw time domain on a single canvas using a persistent Line2D.
 
         Args:
-            fig: Matplotlib Figure
+            canvas: SpectrumCanvas to draw on
             signal: Already-decimated abs envelope (same length as time_axis), NOT raw IQ
             title: Plot title
         """
-        fig.clear()
-        ax = fig.add_subplot(111)
+        ax, line, _rebuilt = self._ensure_axes_for_view(canvas, 0, "line", "Time (s)", "|x(t)|")
         if signal is not None and self._data is not None and self._data.time_axis is not None:
             time_axis = self._data.time_axis
-            n_signal = len(signal)
-            n_time = len(time_axis)
             # Align: if lengths differ slightly due to integer division, use the shorter one
-            n = min(n_signal, n_time)
-            ax.plot(time_axis[:n], signal[:n], linewidth=0.8)
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel("|x(t)|")
+            n = min(len(signal), len(time_axis))
+            line.set_data(time_axis[:n], signal[:n])
+        else:
+            line.set_data([], [])
+        ax.relim()
+        ax.autoscale_view()
         ax.set_title(title)
-        ax.grid(True, alpha=0.3)
-        fig.canvas.draw()
+        self._mark_canvas_line(canvas)
+        canvas.draw_idle()
 
     def _draw_psd(self) -> None:
         """Draw PSD plot"""
         if self._data is None:
             return
 
-        fig_orig = self._canvas_original.figure
-        fig_proc = self._canvas_processed.figure
-
-        # Original signal PSD
-        fig_orig.clear()
-        ax_orig = fig_orig.add_subplot(111)
-        if self._data.psd_original is not None and self._data.freq_axis_psd is not None:
-            ax_orig.plot(self._data.freq_axis_psd / 1e6, self._data.psd_original, linewidth=0.8)
-            ax_orig.set_xlabel("Frequency (MHz)")
-            ax_orig.set_ylabel("Power Spectral Density (dB/Hz)")
-            ax_orig.set_title("Original Signal - Power Spectral Density")
-            ax_orig.grid(True, alpha=0.3)
-            ax_orig.set_xlim([self._data.freq_axis_psd.min() / 1e6, self._data.freq_axis_psd.max() / 1e6])
-            self._annotate_peaks(ax_orig, self._data.freq_axis_psd, self._data.psd_original, "#1a73e8")
-        self._canvas_original.draw()
-
-        # Processed signal PSD
-        fig_proc.clear()
-        ax_proc = fig_proc.add_subplot(111)
-        if self._data.psd_processed is not None and self._data.freq_axis_psd is not None:
-            ax_proc.plot(self._data.freq_axis_psd / 1e6, self._data.psd_processed, linewidth=0.8)
-            ax_proc.set_xlabel("Frequency (MHz)")
-            ax_proc.set_ylabel("Power Spectral Density (dB/Hz)")
-            ax_proc.set_title("Processed Signal - Power Spectral Density")
-            ax_proc.grid(True, alpha=0.3)
-            ax_proc.set_xlim([self._data.freq_axis_psd.min() / 1e6, self._data.freq_axis_psd.max() / 1e6])
-            self._annotate_peaks(ax_proc, self._data.freq_axis_psd, self._data.psd_processed, "#ea4335")
-        self._canvas_processed.draw()
+        # Original signal PSD | Processed signal PSD
+        self._draw_psd_line(
+            self._canvas_original, self._data.psd_original,
+            "Original Signal - Power Spectral Density", "#1a73e8",
+        )
+        self._draw_psd_line(
+            self._canvas_processed, self._data.psd_processed,
+            "Processed Signal - Power Spectral Density", "#ea4335",
+        )
 
         self._colorbar.hide()
 
-    def _draw_psd_canvas(self, fig, freqs, psd, title, color) -> None:
-        """Draw PSD on a single canvas."""
-        fig.clear()
-        ax = fig.add_subplot(111)
+    def _draw_psd_line(self, canvas, psd, title, annot_color) -> None:
+        """Draw PSD on a single canvas using a persistent Line2D.
+
+        ``annot_color`` colours the peak annotations (not the trace itself,
+        which keeps matplotlib's default colour to match the original look).
+        """
+        ax, line, _rebuilt = self._ensure_axes_for_view(
+            canvas, 1, "line", "Frequency (MHz)", "Power Spectral Density (dB/Hz)"
+        )
+        freqs = self._data.freq_axis_psd if self._data is not None else None
         if psd is not None and freqs is not None:
-            ax.plot(freqs / 1e6, psd, linewidth=0.8, color=color)
-            ax.set_xlabel("Frequency (MHz)")
-            ax.set_ylabel("Power Spectral Density (dB/Hz)")
-            ax.grid(True, alpha=0.3)
-            ax.set_xlim([freqs.min() / 1e6, freqs.max() / 1e6])
+            line.set_data(freqs / 1e6, psd)
+            ax.relim()
+            ax.autoscale_view()
+            ax.set_xlim(freqs.min() / 1e6, freqs.max() / 1e6)
+            self._annotate_peaks(canvas, ax, freqs, psd, annot_color)
+        else:
+            line.set_data([], [])
+            ax.relim()
+            ax.autoscale_view()
         ax.set_title(title)
-        fig.canvas.draw()
+        self._mark_canvas_line(canvas)
+        canvas.draw_idle()
 
     def _draw_stft(self) -> None:
         """Draw STFT plot"""
@@ -985,7 +1060,7 @@ class SpectrumViewer(QWidget):
 
         # Normal mode: Original vs Processed
         im_orig = self._draw_stft_canvas(
-            self._canvas_original.figure,
+            self._canvas_original,
             self._data.stft_original,
             self._data.time_axis_stft,
             self._data.freq_axis_stft,
@@ -994,7 +1069,7 @@ class SpectrumViewer(QWidget):
             clim=self._stft_last_clim,
         )
         im_proc = self._draw_stft_canvas(
-            self._canvas_processed.figure,
+            self._canvas_processed,
             self._data.stft_processed,
             self._data.time_axis_stft,
             self._data.freq_axis_stft,
@@ -1015,17 +1090,21 @@ class SpectrumViewer(QWidget):
         if self._stft_last_clim is not None:
             self._colorbar.set_range(*self._stft_last_clim)
 
-    def _draw_stft_canvas(self, fig, stft, time_axis, freq_axis, title, cmap, clim=None) -> "matplotlib.image.AxesImage | None":
-        """Draw STFT spectrogram on a single canvas.
+    def _draw_stft_canvas(self, canvas, stft, time_axis, freq_axis, title, cmap, clim=None) -> "matplotlib.image.AxesImage | None":
+        """Draw STFT spectrogram on a single canvas using a persistent AxesImage.
 
         imshow: X-axis = TIME (seconds), Y-axis = FREQUENCY (MHz).
         extent=[x_left, x_right, y_bottom, y_top].
 
         ``clim`` : optional pre-computed (vmin, vmax); when given, avoids a
         redundant full-array percentile pass over ``stft``.
+
+        Returns the AxesImage (also cached on ``canvas._cached_im`` for the
+        slider/pan fast path) or None when there is nothing to display.
         """
-        fig.clear()
-        ax = fig.add_subplot(111)
+        ax, im, _rebuilt = self._ensure_axes_for_view(
+            canvas, self._current_view_type, "image", "Time (s)", "Frequency (MHz)"
+        )
         if stft is not None and time_axis is not None and freq_axis is not None:
             # Determine visible extent: use current slider/view window if available
             rect = self._compute_stft_view_rect()
@@ -1038,26 +1117,21 @@ class SpectrumViewer(QWidget):
                 y_hi = float(np.max(freq_axis)) / 1e6
 
             vo, vc = clim if clim is not None else self._stft_color_limits(stft)
-            im = ax.imshow(
-                stft,          # (nfreq, ntime) — matches imshow convention
-                aspect="auto",
-                origin="lower",
-                cmap=cmap,
-                interpolation="nearest",  # fastest resampler; fine for spectrograms
-                vmin=vo,
-                vmax=vc,
-                extent=[x_lo, x_hi, y_lo, y_hi],  # [left, right, bottom, top]
-            )
-            ax.set_xlim(x_lo, x_hi)   # time on x-axis
-            ax.set_ylim(y_lo, y_hi)   # frequency on y-axis
+            im.set_data(stft)                        # (nfreq, ntime) — imshow convention
+            im.set_extent([x_lo, x_hi, y_lo, y_hi])  # data mapping [left, right, bottom, top]
+            im.set_clim(vo, vc)
+            im.set_cmap(cmap)                        # cheap; only actually changes on rebuild/theme
+            ax.set_xlim(x_lo, x_hi)   # visible window: time on x-axis
+            ax.set_ylim(y_lo, y_hi)   # visible window: frequency on y-axis
+            ax.set_title(title)
             # Cache im ref on the canvas so slider drag can find it later
-            fig.canvas._cached_im = im
-            fig.canvas.draw()
+            canvas._cached_im = im
+            canvas.draw_idle()
             return im
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Frequency (MHz)")
+        # No data to display: keep the placeholder, just refresh the title.
         ax.set_title(title)
-        fig.canvas.draw()
+        canvas._cached_im = None
+        canvas.draw_idle()
         return None
 
     def _stft_color_limits(self, stft: np.ndarray) -> tuple[float, float]:
@@ -1087,23 +1161,25 @@ class SpectrumViewer(QWidget):
         if self._data is None:
             return
 
-        fig_orig = self._canvas_original.figure
-
-        # Residual PSD
-        fig_orig.clear()
-        ax_orig = fig_orig.add_subplot(111)
+        # Left canvas: residual PSD line (view 3, kind 'line', red trace)
+        ax_orig, line, _rebuilt = self._ensure_axes_for_view(
+            self._canvas_original, 3, "line", "Frequency (MHz)", "Residual (dB)", line_color="#ea4335"
+        )
         if self._data.residual_psd is not None and self._data.freq_axis_psd is not None:
-            ax_orig.plot(self._data.freq_axis_psd / 1e6, self._data.residual_psd, linewidth=0.8, color="#ea4335")
-            ax_orig.set_xlabel("Frequency (MHz)")
-            ax_orig.set_ylabel("Residual (dB)")
-            ax_orig.set_title("Residual Power Spectrum")
-            ax_orig.grid(True, alpha=0.3)
-        self._canvas_original.draw()
+            line.set_data(self._data.freq_axis_psd / 1e6, self._data.residual_psd)
+        else:
+            line.set_data([], [])
+        ax_orig.relim()
+        ax_orig.autoscale_view()
+        ax_orig.set_title("Residual Power Spectrum")
+        self._mark_canvas_line(self._canvas_original)
+        self._canvas_original.draw_idle()
 
-        # Residual STFT: X-axis = time (s), Y-axis = frequency (MHz)
-        fig_proc = self._canvas_processed.figure
-        fig_proc.clear()
-        ax_proc = fig_proc.add_subplot(111)
+        # Right canvas: residual STFT image (view 3, kind 'image', 'hot' cmap)
+        # X-axis = time (s), Y-axis = frequency (MHz)
+        ax_proc, im, _rebuilt2 = self._ensure_axes_for_view(
+            self._canvas_processed, 3, "image", "Time (s)", "Frequency (MHz)"
+        )
         if self._data.residual_stft is not None:
             rect = self._compute_stft_view_rect()
             if rect is not None and self._nav_t0 is not None:
@@ -1113,21 +1189,23 @@ class SpectrumViewer(QWidget):
                 x_hi = float(self._data.time_axis_stft.max())
                 y_lo = float(self._data.freq_axis_stft.min()) / 1e6
                 y_hi = float(self._data.freq_axis_stft.max()) / 1e6
-            im = ax_proc.imshow(
-                self._data.residual_stft,  # (nfreq, ntime)
-                aspect="auto",
-                origin="lower",
-                cmap="hot",
-                interpolation="nearest",  # fastest resampler; fine for spectrograms
-                extent=[x_lo, x_hi, y_lo, y_hi],  # [left, right, bottom, top]
-            )
+            vmin = float(np.nanmin(self._data.residual_stft))
+            vmax = float(np.nanmax(self._data.residual_stft))
+            im.set_data(self._data.residual_stft)     # (nfreq, ntime)
+            im.set_extent([x_lo, x_hi, y_lo, y_hi])
+            im.set_clim(vmin, vmax)
+            im.set_cmap("hot")
             ax_proc.set_xlim(x_lo, x_hi)
             ax_proc.set_ylim(y_lo, y_hi)
-            fig_proc.canvas._cached_im = im
-            ax_proc.set_xlabel("Time (s)")
-            ax_proc.set_ylabel("Frequency (MHz)")
             ax_proc.set_title("Residual Spectrogram")
-        self._canvas_processed.draw()
+            self._canvas_processed._cached_im = im
+            self._stft_im_proc = im
+            self._stft_ax_proc = ax_proc
+        else:
+            self._canvas_processed._cached_im = None
+            self._stft_im_proc = None
+            self._stft_ax_proc = None
+        self._canvas_processed.draw_idle()
 
         if self._has_stft_nav():
             self._update_stft_nav_labels()
@@ -1291,6 +1369,9 @@ class SpectrumViewer(QWidget):
         self._is_dark_theme = dark
         self._canvas_original._is_dark_theme = dark
         self._canvas_processed._is_dark_theme = dark
+        # Force a full artist rebuild on the next redraw so line colours and the
+        # spectrogram cmap refresh for the new theme.
+        self._force_rebuild = True
         self._ensure_data_for_current_view()
         self._redraw()
 
@@ -1347,9 +1428,20 @@ class SpectrumViewer(QWidget):
 
         # Release canvas figures
         for canvas in (self._canvas_original, self._canvas_processed):
-            if canvas is not None and canvas.figure.axes:
-                canvas.figure.clear()
-                canvas.draw()
+            if canvas is not None:
+                if canvas.figure.axes:
+                    canvas.figure.clear()
+                    canvas.draw()
+                # Invalidate persistent-artist state so the next redraw rebuilds.
+                canvas._drawn_view_type = None
+                canvas._drawn_kind = None
+                canvas._persistent_ax = None
+                canvas._persistent_artist = None
+                canvas._cached_im = None
+                canvas._peak_annotations = []
+                canvas._cross_vline = None
+                canvas._cross_hline = None
+                canvas._box_artist = None
 
         # Clear stage selector
         if hasattr(self, '_stage_selector'):
@@ -1421,13 +1513,25 @@ class SpectrumViewer(QWidget):
             self._reset_stft_navigation()
         self._redraw()
 
-    def _annotate_peaks(self, ax, freqs: np.ndarray, psd: np.ndarray, color: str) -> None:
-        """Annotate top N peaks on the given axes."""
+    def _annotate_peaks(self, canvas, ax, freqs: np.ndarray, psd: np.ndarray, color: str) -> None:
+        """Annotate top N peaks on the given axes.
+
+        Because the axes now persist across redraws, the annotation artists are
+        managed explicitly: any annotations from the previous draw are removed
+        and fresh ones are tracked on ``canvas._peak_annotations``.
+        """
+        for ann in canvas._peak_annotations:
+            try:
+                ann.remove()
+            except (ValueError, NotImplementedError):
+                pass
+        canvas._peak_annotations = []
+
         peaks = self._calculator.find_peaks(psd, freqs, n_peaks=3)
         for peak in peaks:
             freq = peak.get("freq", 0)
             amp = peak.get("power", 0)
-            ax.annotate(
+            ann = ax.annotate(
                 f"{freq / 1e6:.3f} MHz\n{amp:.1f} dB",
                 xy=(freq / 1e6, amp),
                 xytext=(8, 8),
@@ -1437,6 +1541,7 @@ class SpectrumViewer(QWidget):
                 bbox=dict(boxstyle="round,pad=0.2", fc="white", alpha=0.7, edgecolor="none"),
                 arrowprops=dict(arrowstyle="->", color=color, lw=0.6),
             )
+            canvas._peak_annotations.append(ann)
 
     def get_current_view_type(self) -> int:
         """Get current view type"""
@@ -1509,6 +1614,14 @@ class SpectrumCanvas(FigureCanvasQTAgg):
 
         # Peak annotation
         self._peak_annotations = []
+
+        # Persistent-artist rendering state (lets SpectrumViewer update artists
+        # in place instead of clearing the figure on every discrete redraw).
+        self._drawn_view_type: int | None = None
+        self._drawn_kind: str | None = None      # 'line' | 'image'
+        self._persistent_ax = None
+        self._persistent_artist = None           # Line2D or AxesImage
+        self._cached_im = None                   # AxesImage for the slider/pan fast path
 
         self._is_dark_theme = False
 
