@@ -8,23 +8,61 @@ and theme setup. Uses lazy import strategy to speed up startup.
 
 from __future__ import annotations
 
+import os
+import stat
 import sys
 import traceback
 from pathlib import Path
+
+
+def _unhide_qt_plugins() -> None:
+    """Clear the macOS 'hidden' (UF_HIDDEN) flag on PySide6's Qt plugin files.
+
+    uv installs on macOS can mark the venv's files hidden (a chflags flag).
+    Qt scans its plugin directories with QDir, which SKIPS hidden files, so the
+    platform plugin (libqcocoa.dylib) becomes invisible and the app aborts with
+    "Could not find the Qt platform plugin cocoa". The flag reappears after any
+    uv (re)install, so we self-heal here at startup instead of relying on a
+    one-off manual `chflags -R nohidden .venv`. Best-effort, macOS only; the
+    Qt frameworks themselves load via dlopen (which does not skip hidden files),
+    so only the scanned plugin directory needs clearing.
+    """
+    if sys.platform != "darwin" or not hasattr(os, "chflags"):
+        return
+    try:
+        import PySide6
+        plugins = Path(PySide6.__file__).parent / "Qt" / "plugins"
+        if not plugins.is_dir():
+            return
+        for p in plugins.rglob("*"):
+            try:
+                flags = p.lstat().st_flags
+                if flags & stat.UF_HIDDEN:
+                    os.chflags(p, flags & ~stat.UF_HIDDEN)
+            except OSError:
+                pass
+    except Exception:
+        pass
+
 
 # ============================================================================
 # High DPI Configuration (must be set before QApplication creation)
 # ============================================================================
 try:
+    from PySide6 import __version__ as _PYSIDE_VERSION
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
 
-    # Enable high DPI scaling for PySide6 < 6.5, where these attributes still
-    # exist. PySide6 6.5+ handles HiDPI automatically and no longer exposes
-    # them, so a cheap hasattr guard avoids a per-startup metadata lookup.
-    if hasattr(Qt, "AA_EnableHighDpiScaling"):
+    # Ensure Qt can see its platform plugins even if uv hid the venv files.
+    _unhide_qt_plugins()
+
+    # The AA_EnableHighDpiScaling / AA_UseHighDpiPixmaps attributes are only
+    # needed on PySide6 < 6.5; 6.5+ handles HiDPI automatically and marks them
+    # deprecated (setting them emits a DeprecationWarning). Gate on the cheap
+    # __version__ attribute (no importlib.metadata scan) so we neither pay the
+    # lookup cost nor trigger the warning on modern PySide6.
+    if tuple(int(x) for x in _PYSIDE_VERSION.split(".")[:2]) < (6, 5):
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    if hasattr(Qt, "AA_UseHighDpiPixmaps"):
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 except ImportError:
     print("[ERROR] PySide6 not installed. Please run: pip install PySide6>=6.5")
