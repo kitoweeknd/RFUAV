@@ -91,7 +91,13 @@ class Accuracy(BaseMetric):
             corrects = (predictions.int() == labels)
             return corrects.float()
 
-        pred_scores, pred_label = _torch_topk(predictions, self.maxk, dim=1)
+        # torch.topk requires k <= num_classes. Clamp so callers requesting a
+        # top-k larger than the number of classes (e.g. top-5 on a 3-class model)
+        # don't crash; for k >= num_classes every sample is trivially "correct",
+        # which the `thr_corrects[:k]` slice below already yields.
+        num_classes = predictions.shape[-1]
+        safe_maxk = min(self.maxk, num_classes)
+        pred_scores, pred_label = _torch_topk(predictions, safe_maxk, dim=1)
         pred_label = pred_label.t()
 
         corrects = (pred_label == labels.view(1, -1).expand_as(pred_label))

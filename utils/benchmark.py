@@ -353,6 +353,11 @@ class ClassifyModel(nn.Module):
                         total += labels.size(0)
                         correct += predicted.eq(labels).sum().item()
                         total_labels.append(labels)
+                    if total == 0:
+                        # Empty (or non-image) directory: nothing to score. Skip
+                        # it instead of crashing on torch.concat([]) / acc div-by-zero.
+                        self.logger.log_with_color(f"Skipping empty directory: {snr}/{CM}")
+                        continue
                     _total_labels = torch.concat(total_labels, dim=0)
                     _probabilities = torch.tensor(probabilities)
 
@@ -382,7 +387,8 @@ class ClassifyModel(nn.Module):
         mapping_pred2gt = {int(r): int(c) for r, c in zip(row_ind, col_ind)}
         self.logger.log_with_color(f"\n★ pred → gt: {mapping_pred2gt}")
 
-        json.dump(mapping_pred2gt, open(os.path.join(save_path, 'class_to_idx_pred2gt.json'), 'w'))
+        with open(os.path.join(save_path, 'class_to_idx_pred2gt.json'), 'w') as f:
+            json.dump(mapping_pred2gt, f)
         self.logger.log_with_color("saved to class_to_idx_pred2gt.json")
 
 class DetectionModel:

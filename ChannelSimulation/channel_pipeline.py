@@ -282,6 +282,62 @@ def _build_stage_configs(
 # ----------------------------------------------------------------------
 # Pipeline: original (full-signal, for small files)
 # ----------------------------------------------------------------------
+def _apply_ordered_stages(
+    x: np.ndarray,
+    fs: float,
+    rng: np.random.Generator,
+    enabled_stages: list[str],
+    stage_configs: dict[str, dict[str, object]],
+    out_dir: Path,
+    *,
+    plot: bool,
+    fc: float = 0.0,
+    show_progress: bool = False,
+    progress_prefix: str = "",
+) -> np.ndarray:
+    """Apply every enabled non-``original`` stage to ``x`` in ``STAGE_ORDER``.
+
+    This is the single source of truth for stage ordering, AWGN reference power,
+    per-stage ``save``, and (optionally) per-stage plotting. Both the in-memory
+    pipeline and the streaming pipeline's full-signal path call it, so streaming
+    and non-streaming runs stay bit-for-bit consistent regardless of whether a
+    stage is "stateful" (e.g. doppler, crop_time_shift). ``x`` must already be
+    power-normalized.
+    """
+    # Reference power for all AWGN stages: use the normalized signal power so
+    # that each AWGN stage's SNR target is relative to the same reference.
+    ref_power = float(np.mean(np.abs(x) ** 2))
+
+    for stage in STAGE_ORDER:
+        if stage == "original" or stage not in enabled_stages:
+            continue
+        if show_progress:
+            _print_stage_progress(enabled_stages, stage, prefix=progress_prefix)
+
+        stage_cfg = stage_configs.get(stage, {})
+        method = str(stage_cfg.get("method", "")).lower()
+        params = stage_cfg.get("params", {})
+        if not isinstance(params, dict):
+            raise ValueError(f"stage_configs.{stage}.params must be a dictionary")
+
+        if stage == "awgn":
+            params = {**params, "ref_power": ref_power}
+
+        fn = STAGE_REGISTRY[stage].get(method)
+        if fn is None:
+            allowed = list(STAGE_REGISTRY[stage].keys())
+            raise ValueError(f"stage {stage} method={method} not supported, valid options: {allowed}")
+
+        x = fn(x, fs, rng, **params)
+        if plot:
+            plot_time_frequency(x, fs, f"stage{STAGE_ORDER.index(stage)}_{stage}", out_dir, fc=fc)
+
+        if stage_cfg.get("save", False):
+            save_interleaved_iq(out_dir / f"{stage}.iq", x)
+
+    return x
+
+
 def run_channel_pipeline(
     iq: np.ndarray,
     fs: float,
@@ -316,39 +372,10 @@ def run_channel_pipeline(
         if _stage_save_flag(enabled_stages, stage_configs, "original"):
             save_interleaved_iq(out_dir / "original.iq", x)
 
-    # Reference power for all AWGN stages: use the normalized signal power
-    # so that each AWGN stage's SNR target is relative to the same reference.
-    ref_power = float(np.mean(np.abs(x) ** 2))
-
-    for stage in STAGE_ORDER:
-        if stage == "original" or stage not in enabled_stages:
-            continue
-        if show_progress:
-            _print_stage_progress(enabled_stages, stage, prefix=progress_prefix)
-
-        stage_cfg = stage_configs.get(stage, {})
-        method = str(stage_cfg.get("method", "")).lower()
-        params = stage_cfg.get("params", {})
-        if not isinstance(params, dict):
-            raise ValueError(f"stage_configs.{stage}.params must be a dictionary")
-
-        # Pass ref_power to AWGN so it computes noise relative to the
-        # normalized input signal rather than the accumulated pipeline signal.
-        if stage == "awgn":
-            params = {**params, "ref_power": ref_power}
-
-        fn = STAGE_REGISTRY[stage].get(method)
-        if fn is None:
-            allowed = list(STAGE_REGISTRY[stage].keys())
-            raise ValueError(f"stage {stage} method={method} not supported, valid options: {allowed}")
-
-        x = fn(x, fs, rng, **params)
-        plot_time_frequency(x, fs, f"stage{STAGE_ORDER.index(stage)}_{stage}", out_dir, fc=fc)
-
-        if stage_cfg.get("save", False):
-            save_interleaved_iq(out_dir / f"{stage}.iq", x)
-
-    return x
+    return _apply_ordered_stages(
+        x, fs, rng, enabled_stages, stage_configs, out_dir,
+        plot=True, fc=fc, show_progress=show_progress, progress_prefix=progress_prefix,
+    )
 
 
 def _stage_save_flag(
@@ -439,78 +466,43 @@ def run_channel_pipeline_streaming(
 
     out_path = Path(output_path)
     out_dir = Path(out_dir) if out_dir is not None else out_path.parent
-    if not needs_accumulation:
-        if out_path.exists():
-            out_path.unlink()
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-    buf: list[np.ndarray] = []
-    # Track per-stage accumulated buffers for intermediate saves
-    stage_bufs: dict[str, list[np.ndarray]] = {s: [] for s in stages_to_save}
+    out_dir.mkdir(parents=True, exist_ok=True)
     samples_written = 0
 
-    for i, chunk in enumerate(iter_iq_chunks(input_path, chunk_size)):
-        if show_progress:
-            print(f"{progress_prefix}  chunk {i + 1}/{n_chunks}  "
-                  f"({len(chunk):,} samples) ...")
-
-        # Deterministic per-chunk RNG derived from (seed, chunk index). This keeps
-        # the main output independent of which stages are saved, and lets each
-        # save-pass re-derive the identical draws so the saved intermediate is an
-        # exact prefix of the main pipeline output for that chunk.
-        processed = _run_stages_on_chunk(
-            chunk, fs, np.random.default_rng([seed, i]), enabled_stages, stage_configs,
-        )
-
-        if needs_accumulation:
-            buf.append(processed)
-            for stage in stages_to_save:
-                stage_out = _run_stages_on_chunk(
-                    chunk, fs, np.random.default_rng([seed, i]),
-                    [s for s in enabled_stages
-                     if enabled_stages.index(s) <= enabled_stages.index(stage)
-                     and s not in _STATEFUL_STAGES],
-                    stage_configs,
-                )
-                stage_bufs[stage].append(stage_out)
-        else:
+    if not needs_accumulation:
+        # Pure streaming: every enabled stage is stateless and nothing is saved
+        # mid-pipeline, so each chunk can be processed independently in bounded
+        # memory. Each chunk gets a deterministic per-chunk RNG derived from
+        # (seed, chunk index) so runs are reproducible.
+        if out_path.exists():
+            out_path.unlink()
+        for i, chunk in enumerate(iter_iq_chunks(input_path, chunk_size)):
+            if show_progress:
+                print(f"{progress_prefix}  chunk {i + 1}/{n_chunks}  "
+                      f"({len(chunk):,} samples) ...")
+            processed = _run_stages_on_chunk(
+                chunk, fs, np.random.default_rng([seed, i]), enabled_stages, stage_configs,
+            )
             append_interleaved_iq(output_path, processed)
             samples_written += len(processed)
-
-    if needs_accumulation:
-        full_signal = normalize_power(np.concatenate(buf))
-        del buf
-
-        # Stateful stages run once over the full accumulated signal. Use a
-        # dedicated deterministic stream so their draws do not depend on the
-        # number of chunks processed above.
-        rng_acc = np.random.default_rng([seed, n_chunks])
-
-        # Write intermediate IQ for stages with save=True
-        for stage in stages_to_save:
-            if show_progress:
-                print(f"{progress_prefix}  saving intermediate: {stage}.iq ...")
-            stage_sig = normalize_power(np.concatenate(stage_bufs[stage]))
-            save_interleaved_iq(out_dir / f"{stage}.iq", stage_sig)
-
-        del stage_bufs
-
-        # Apply remaining stateful stages
-        if show_progress and accumulate:
-            print(f"{progress_prefix}  applying stateful stages ...")
-        for stage in enabled_stages:
-            if stage not in _STATEFUL_STAGES:
-                continue
-            stage_cfg = stage_configs.get(stage, {})
-            method = str(stage_cfg.get("method", "")).lower()
-            params = stage_cfg.get("params", {})
-            fn = STAGE_REGISTRY[stage].get(method)
-            if fn is None:
-                continue
-            full_signal = fn(full_signal, fs, rng_acc, **params)
-            if stage_cfg.get("save", False):
-                save_interleaved_iq(out_dir / f"{stage}.iq", full_signal)
-
+    else:
+        # A stateful stage (e.g. doppler, crop_time_shift) or a per-stage save
+        # needs the whole signal, so we cannot stream stage-by-stage. Load the
+        # signal in bounded-size chunks, concatenate, then run the SAME ordered
+        # pipeline as run_channel_pipeline() — this keeps stage ORDER and results
+        # identical to the in-memory path (a stateful stage is applied in its
+        # STAGE_ORDER position, not deferred to the end) and makes every
+        # ``save`` intermediate the correct in-order output.
+        if show_progress:
+            print(f"{progress_prefix}  loading full signal ({n_chunks} chunks) "
+                  f"for stateful/saved stages ...")
+        x = normalize_power(np.concatenate(list(iter_iq_chunks(input_path, chunk_size))))
+        if "original" in enabled_stages and _stage_save_flag(enabled_stages, stage_configs, "original"):
+            save_interleaved_iq(out_dir / "original.iq", x)
+        full_signal = _apply_ordered_stages(
+            x, fs, np.random.default_rng(seed), enabled_stages, stage_configs, out_dir,
+            plot=False, show_progress=show_progress, progress_prefix=progress_prefix,
+        )
         if out_path.exists():
             out_path.unlink()
         save_interleaved_iq(output_path, full_signal)
