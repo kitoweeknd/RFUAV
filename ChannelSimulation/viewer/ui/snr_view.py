@@ -13,12 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-try:
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-    from matplotlib.figure import Figure
-except ImportError:
-    FigureCanvasQTAgg = object  # type: ignore
-    Figure = object  # type: ignore
+import pyqtgraph as pg
 
 from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtWidgets import (
@@ -36,7 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from ChannelSimulation.viewer.signal_proc.snr_estimator import SNREstimator, SNRResult
-from ChannelSimulation.viewer.core.ui_style import get_color
+from ChannelSimulation.viewer.core.ui_style import get_color, apply_pyqtgraph_theme
 
 
 class _SNRWorker(QThread):
@@ -163,6 +158,7 @@ class SNRView(QWidget):
     # ─────────────────────────────────────────────────────────────────
 
     def _init_ui(self) -> None:
+        apply_pyqtgraph_theme()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -377,7 +373,7 @@ class SNRView(QWidget):
         return splitter
 
     def _make_canvas_widget(self, title: str, key: str) -> QWidget:
-        """Wrap a matplotlib canvas in a titled container."""
+        """Wrap a pyqtgraph PlotWidget in a titled container."""
         container = QWidget()
         v = QVBoxLayout(container)
         v.setContentsMargins(0, 0, 0, 0)
@@ -392,26 +388,24 @@ class SNRView(QWidget):
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(lbl)
 
-        canvas = FigureCanvasQTAgg(Figure(dpi=130))
-        canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        v.addWidget(canvas)
+        pw = pg.PlotWidget()
+        pw.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        pw.showGrid(x=True, y=True, alpha=0.25)
+        pw.setMenuEnabled(False)
+        pw.addLegend(offset=(-10, 10))
+        v.addWidget(pw)
 
-        setattr(self, f"_canvas_{key}", canvas)
+        setattr(self, f"_pw_{key}", pw)
         setattr(self, f"_canvas_{key}_title", lbl)
 
         return container
 
     def _setup_figures(self) -> None:
-        """Create blank figures on each canvas."""
+        """Clear all three plot widgets to an empty state."""
         for key in ("raw", "comp", "ds"):
-            canvas: FigureCanvasQTAgg = getattr(self, f"_canvas_{key}")
-            fig = canvas.figure
-            fig.clear()
-            ax = fig.add_subplot(111)
-            ax.set_title("No data", fontsize=9)
-            ax.set_xlabel("")
-            ax.set_ylabel("")
-            canvas.draw()
+            pw: pg.PlotWidget = getattr(self, f"_pw_{key}")
+            pw.clear()
+            pw.setTitle("No data")
 
     # ─────────────────────────────────────────────────────────────────
     #  Estimation
@@ -599,162 +593,82 @@ class SNRView(QWidget):
         step = max(1, n // max_pts)
         return x[::step], y[::step]
 
+    @staticmethod
+    def _vline(x: float, color: str, style=Qt.PenStyle.DashLine, name=None):
+        pen = pg.mkPen(color, width=1.2, style=style)
+        return pg.InfiniteLine(pos=float(x), angle=90, pen=pen, name=name)
+
     def _draw_raw(self) -> None:
         """Plot ①: Raw signal PSD with detected band markers."""
-        canvas: FigureCanvasQTAgg = self._canvas_raw
-        fig = canvas.figure
-        fig.clear()
-
+        pw: pg.PlotWidget = self._pw_raw
+        pw.clear()
         if self._result_orig is None:
-            ax = fig.add_subplot(111)
-            ax.set_title("No data", fontsize=9)
-            canvas.draw()
+            pw.setTitle("No data")
             return
-
         r = self._result_orig
-        accent = "#1a73e8"
-        bg = get_color("bg_primary")
-
-        ax = fig.add_subplot(111)
-        ax.set_facecolor(bg if bg != "#1e1e1e" else "#2d2d2d")
-
-        # PSD in dB — downsample for rendering
-        psd_db_full = r.psd_full
-        freq_full_mhz = r.freq_full / 1e6
-        freq_plot, psd_db = self._downsample_for_plot(freq_full_mhz, psd_db_full)
-
-        ax.plot(freq_plot, psd_db, color=accent, linewidth=0.8)
-        ax.axvline(r.f1 / 1e6, color="#ea4335", linewidth=1.2, linestyle="--", label=f"f1={r.f1/1e6:.3f} MHz")
-        ax.axvline(r.f2 / 1e6, color="#ea4335", linewidth=1.2, linestyle="--", label=f"f2={r.f2/1e6:.3f} MHz")
-        ax.fill_between(freq_plot, psd_db, alpha=0.2, color=accent)
-
-        ax.set_xlabel("Frequency (MHz)", fontsize=8)
-        ax.set_ylabel("PSD (normalised dB)", fontsize=8)
-        ax.set_title("① Raw Signal PSD — Signal Band Detection", fontsize=9)
-        ax.grid(True, alpha=0.2, color=get_color("border"))
-        ax.legend(fontsize=7, loc="upper right")
-        ax.tick_params(labelsize=7)
-
-        fig.tight_layout(pad=0.8)
-        canvas.draw()
+        accent = get_color("accent")
+        freq_plot, psd_db = self._downsample_for_plot(r.freq_full / 1e6, r.psd_full)
+        pw.plot(freq_plot, psd_db, pen=pg.mkPen(accent, width=1),
+                fillLevel=float(np.min(psd_db)), brush=pg.mkBrush(26, 115, 232, 60), name="PSD")
+        pw.addItem(self._vline(r.f1 / 1e6, "#ea4335"))
+        pw.addItem(self._vline(r.f2 / 1e6, "#ea4335"))
+        pw.setLabel("bottom", "Frequency (MHz)")
+        pw.setLabel("left", "PSD (normalised dB)")
+        pw.setTitle(f"① Signal Band  f1={r.f1/1e6:.3f}  f2={r.f2/1e6:.3f} MHz")
 
     def _draw_compensated(self) -> None:
         """Plot ②: Frequency-compensated signal PSD."""
-        canvas: FigureCanvasQTAgg = self._canvas_comp
-        fig = canvas.figure
-        fig.clear()
-
+        pw: pg.PlotWidget = self._pw_comp
+        pw.clear()
         if self._result_orig is None:
-            ax = fig.add_subplot(111)
-            ax.set_title("No data", fontsize=9)
-            canvas.draw()
+            pw.setTitle("No data")
             return
-
         r = self._result_orig
-        accent = "#34a853"
-        bg = get_color("bg_primary")
-
-        ax = fig.add_subplot(111)
-        ax.set_facecolor(bg if bg != "#1e1e1e" else "#2d2d2d")
-
-        f_center = r.f_center
-        psd_comp_full = r.psd_comp
-        freq_comp_full = r.freq_comp / 1e6
-        freq_plot, psd_plot = self._downsample_for_plot(freq_comp_full, psd_comp_full)
-
-        ax.plot(freq_plot, psd_plot, color=accent, linewidth=0.8)
-        ax.axvline(-(r.f2 - f_center) / 1e6, color="#ea4335", linewidth=1.2, linestyle="--", label="Signal band")
-        ax.axvline(-(r.f1 - f_center) / 1e6, color="#ea4335", linewidth=1.2, linestyle="--")
-        ax.fill_between(freq_plot, psd_plot, alpha=0.2, color=accent)
-
-        ax.set_xlabel("Frequency (MHz)", fontsize=8)
-        ax.set_ylabel("Power (linear)", fontsize=8)
-        ax.set_title("② Frequency Compensated — Band Shift Corrected", fontsize=9)
-        ax.grid(True, alpha=0.2, color=get_color("border"))
-        ax.legend(fontsize=7)
-        ax.tick_params(labelsize=7)
-
-        fig.tight_layout(pad=0.8)
-        canvas.draw()
+        accent = get_color("success")
+        freq_plot, psd_plot = self._downsample_for_plot(r.freq_comp / 1e6, r.psd_comp)
+        pw.plot(freq_plot, psd_plot, pen=pg.mkPen(accent, width=1),
+                fillLevel=float(np.min(psd_plot)), brush=pg.mkBrush(52, 168, 83, 60))
+        pw.addItem(self._vline(-(r.f2 - r.f_center) / 1e6, "#ea4335"))
+        pw.addItem(self._vline(-(r.f1 - r.f_center) / 1e6, "#ea4335"))
+        pw.setLabel("bottom", "Frequency (MHz)")
+        pw.setLabel("left", "Power (linear)")
+        pw.setTitle("② Frequency Compensated — Band Shift Corrected")
 
     def _draw_downsampled(self) -> None:
-        """Plot ③: Downsampled FFT with signal and noise band markers + SNR."""
-        canvas: FigureCanvasQTAgg = self._canvas_ds
-        fig = canvas.figure
-        fig.clear()
-
+        """Plot ③: Downsampled FFT with signal and noise band regions + SNR."""
+        pw: pg.PlotWidget = self._pw_ds
+        pw.clear()
         if self._result_orig is None:
-            ax = fig.add_subplot(111)
-            ax.set_title("No data", fontsize=9)
-            canvas.draw()
+            pw.setTitle("No data")
             return
-
         r = self._result_orig
-        accent_orig = "#1a73e8"
-        accent_proc = "#ea4335"
-        bg = get_color("bg_primary")
-
-        ax = fig.add_subplot(111)
-        ax.set_facecolor(bg if bg != "#1e1e1e" else "#2d2d2d")
-
         freq_ds_full = r.freq_ds / 1e6
-        freq_plot, psd_ds_plot = self._downsample_for_plot(freq_ds_full, r.psd_ds)
-
-        # Plot original
-        ax.plot(freq_plot, psd_ds_plot, color=accent_orig, linewidth=0.7, alpha=0.9, label="Original")
-
-        # Markers for original — use index-lookup on the full array so markers stay accurate
         n_ds = len(freq_ds_full)
-        ax.axvspan(
-            freq_ds_full[r.idx1], freq_ds_full[min(r.idx2, n_ds - 1)],
-            alpha=0.15, color="#34a853", label="Signal band (orig)"
-        )
-        ax.axvspan(
-            freq_ds_full[r.idx3], freq_ds_full[min(r.idx4, n_ds - 1)],
-            alpha=0.25, color="#fbbc04", label="Noise band (orig)"
-        )
-        ax.axvline(freq_ds_full[r.idx1], color="#34a853", linewidth=1.0, linestyle=":")
-        ax.axvline(freq_ds_full[r.idx2], color="#34a853", linewidth=1.0, linestyle=":")
-        ax.axvline(freq_ds_full[r.idx3], color="#fbbc04", linewidth=1.0, linestyle="--")
-        ax.axvline(freq_ds_full[r.idx4], color="#fbbc04", linewidth=1.0, linestyle="--")
+        freq_plot, psd_ds_plot = self._downsample_for_plot(freq_ds_full, r.psd_ds)
+        pw.plot(freq_plot, psd_ds_plot, pen=pg.mkPen(get_color("accent"), width=1), name="Original")
 
-        # Plot processed if available
-        if self._result_proc is not None:
-            proc_plot_freq, proc_plot_psd = self._downsample_for_plot(
-                freq_ds_full, self._result_proc.psd_ds
-            )
-            ax.plot(
-                proc_plot_freq, proc_plot_psd,
-                color=accent_proc, linewidth=0.7, alpha=0.8, label="Processed"
-            )
+        # Signal band (green) and noise band (yellow) as shaded regions.
+        sig_band = pg.LinearRegionItem(
+            values=[freq_ds_full[r.idx1], freq_ds_full[min(r.idx2, n_ds - 1)]],
+            brush=pg.mkBrush(52, 168, 83, 45), movable=False)
+        noise_band = pg.LinearRegionItem(
+            values=[freq_ds_full[r.idx3], freq_ds_full[min(r.idx4, n_ds - 1)]],
+            brush=pg.mkBrush(251, 188, 4, 55), movable=False)
+        for band in (sig_band, noise_band):
+            band.setZValue(-10)
+            pw.addItem(band)
 
-        # SNR annotation
         if self._result_proc is not None:
+            pf, pp = self._downsample_for_plot(freq_ds_full, self._result_proc.psd_ds)
+            pw.plot(pf, pp, pen=pg.mkPen(get_color("danger"), width=1), name="Processed")
             delta = self._result_proc.snr_db - r.snr_db
-            delta_str = f"{delta:+.2f} dB"
+            title = (f"③ SNR orig={r.snr_db:.2f} dB  proc={self._result_proc.snr_db:.2f} dB  "
+                     f"Δ={delta:+.2f} dB")
         else:
-            delta_str = "—"
-
-        ax.text(
-            0.02, 0.95,
-            f"SNR (orig): {r.snr_db:.2f} dB"
-            + (f"\nSNR (proc): {self._result_proc.snr_db:.2f} dB\nΔ: {delta_str}"
-               if self._result_proc else ""),
-            transform=ax.transAxes,
-            fontsize=8,
-            verticalalignment="top",
-            bbox=dict(boxstyle="round,pad=0.3", fc=get_color("bg_secondary"), alpha=0.8),
-        )
-
-        ax.set_xlabel("Frequency (MHz)", fontsize=8)
-        ax.set_ylabel("PSD", fontsize=8)
-        ax.set_title("③ Downsampled FFT — Signal vs Noise Band Integration", fontsize=9)
-        ax.grid(True, alpha=0.2, color=get_color("border"))
-        ax.legend(fontsize=6, loc="upper right")
-        ax.tick_params(labelsize=7)
-
-        fig.tight_layout(pad=0.8)
-        canvas.draw()
+            title = f"③ SNR orig={r.snr_db:.2f} dB"
+        pw.setLabel("bottom", "Frequency (MHz)")
+        pw.setLabel("left", "PSD")
+        pw.setTitle(title)
 
     # ─────────────────────────────────────────────────────────────────
     #  Event handlers
