@@ -24,6 +24,32 @@ import numpy as np
 from .array_pool import get_pool
 from . import fft_backend as fb
 
+try:
+    import numexpr as _ne  # multithreaded, GIL-free, fused elementwise (log10/|·|²)
+except ImportError:
+    _ne = None
+
+
+def _complex_to_db(spec: np.ndarray, factor: float, eps: float, dtype) -> np.ndarray:
+    """``factor * log10(|spec|² + eps)`` — the dominant STFT elementwise step.
+
+    numexpr fuses the power + log10 into one multithreaded pass (no temporaries,
+    releases the GIL); this is the biggest single cost of an STFT and runs once per
+    stage. Falls back to numpy when numexpr is absent.
+    """
+    if _ne is not None:
+        re, im = spec.real, spec.imag
+        return _ne.evaluate("factor * log10(re * re + im * im + eps)").astype(dtype, copy=False)
+    power = spec.real ** 2 + spec.imag ** 2
+    return (factor * np.log10(power + eps)).astype(dtype, copy=False)
+
+
+def _diff_to_db(a: np.ndarray, b: np.ndarray, factor: float, eps: float, dtype) -> np.ndarray:
+    """``factor * log10(|a - b| + eps)`` for residuals, multithreaded via numexpr."""
+    if _ne is not None:
+        return _ne.evaluate("factor * log10(abs(a - b) + eps)").astype(dtype, copy=False)
+    return (factor * np.log10(np.abs(a - b) + eps)).astype(dtype, copy=False)
+
 
 @dataclass
 class SpectrumData:
@@ -418,10 +444,9 @@ class SpectrumCalculator:
         # All FFTs at once via the multithreaded backend; output cast to float32.
         spec = fb.fft(block, axis=1)                         # (n_frames, nperseg) = (ntime, nfreq)
         spec = fb.fftshift(spec, axes=1)
-        # Power-domain dB: 10*log10(|z|^2) avoids the sqrt in abs(); EPS**2 keeps
-        # the same silent-region floor as the previous 20*log10(|z|+EPS).
-        power = spec.real ** 2 + spec.imag ** 2
-        stft_db = (10.0 * np.log10(power + self.EPS ** 2)).astype(self.DISPLAY_DTYPE)
+        # Power-domain dB (10*log10(|z|^2), no sqrt; EPS**2 keeps the same silent
+        # floor as 20*log10(|z|+EPS)), fused + multithreaded via numexpr.
+        stft_db = _complex_to_db(spec, 10.0, self.EPS ** 2, self.DISPLAY_DTYPE)
         stft_db = stft_db.T                                   # → (nfreq, ntime)  for imshow
 
         # Time axis: mid-point of each non-overlapping block
@@ -640,9 +665,8 @@ class SpectrumCalculator:
         Returns:
             Residual PSD (dB, float32)
         """
-        residual = np.abs(psd_original - psd_processed)
-        # float32 is sufficient for display residual.
-        return (10 * np.log10(residual + self.EPS)).astype(self.DISPLAY_DTYPE)
+        # float32 is sufficient for display residual; numexpr-fused when available.
+        return _diff_to_db(psd_original, psd_processed, 10.0, self.EPS, self.DISPLAY_DTYPE)
 
     def compute_residual_stft(
         self,
@@ -658,9 +682,8 @@ class SpectrumCalculator:
         Returns:
             Residual STFT (dB, float32)
         """
-        residual = np.abs(stft_original - stft_processed)
-        # float32 is sufficient for display residual.
-        return (20 * np.log10(residual + self.EPS)).astype(self.DISPLAY_DTYPE)
+        # float32 is sufficient for display residual; numexpr-fused when available.
+        return _diff_to_db(stft_original, stft_processed, 20.0, self.EPS, self.DISPLAY_DTYPE)
 
     def _decimate_1d(
         self,

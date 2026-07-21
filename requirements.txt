@@ -6,6 +6,7 @@ matplotlib >= 3.9.2
 opencv-python-headless >= 4.9.0.80
 pillow >= 10.4.0
 scipy >= 1.13.1
+numexpr >= 2.8      # optional: multithreads the spectrum dB step (numpy fallback if absent)
 imageio >= 2.36.0
 seaborn >= 0.13.2
 pandas >= 2.2.3

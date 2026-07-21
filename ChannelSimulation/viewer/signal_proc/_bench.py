@@ -97,22 +97,24 @@ def main(argv: list[str]) -> int:
     t_metrics = time.perf_counter() - t0
     print(f"[breakdown] 1×STFT={t_stft:.3f}s  1×PSD={t_psd:.3f}s  metrics={t_metrics:.3f}s")
 
-    # ── 2. real end-to-end ProcessingWorker (total + time-to-first-paint) ─
-    # NOTE: the per-stage spectrum precompute is intentionally SEQUENTIAL — a
-    # thread-pool fan-out was measured ~10× slower here because each stage is
-    # dominated by GIL-held numpy elementwise ops (log10 / |·|² / fftshift), not
-    # the FFT, so threads only contend. The parallelism that pays off is inside
-    # each STFT's batched FFT (the multithreaded fft_backend).
-    cold = _worker_run(sig, {"stage_configs": {s: {"enabled": True} for s in STAGE_ORDER[1:]}}, fs, fc)
-    warm = _worker_run(sig, {"stage_configs": {s: {"enabled": True} for s in STAGE_ORDER[1:]}}, fs, fc)
-    print(f"\n[worker end-to-end, all {len(stage_signals)} stages]")
-    print(f"  cold: total={cold[0]:.2f}s  first-paint={cold[1]:.2f}s  stages_cached={cold[2]}")
-    print(f"  warm: total={warm[0]:.2f}s  first-paint={warm[1]:.2f}s  stages_cached={warm[2]}")
-
-    # ── metrics sanity ────────────────────────────────────────────────────
+    # ── metrics sanity (before freeing the pipeline output) ───────────────
     m = MetricsCalculator().calculate_all(original, results["final"], fs)
     finite = all(np.isfinite(v) for v in m.values())
-    print(f"\n[metrics] finite={finite}  " + "  ".join(f"{k}={v:.2f}" for k, v in m.items()))
+    print(f"[metrics] finite={finite}  " + "  ".join(f"{k}={v:.2f}" for k, v in m.items()))
+
+    # ── real end-to-end ProcessingWorker (total + time-to-first-paint) ────
+    # The per-stage spectrum precompute is intentionally SEQUENTIAL: a thread-pool
+    # fan-out measured ~10× slower here (each stage is dominated by GIL-held numpy
+    # elementwise ops, not the FFT). The parallelism that pays off is inside each
+    # STFT's batched FFT (multithreaded fft_backend) + numexpr for the dB step.
+    import gc
+    del results, stage_signals, original  # free the pipeline's retained arrays first
+    gc.collect()
+    total, first, cached = _worker_run(
+        sig, {"stage_configs": {s: {"enabled": True} for s in STAGE_ORDER[1:]}}, fs, fc
+    )
+    print(f"\n[worker end-to-end, all {cached - 3} stages]  "
+          f"total={total:.2f}s  first-paint={first:.2f}s  stages_cached={cached}")
     return 0 if (dmax < 0.01 and finite) else 1
 
 
