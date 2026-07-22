@@ -18,14 +18,20 @@ from pathlib import Path
 def _unhide_qt_plugins() -> None:
     """Clear the macOS 'hidden' (UF_HIDDEN) flag on PySide6's Qt plugin files.
 
-    uv installs on macOS can mark the venv's files hidden (a chflags flag).
-    Qt scans its plugin directories with QDir, which SKIPS hidden files, so the
-    platform plugin (libqcocoa.dylib) becomes invisible and the app aborts with
-    "Could not find the Qt platform plugin cocoa". The flag reappears after any
-    uv (re)install, so we self-heal here at startup instead of relying on a
-    one-off manual `chflags -R nohidden .venv`. Best-effort, macOS only; the
-    Qt frameworks themselves load via dlopen (which does not skip hidden files),
-    so only the scanned plugin directory needs clearing.
+    On macOS the venv's files can get the 'hidden' chflag applied — by uv on
+    (re)install, and, when the project lives under an iCloud-synced folder
+    (~/Desktop, ~/Documents), re-applied CONTINUOUSLY by the sync daemon. Qt
+    scans its plugin dirs with QDir, which SKIPS hidden files, so
+    libqcocoa.dylib becomes invisible and the app aborts with "Could not find
+    the Qt platform plugin cocoa". Pointing QT_QPA_PLATFORM_PLUGIN_PATH at the
+    dir does NOT help — the scan still skips hidden entries — so the flag must
+    actually be cleared.
+
+    Because the flag can reappear within seconds, this is called again from
+    get_app() in the tightest possible window right before QApplication is
+    constructed (not just once at import), to win the race against the re-hider.
+    Best-effort, macOS only; the Qt frameworks load via dlopen (which ignores
+    the flag), so only the scanned plugin directory needs clearing.
     """
     if sys.platform != "darwin" or not hasattr(os, "chflags"):
         return
@@ -34,7 +40,9 @@ def _unhide_qt_plugins() -> None:
         plugins = Path(PySide6.__file__).parent / "Qt" / "plugins"
         if not plugins.is_dir():
             return
-        for p in plugins.rglob("*"):
+        # Unhide the plugin dirs themselves and every file under them (a hidden
+        # parent dir would make QDir skip the whole subtree).
+        for p in [plugins, *plugins.rglob("*")]:
             try:
                 flags = p.lstat().st_flags
                 if flags & stat.UF_HIDDEN:
@@ -80,6 +88,10 @@ def get_app() -> QApplication:
     """Get the global QApplication instance."""
     global _app_instance
     if _app_instance is None:
+        # Clear the macOS hidden flag on the Qt plugins in the tightest possible
+        # window before QApplication scans them — the iCloud/uv re-hider can
+        # re-apply it seconds after the import-time pass, so do it again here.
+        _unhide_qt_plugins()
         _app_instance = QApplication(sys.argv)
         _app_instance.setApplicationName("RFUAV ChannelSim Viewer")
         _app_instance.setApplicationVersion("1.3.0")
