@@ -33,12 +33,7 @@ def apply_rayleigh_or_rician_fading(
 
     h_nlos = (rng.standard_normal(n_blocks) + 1j * rng.standard_normal(n_blocks)) / np.sqrt(2.0)
 
-    if fading_type.lower() == "rice_mild":
-        k = max(k_factor, 0.0)
-        los_phase = rng.uniform(0.0, 2.0 * np.pi, size=n_blocks)
-        h_los = np.exp(1j * los_phase)
-        h_blocks = np.sqrt(k / (k + 1.0)) * h_los + np.sqrt(1.0 / (k + 1.0)) * h_nlos
-    elif fading_type.lower() == "rician":
+    if fading_type.lower() in ("rician", "rice_mild"):
         k = max(k_factor, 0.0)
         los_phase = rng.uniform(0.0, 2.0 * np.pi, size=n_blocks)
         h_los = np.exp(1j * los_phase)
@@ -48,8 +43,10 @@ def apply_rayleigh_or_rician_fading(
     else:
         raise ValueError("fading_type only supports 'rayleigh', 'rician', or 'rice_mild'")
 
-    # Apply per-block gain: reshape to (n_blocks, block_size), broadcast over last axis
-    y = np.empty(n, dtype=np.complex128)
+    # Apply per-block gain. Preserve the input's complex precision (complex64 in
+    # the pipeline) instead of upcasting to complex128 — halves output memory.
+    cdt = x.dtype if np.issubdtype(x.dtype, np.complexfloating) else np.complex64
+    y = np.empty(n, dtype=cdt)
     for i, gain in enumerate(h_blocks):
         start = i * block_size
         end = min(start + block_size, n)

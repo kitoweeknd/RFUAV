@@ -19,6 +19,14 @@ def normalize_power(
     if p < EPS:
         return x
     scale = np.sqrt(target_power / p)
+    # Preserve the input's precision. A plain float64 `scale` promotes a
+    # complex64 signal to complex128 — and because this runs at the very start
+    # of the pipeline (and again inside fading/iq_imbalance), that single
+    # promotion silently doubled the memory and halved the speed of every
+    # downstream stage. Cast scale to the input's real dtype (float32 for
+    # complex64) so the working precision stays complex64 end-to-end.
+    if np.issubdtype(x.dtype, np.complexfloating):
+        scale = x.real.dtype.type(scale)
     if out is None:
         return x * scale
     np.multiply(x, scale, out=out)

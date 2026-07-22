@@ -8,11 +8,11 @@ Uses standardized naming and grouping for easy management and maintenance.
 
 from __future__ import annotations
 
+import html
 from enum import Enum, auto
 from typing import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence
 
 
 class ShortcutCategory(Enum):
@@ -41,7 +41,6 @@ class Shortcut:
         self.label = label
         self.key_sequence = key_sequence
         self.description = description
-        self.qkey_sequence = QKeySequence(key_sequence)
 
     def __repr__(self) -> str:
         return f"Shortcut({self.id}, {self.key_sequence})"
@@ -94,13 +93,6 @@ SHORTCUTS: list[Shortcut] = [
     ),
 
     # View operations
-    Shortcut(
-        id="view.toggle_theme",
-        category=ShortcutCategory.VIEW,
-        label="Toggle Theme",
-        key_sequence="Ctrl+T",
-        description="Toggle between light/dark theme",
-    ),
     Shortcut(
         id="view.zoom_in",
         category=ShortcutCategory.VIEW,
@@ -210,65 +202,6 @@ SHORTCUTS: list[Shortcut] = [
 ]
 
 
-def get_shortcut(shortcut_id: str) -> Shortcut | None:
-    """Get shortcut definition by ID
-
-    Args:
-        shortcut_id: Shortcut ID
-
-    Returns:
-        Shortcut definition or None
-    """
-    for shortcut in SHORTCUTS:
-        if shortcut.id == shortcut_id:
-            return shortcut
-    return None
-
-
-def get_shortcuts_by_category(category: ShortcutCategory) -> list[Shortcut]:
-    """Get all shortcuts in the specified category
-
-    Args:
-        category: Category
-
-    Returns:
-        List of shortcuts
-    """
-    return [s for s in SHORTCUTS if s.category == category]
-
-
-def get_all_categories() -> list[ShortcutCategory]:
-    """Get all shortcut categories
-
-    Returns:
-        List of categories
-    """
-    return list(ShortcutCategory)
-
-
-def format_shortcut_list() -> str:
-    """Format shortcut list as text
-
-    Returns:
-        Formatted text
-    """
-    lines = ["Keyboard Shortcuts", "=" * 40, ""]
-
-    current_category = None
-    for shortcut in SHORTCUTS:
-        if shortcut.category != current_category:
-            current_category = shortcut.category
-            lines.append(f"\n{current_category.name}:")
-            lines.append("-" * 20)
-
-        if shortcut.key_sequence:
-            lines.append(f"  {shortcut.label}: {shortcut.key_sequence}")
-        else:
-            lines.append(f"  {shortcut.label}: (None)")
-
-    return "\n".join(lines)
-
-
 def get_shortcut_table_html() -> str:
     """Generate HTML table for shortcuts
 
@@ -278,13 +211,19 @@ def get_shortcut_table_html() -> str:
     rows = []
     for shortcut in SHORTCUTS:
         if shortcut.key_sequence:
-            keys = shortcut.key_sequence.replace("+", "</kbd>+<kbd>")
-            shortcut_str = f"<kbd>{keys}</kbd>"
+            # Split on "+" separators while preserving a literal "+" key
+            # (e.g. "Ctrl++" -> ["Ctrl", "+"]) so the zoom-in binding renders.
+            seq = shortcut.key_sequence
+            if seq.endswith("++"):
+                keys = [k for k in seq[:-2].split("+") if k] + ["+"]
+            else:
+                keys = seq.split("+")
+            shortcut_str = "+".join(f"<kbd>{html.escape(k)}</kbd>" for k in keys)
         else:
             shortcut_str = "-"
         rows.append(
-            f"<tr><td>{shortcut.label}</td>"
-            f"<td>{shortcut.description}</td>"
+            f"<tr><td>{html.escape(shortcut.label)}</td>"
+            f"<td>{html.escape(shortcut.description)}</td>"
             f"<td>{shortcut_str}</td></tr>"
         )
 

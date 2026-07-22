@@ -8,8 +8,7 @@ containing menu bar, toolbar, central layout, and signal connections.
 
 from __future__ import annotations
 
-from collections import deque
-from copy import deepcopy
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -17,40 +16,35 @@ import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QApplication,
     QComboBox,
+    QDockWidget,
     QFileDialog,
     QFrame,
-    QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
-    QSplitter,
     QStackedWidget,
     QStatusBar,
     QToolBar,
     QVBoxLayout,
     QWidget,
-    QWidgetAction,
 )
-
-from ChannelSimulation.viewer.core.ui_style import get_color
-
 
 class MainWindow(QMainWindow):
     """Main window class."""
 
+    # Interactive preview processes at most this many leading samples (~200 ms
+    # @100 Msps). Keeps preset previews to a few seconds on huge captures; the
+    # full signal is always processed for Export IQ / save.
+    PREVIEW_MAX_SAMPLES = 20_000_000
+
     # Signal definitions
-    load_iq_triggered = Signal(str)                    # Load IQ file
     export_iq_triggered = Signal(str, int)           # Export IQ (path, stage_id)
     export_fig_triggered = Signal(str, int)          # Export figure (path, view_type)
-    stage_config_changed = Signal(dict)                # Stage config changed
-    preprocess_config_changed = Signal(dict)            # Preprocess config changed
-    theme_changed = Signal(bool)                      # Theme changed
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -62,7 +56,6 @@ class MainWindow(QMainWindow):
         self._current_config: dict[str, Any] = {}
         self._is_modified: bool = False
         self._is_processing: bool = False
-        self._theme_dark: bool = False
 
         # Preset manager (for 3GPP scenario presets)
         self._presets_manager = None
@@ -150,6 +143,7 @@ class MainWindow(QMainWindow):
 
         # View menu
         view_menu = menubar.addMenu("View(&V)")
+        self._view_menu = view_menu
 
         self._action_toggle_fullscreen = QAction("Fullscreen", self)
         self._action_toggle_fullscreen.setShortcut(QKeySequence("F11"))
@@ -195,9 +189,11 @@ class MainWindow(QMainWindow):
     def _init_toolbar(self) -> None:
         """Initialize toolbar."""
         toolbar = QToolBar("Main Toolbar", self)
+        toolbar.setObjectName("MainToolbar")  # required for saveState/restoreState
         toolbar.setMovable(False)
         toolbar.setIconSize(self._get_icon_size())
         self.addToolBar(toolbar)
+        self._toolbar = toolbar
 
         # Load button
         self._btn_load = QPushButton("Load")
@@ -226,15 +222,6 @@ class MainWindow(QMainWindow):
         self._btn_reset = QPushButton("Reset")
         self._btn_reset.clicked.connect(self._on_reset_config)
         toolbar.addWidget(self._btn_reset)
-
-        # Zoom buttons
-        self._btn_zoom_in = QPushButton("Zoom In")
-        self._btn_zoom_in.clicked.connect(self._on_zoom_in)
-        toolbar.addWidget(self._btn_zoom_in)
-
-        self._btn_zoom_out = QPushButton("Zoom Out")
-        self._btn_zoom_out.clicked.connect(self._on_zoom_out)
-        toolbar.addWidget(self._btn_zoom_out)
 
         toolbar.addSeparator()
 
@@ -327,87 +314,110 @@ class MainWindow(QMainWindow):
         statusbar.addPermanentWidget(self._progress_bar)
 
     def _init_central_widget(self) -> None:
-        """Initialize central widget."""
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+        """Initialize the dockable layout.
 
-        # Main layout
-        main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(8)
-
-        # Create horizontal splitter
-        self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_layout.addWidget(self._main_splitter)
-
-        # Left panel (wider so preprocessing / channel cards are usable)
-        self._left_panel = self._create_left_panel()
-        self._left_panel.setMinimumWidth(300)
-        self._left_panel.setMaximumWidth(480)
-        self._main_splitter.addWidget(self._left_panel)
-
-        # Right main area
-        self._right_panel = self._create_right_panel()
-        self._main_splitter.addWidget(self._right_panel)
-
-        # Set stretch factors
-        self._main_splitter.setStretchFactor(0, 0)  # Left fixed
-        self._main_splitter.setStretchFactor(1, 1)  # Right adaptive
-
-    def _create_left_panel(self) -> QWidget:
-        """Create left panel (channel config area)."""
-        from ChannelSimulation.viewer.ui.channel_config_panel import ChannelConfigPanel
-
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        # Signal overview + metrics (each block collapsible)
-        from ChannelSimulation.viewer.ui.signal_info_panel import SignalInfoPanel
-        self._signal_info = SignalInfoPanel()
-        layout.addWidget(self._signal_info)
-
-        # Random seed (collapsible)
-        from ChannelSimulation.viewer.ui.collapsible_section import CollapsibleSection
-        seed_core = self._create_seed_widget()
-        seed_section = CollapsibleSection("Random Seed", seed_core, expanded=True)
-        layout.addWidget(seed_section)
-
-        # Channel / preprocessing — takes all remaining vertical space
-        self._channel_config = ChannelConfigPanel()
-        self._channel_config.config_changed.connect(self._on_config_changed)
-        self._channel_config.setSizePolicy(
-            QSizePolicy.Policy.Preferred,
-            QSizePolicy.Policy.Expanding,
-        )
-        layout.addWidget(self._channel_config, stretch=1)
-
-        return panel
-
-    def _create_right_panel(self) -> QWidget:
-        """Create right panel (stacked: spectrum or SNR view)."""
+        Central = the analysis view stack (Spectrum / SNR). Controls and signal
+        readouts live in movable/floatable/closable QDockWidgets so the layout can
+        be rearranged like a modern signal-analysis tool (and is persisted across
+        sessions via QMainWindow.saveState).
+        """
         from ChannelSimulation.viewer.ui.spectrum_viewer import SpectrumViewer
         from ChannelSimulation.viewer.ui.snr_view import SNRView
 
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
+        self.setDockNestingEnabled(True)
+
+        # ── Central: stacked analysis views ────────────────────────────────
+        self._view_stack = QStackedWidget()
+        self._spectrum_viewer = SpectrumViewer()
+        self._snr_view = SNRView()
+        self._view_stack.addWidget(self._spectrum_viewer)
+        self._view_stack.addWidget(self._snr_view)
+        self.setCentralWidget(self._view_stack)
+
+        # ── Left dock: channel / preprocessing controls + seed ─────────────
+        self._dock_controls = self._create_controls_dock()
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dock_controls)
+
+        # ── Right dock: signal overview + quality metrics ──────────────────
+        self._dock_signal = self._create_signal_dock()
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._dock_signal)
+
+        # Sensible initial dock widths (overridden by restored state if present).
+        self.resizeDocks(
+            [self._dock_controls, self._dock_signal], [360, 300],
+            Qt.Orientation.Horizontal,
+        )
+
+        # ── Make the panels findable & never "lost" ────────────────────────
+        # Both docks are closable AND floatable (drag the title bar, or click
+        # the float icon, to pop the panel into a free-floating window). Expose
+        # obvious toggles so a closed panel can always be brought back: a
+        # checkable button pinned at the front of the toolbar (lights up cyan
+        # when the panel is open) plus entries in the View menu. toggleViewAction
+        # auto-syncs with the dock's visibility, so the state is always correct.
+        ctrl_toggle = self._dock_controls.toggleViewAction()
+        ctrl_toggle.setText("Controls")
+        ctrl_toggle.setToolTip(
+            "Show/hide the channel controls panel — drag its title bar to float it"
+        )
+        sig_toggle = self._dock_signal.toggleViewAction()
+        sig_toggle.setText("Metrics")
+        sig_toggle.setToolTip("Show/hide the signal & metrics panel")
+
+        actions = self._toolbar.actions()
+        anchor = actions[0] if actions else None
+        if anchor is not None:
+            self._toolbar.insertAction(anchor, ctrl_toggle)
+            self._toolbar.insertSeparator(anchor)
+        else:
+            self._toolbar.addAction(ctrl_toggle)
+
+        self._view_menu.addSeparator()
+        self._view_menu.addAction(ctrl_toggle)
+        self._view_menu.addAction(sig_toggle)
+
+    def _create_controls_dock(self) -> QDockWidget:
+        """Left dock: random seed + channel/preprocessing config (scrollable)."""
+        from ChannelSimulation.viewer.ui.channel_config_panel import ChannelConfigPanel
+        from ChannelSimulation.viewer.ui.collapsible_section import CollapsibleSection
+
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(8)
 
-        # Stacked widget for view switching
-        self._view_stack = QStackedWidget()
-        layout.addWidget(self._view_stack)
+        seed_section = CollapsibleSection("Random Seed", self._create_seed_widget(), expanded=True)
+        layout.addWidget(seed_section)
 
-        # Spectrum view
-        self._spectrum_viewer = SpectrumViewer()
-        self._view_stack.addWidget(self._spectrum_viewer)
+        self._channel_config = ChannelConfigPanel()
+        self._channel_config.config_changed.connect(self._on_config_changed)
+        self._channel_config.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self._channel_config, stretch=1)
 
-        # SNR estimation view
-        self._snr_view = SNRView()
-        self._view_stack.addWidget(self._snr_view)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(body)
+        # A param row needs ~120px slider + ~100px spinbox + label. Without a
+        # floor the dock gets squeezed and every label truncates ("Channel Co…").
+        # Reserve room for the scrollbar so content isn't clipped either.
+        scroll.setMinimumWidth(320)
 
-        return panel
+        dock = QDockWidget("Channel Controls", self)
+        dock.setObjectName("dockControls")  # required for saveState/restoreState
+        dock.setWidget(scroll)
+        return dock
+
+    def _create_signal_dock(self) -> QDockWidget:
+        """Right dock: signal overview + quality metrics."""
+        from ChannelSimulation.viewer.ui.signal_info_panel import SignalInfoPanel
+
+        self._signal_info = SignalInfoPanel()
+        self._signal_info.setMinimumWidth(260)  # keep metric cards from squashing
+        dock = QDockWidget("Signal & Metrics", self)
+        dock.setObjectName("dockSignal")  # required for saveState/restoreState
+        dock.setWidget(self._signal_info)
+        return dock
 
     def _create_seed_widget(self) -> QWidget:
         """Create random seed input widget (content only; title from CollapsibleSection)."""
@@ -447,8 +457,9 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         """Connect internal signals."""
-        # Only connect preprocess: stage changes are deferred to Preview button
-        self.preprocess_config_changed.connect(self._on_preprocess_config_changed)
+        # Export runs the FULL pipeline (uncapped), unlike the on-screen preview.
+        self.export_iq_triggered.connect(self._on_export_iq_run)
+        self.export_fig_triggered.connect(self._on_export_fig_run)
 
     # =========================================================================
     # Preset Management
@@ -476,15 +487,15 @@ class MainWindow(QMainWindow):
         except Exception:
             recent = []
 
-        valid = [p for p in recent if p and __import__('pathlib').Path(p).exists()]
+        valid = [p for p in recent if p and Path(p).exists()]
         if not valid:
-            no_item = QLabel("  (no recent files)")
-            no_item.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 11px; padding: 4px;")
-            self._recent_menu.addAction(no_item)
+            # QMenu.addAction takes text/QAction, not a QWidget — use a disabled item.
+            no_item = self._recent_menu.addAction("(no recent files)")
+            no_item.setEnabled(False)
             return
 
         for file_path in valid[:10]:
-            action = QAction(__import__('pathlib').Path(file_path).name, self)
+            action = QAction(Path(file_path).name, self)
             action.setToolTip(file_path)
             action.triggered.connect(lambda checked, p=file_path: self._on_load_recent_file(p))
             self._recent_menu.addAction(action)
@@ -496,7 +507,7 @@ class MainWindow(QMainWindow):
 
     def _on_load_recent_file(self, file_path: str) -> None:
         """Load a file from the recent files list."""
-        if __import__('pathlib').Path(file_path).exists():
+        if Path(file_path).exists():
             # Stop any running worker before loading new file
             self._stop_worker()
 
@@ -606,7 +617,10 @@ class MainWindow(QMainWindow):
         desc = preset.get('description', '')
         self._status_indicator.setText(f"Applied {scenario_name}: {desc[:60]}...")
 
-        self.stage_config_changed.emit(preset_to_apply)
+        # Immediately preview the applied scenario (the old deferred-run chain was
+        # never wired). Preview processes only the truncated leading window, so
+        # it's fast even on huge captures.
+        self._on_preview()
 
     # =========================================================================
     # Menu and Toolbar Actions
@@ -684,6 +698,79 @@ class MainWindow(QMainWindow):
 
         if file_path:
             self.export_iq_triggered.emit(file_path, stage_id)
+
+    def _on_export_iq_run(self, file_path: str, stage_id: int) -> None:
+        """Export the selected stage's IQ to disk, processing the FULL signal.
+
+        Unlike the on-screen preview (capped to PREVIEW_MAX_SAMPLES), export
+        runs the whole capture through the pipeline via StreamingWorker so the
+        saved file is the complete processed signal.
+        """
+        if not self._current_file:
+            return
+
+        # Refuse a second export while one is in flight — otherwise the running
+        # QThread would be orphaned when we overwrite self._export_worker.
+        ew = getattr(self, "_export_worker", None)
+        if ew is not None and ew.isRunning():
+            self._status_indicator.setText("Export already in progress…")
+            return
+
+        # Map the selected stage index → pipeline stage name (default "final").
+        stage_name = "final"
+        stages = getattr(self._spectrum_viewer, "_available_stages", None)
+        if stages and 0 <= stage_id < len(stages):
+            stage_name = stages[stage_id]
+
+        from ChannelSimulation.viewer.signal_proc.processing_worker import StreamingWorker
+
+        self._stop_worker()
+        self._set_processing_state(True)
+        self._status_indicator.setText(f"Exporting full signal ({stage_name})…")
+
+        # Guard the synchronous setup: a failure here must not leave the UI
+        # stuck showing "Processing…".
+        try:
+            self._export_worker = StreamingWorker(
+                input_file=self._current_file,
+                output_file=file_path,
+                config=self._get_current_config(),
+                fs=self.get_fs(),
+                fc=self.get_fc(),
+                seed=self.get_seed(),
+                stage_name=stage_name,
+            )
+            self._export_worker.progress.connect(self._on_processing_progress)
+            self._export_worker.finished.connect(self._on_export_finished)
+            self._export_worker.error.connect(self._on_processing_error)
+            self._export_worker.start()
+        except Exception as e:
+            self._set_processing_state(False)
+            self._on_processing_error(f"{type(e).__name__}: {e}")
+
+    def _on_export_finished(self, result: dict) -> None:
+        """Full-signal export completed."""
+        self._set_processing_state(False)
+        self._export_worker = None
+        n = result.get("n_samples", 0)
+        path = result.get("output_file", "")
+        elapsed = result.get("elapsed", 0.0)
+        self._status_indicator.setText(
+            f"Exported {n:,} samples ({elapsed:.1f}s) → {path}"
+        )
+
+    def _on_export_fig_run(self, file_path: str, view_type: int) -> None:
+        """Render the current spectrogram/plot to an image file (full pipeline
+        not needed — this exports what's already on screen)."""
+        try:
+            self._spectrum_viewer.export_figure(file_path)
+            self._status_indicator.setText(f"Saved figure → {file_path}")
+        except Exception as e:
+            self._status_indicator.setText("Figure export failed")
+            QMessageBox.warning(
+                self, "Export Spectrogram",
+                f"Could not save figure:\n{type(e).__name__}: {e}",
+            )
 
     def _on_export_fig(self) -> None:
         """Export spectrogram."""
@@ -768,10 +855,6 @@ class MainWindow(QMainWindow):
 
         dialog.exec()
 
-    def _status(self, msg: str) -> None:
-        """Update status bar text."""
-        self._status_indicator.setText(msg)
-
     def _on_about(self) -> None:
         """Show about dialog."""
         QMessageBox.about(
@@ -787,9 +870,10 @@ class MainWindow(QMainWindow):
             <p><br/>
             <b>Dependency Versions:</b><br/>
             PySide6 &ge; 6.5<br/>
+            pyqtgraph &ge; 0.13<br/>
             NumPy &ge; 1.24<br/>
             SciPy &ge; 1.10<br/>
-            Matplotlib &ge; 3.7<br/>
+            numexpr &ge; 2.8 (optional)<br/>
             PyYAML &ge; 6.0
             </p>
             <p><br/>
@@ -838,16 +922,6 @@ class MainWindow(QMainWindow):
             return
         self._view_stack.setCurrentIndex(index)
 
-    def _on_zoom_in(self) -> None:
-        """Zoom in."""
-        if hasattr(self._spectrum_viewer, 'zoom_in'):
-            self._spectrum_viewer.zoom_in()
-
-    def _on_zoom_out(self) -> None:
-        """Zoom out."""
-        if hasattr(self._spectrum_viewer, 'zoom_out'):
-            self._spectrum_viewer.zoom_out()
-
     # =========================================================================
     # Config Management
     # =========================================================================
@@ -857,85 +931,53 @@ class MainWindow(QMainWindow):
         self._current_config = config
         self._is_modified = True
         self._update_ui_state()
-        # Note: stage_config_changed signal is NOT emitted here.
-        # Pipeline run is deferred to the Preview button to avoid
-        # continuous re-processing during parameter adjustment.
-
-    def _on_stage_config_changed(self, config: dict) -> None:
-        """Handle stage config change."""
-        self._schedule_pipeline_run()
-
-    def _on_preprocess_config_changed(self, config: dict) -> None:
-        """Handle preprocess config change."""
-        self._schedule_pipeline_run()
-
-    def _schedule_pipeline_run(self) -> None:
-        """Schedule pipeline run with debounce."""
-        if hasattr(self, '_debounce_timer'):
-            self._debounce_timer.stop()
-        else:
-            from PySide6.QtCore import QTimer
-            self._debounce_timer = QTimer()
-            self._debounce_timer.setSingleShot(True)
-            self._debounce_timer.timeout.connect(self._run_pipeline)
-
-        self._debounce_timer.start(200)
+        # Pipeline run is deferred to the Preview button, so parameter tweaks
+        # don't trigger continuous re-processing.
 
     def _run_pipeline(self) -> None:
         """Run pipeline."""
         if not self._current_file:
             return
 
+        # Stop/await any in-flight worker first, otherwise the old QThread is
+        # orphaned and its still-connected signals fire stale callbacks into
+        # the UI (the debounce path reaches here without going through a loader).
+        self._stop_worker()
+
         self._set_processing_state(True)
         self._status_indicator.setText("Processing...")
 
-        # Clear L2 spectrum cache — old file's entries are stale and must not be reused
-        from ChannelSimulation.viewer.signal_proc.processing_worker import ProcessingWorker
-        ProcessingWorker.clear_spectral_cache()
-
-        # Get config
-        config = self._get_current_config()
-
-        # Get sampling rate
+        # Guard the synchronous setup: a bad fs/fc parse or a worker-construction
+        # failure must not leave the UI stuck showing "Processing…".
         try:
-            fs = float(self._input_fs.text()) if self._input_fs.text() else 100_000_000
-        except ValueError:
-            fs = 100_000_000
+            config = self._get_current_config()
+            fs = self.get_fs()
+            fc = self.get_fc()
+            seed = self.get_seed()
 
-        try:
-            fc = float(self._input_fc.text()) if self._input_fc.text() else 0.0
-        except ValueError:
-            fc = 0.0
+            # Preview is capped to a leading segment (PREVIEW_MAX_SAMPLES) so a
+            # huge capture renders in seconds; Export IQ processes the full signal.
+            from ChannelSimulation.viewer.signal_proc.processing_worker import ProcessingWorker
 
-        # Get random seed
-        try:
-            seed = int(self._input_seed.text()) if self._input_seed.text() else 42
-        except ValueError:
-            seed = 42
-
-        # Start background processing
-        from ChannelSimulation.viewer.signal_proc.processing_worker import ProcessingWorker
-
-        self._worker = ProcessingWorker(
-            iq_data=None,
-            config=config,
-            fs=fs,
-            fc=fc,
-            seed=seed,
-        )
-
-        # Connect signals
-        self._worker.finished.connect(self._on_processing_finished)
-        self._worker.progress.connect(self._on_processing_progress)
-        self._worker.error.connect(self._on_processing_error)
-        self._worker.metrics_ready.connect(self._on_metrics_ready)
-        self._worker.spectrum_ready.connect(self._on_spectrum_ready)
-        self._worker.stage_spectrum_cached.connect(self._on_stage_spectrum_cached)
-
-        # Set IQ file path
-        self._worker.set_input_file(self._current_file)
-
-        self._worker.start()
+            self._worker = ProcessingWorker(
+                iq_data=None,
+                config=config,
+                fs=fs,
+                fc=fc,
+                seed=seed,
+                max_samples=self.PREVIEW_MAX_SAMPLES,
+            )
+            self._worker.finished.connect(self._on_processing_finished)
+            self._worker.progress.connect(self._on_processing_progress)
+            self._worker.error.connect(self._on_processing_error)
+            self._worker.metrics_ready.connect(self._on_metrics_ready)
+            self._worker.spectrum_ready.connect(self._on_spectrum_ready)
+            self._worker.stage_spectrum_cached.connect(self._on_stage_spectrum_cached)
+            self._worker.set_input_file(self._current_file)
+            self._worker.start()
+        except Exception as e:
+            self._set_processing_state(False)
+            self._on_processing_error(f"{type(e).__name__}: {e}")
 
     def _get_current_config(self) -> dict:
         """Get current config."""
@@ -966,48 +1008,16 @@ class MainWindow(QMainWindow):
         fc = result.get('fc', 0.0)
         stage_signals = result.get('stage_signals', {})
 
-        # Update IQ reference immediately (prevents reference to large temp arrays)
-        if hasattr(self._spectrum_viewer, '_raw_original'):
-            self._spectrum_viewer._raw_original = original
-        if hasattr(self._spectrum_viewer, '_raw_processed'):
-            self._spectrum_viewer._raw_processed = processed
-
-        # Update loaded signal ID to track which signal's spectrum data is current
-        if hasattr(self._spectrum_viewer, '_loaded_signal_id') and original is not None:
-            self._spectrum_viewer._loaded_signal_id = id(original)
-
-        # Sync calculator params so time-domain axis uses the correct sampling rate
-        if hasattr(self._spectrum_viewer, '_calculator'):
-            self._spectrum_viewer._calculator.fs = fs
-            self._spectrum_viewer._calculator.fc = fc
+        # Push the result into the spectrum viewer (encapsulated update: raw
+        # signals, calculator sync, stage signals, scale-lock reset, redraw).
+        if hasattr(self._spectrum_viewer, 'apply_processing_result'):
+            self._spectrum_viewer.apply_processing_result(
+                original, processed, fs, fc, stage_signals
+            )
 
         # Update SNR estimation view
         if hasattr(self, '_snr_view'):
             self._snr_view.set_signals(original, processed, fs)
-
-        # Store stage signals - set_stage_signals now correctly handles
-        # setting the stage to "final" (processed signal) by default
-        stage_signals['original'] = original
-        stage_signals['final'] = processed
-
-        if hasattr(self._spectrum_viewer, 'set_stage_signals'):
-            self._spectrum_viewer.set_stage_signals(stage_signals)
-
-        # CRITICAL: Force re-read of data from L2 cache AFTER set_stage_signals.
-        # This ensures we have the latest processed data, not stale cached values.
-        # Reset _is_first_processing to ensure proper scale locking
-        if hasattr(self._spectrum_viewer, '_is_first_processing'):
-            self._spectrum_viewer._is_first_processing = True
-        if hasattr(self._spectrum_viewer, '_stft_vmin_locked'):
-            self._spectrum_viewer._stft_vmin_locked = None
-        if hasattr(self._spectrum_viewer, '_stft_vmax_locked'):
-            self._spectrum_viewer._stft_vmax_locked = None
-
-        # Force re-read from L2 cache
-        if hasattr(self._spectrum_viewer, '_ensure_data_for_current_view'):
-            self._spectrum_viewer._ensure_data_for_current_view()
-        if hasattr(self._spectrum_viewer, '_redraw'):
-            self._spectrum_viewer._redraw()
 
         # Update signal info
         if hasattr(self._signal_info, 'update_info'):
@@ -1045,12 +1055,13 @@ class MainWindow(QMainWindow):
             self._spectrum_viewer.apply_spectrum_data(spectrum_data)
 
     def _on_stage_spectrum_cached(self, stage_name: str, spectrum_data: dict) -> None:
-        """Intermediate stage spectrum has been cached in L2 cache.
+        """Forward an intermediate stage's precomputed spectrum to the viewer.
 
-        The cached data lives in _SPECTRAL_CACHE keyed by (stage_name, view_type, signal_id).
-        SpectrumViewer will query it on demand when the user switches to that stage.
+        The viewer keeps its own stage→spectrum map so per-stage switching is an
+        instant dict lookup (no dependency on the worker's internal signal id).
         """
-        pass  # L2 cache is already populated by ProcessingWorker; viewer reads it on stage switch
+        if hasattr(self._spectrum_viewer, 'apply_stage_spectrum'):
+            self._spectrum_viewer.apply_stage_spectrum(stage_name, spectrum_data)
 
     def _on_metrics_ready(self, metrics: dict) -> None:
         """Metrics ready callback."""
@@ -1078,9 +1089,9 @@ class MainWindow(QMainWindow):
 
             full_config = {
                 'version': '1.0',
-                'fs': float(self._input_fs.text()) if self._input_fs.text() else 100_000_000,
-                'fc': float(self._input_fc.text()) if self._input_fc.text() else 0.0,
-                'seed': int(self._input_seed.text()) if self._input_seed.text() else 42,
+                'fs': self.get_fs(),   # shared SI-aware parse (no crash on '100M')
+                'fc': self.get_fc(),
+                'seed': self.get_seed(),
                 **config,
             }
 
@@ -1123,88 +1134,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Load Failed", f"Failed to load config:\n\n{str(e)}")
 
-    def _on_load_config_b(self) -> None:
-        """Load second config for comparison mode."""
-        if not self._current_file:
-            QMessageBox.warning(
-                self, "No Signal Loaded",
-                "Please load an IQ file first before comparing configs."
-            )
-            return
-
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Load Config B for Comparison",
-            "",
-            "YAML Files (*.yaml *.yml);;All Files (*.*)",
-        )
-        if not file_path:
-            return
-
-        try:
-            import yaml
-            with open(file_path, 'r', encoding='utf-8') as f:
-                config_b = yaml.safe_load(f)
-            if not isinstance(config_b, dict):
-                raise ValueError("Invalid config file")
-        except Exception as e:
-            QMessageBox.critical(self, "Load Failed", f"Failed to load config B:\n{str(e)}")
-            return
-
-        # Get parameters from config B
-        try:
-            fs_b = float(config_b.get('fs', self.get_fs()))
-            fc_b = float(config_b.get('fc', self.get_fc()))
-            seed_b = int(config_b.get('seed', self.get_seed()))
-        except Exception:
-            fs_b, fc_b, seed_b = self.get_fs(), self.get_fc(), self.get_seed()
-
-        # Run pipeline B in background
-        self._set_processing_state(True)
-        self._status_indicator.setText(f"Running Config B: {file_path}...")
-
-        from ChannelSimulation.viewer.signal_proc.processing_worker import ProcessingWorker
-        self._worker_b = ProcessingWorker(
-            iq_data=None,
-            config=config_b,
-            fs=fs_b,
-            fc=fc_b,
-            seed=seed_b,
-        )
-        self._worker_b.finished.connect(self._on_config_b_finished)
-        self._worker_b.error.connect(self._on_config_b_error)
-        self._worker_b.set_input_file(self._current_file)
-        self._worker_b.start()
-
-    def _on_config_b_finished(self, result: dict) -> None:
-        """Handle Config B pipeline finished."""
-        self._set_processing_state(False)
-        self._status_indicator.setText("Ready")
-
-        original_b = result.get('original')
-        processed_b = result.get('processed')
-        fs_b = result.get('fs', self.get_fs())
-
-        if hasattr(self._spectrum_viewer, 'apply_config_b_data'):
-            self._spectrum_viewer.apply_config_b_data(
-                original_b, processed_b, fs_b,
-                label="Config B"
-            )
-
-        # Enable compare mode automatically
-        if hasattr(self._spectrum_viewer, '_toggle_compare_mode'):
-            if not getattr(self._spectrum_viewer, '_compare_mode', False):
-                self._spectrum_viewer._toggle_compare_mode()
-
-        from pathlib import Path
-        self._status_indicator.setText(f"Config B loaded: {Path(self._current_file).name}")
-
-    def _on_config_b_error(self, error_msg: str) -> None:
-        """Handle Config B pipeline error."""
-        self._set_processing_state(False)
-        self._status_indicator.setText("Config B Error")
-        QMessageBox.critical(self, "Config B Error", f"Failed to run Config B:\n{error_msg}")
-
     def _reset_config(self) -> None:
         """Reset config to defaults."""
         # Clear the spectrum display first (reset STFT view state)
@@ -1229,9 +1158,7 @@ class MainWindow(QMainWindow):
     # =========================================================================
 
     def _emit_load_iq(self, file_path: str) -> None:
-        """Emit load IQ signal."""
-        self.load_iq_triggered.emit(file_path)
-
+        """Update the status bar for a newly-loaded file."""
         from pathlib import Path
         self._status_samples.setText(f"File: {Path(file_path).name}")
 
@@ -1260,24 +1187,9 @@ class MainWindow(QMainWindow):
         from ChannelSimulation.viewer.core.ui_style import get_all_stylesheet
         self.setStyleSheet(get_all_stylesheet())
 
-    def _apply_theme(self, dark: bool) -> None:
-        """Apply theme."""
-        from ChannelSimulation.viewer.core.ui_style import apply_stylesheet, set_theme
-        set_theme(dark)
-        apply_stylesheet(QApplication.instance())
-
-        # Update spectrogram colors
-        if hasattr(self._spectrum_viewer, 'set_theme'):
-            self._spectrum_viewer.set_theme(dark)
-
     # =========================================================================
     # Public Interface
     # =========================================================================
-
-    def set_theme(self, dark: bool) -> None:
-        """Set theme."""
-        self._theme_dark = dark
-        self._apply_theme(dark)
 
     def get_current_file(self) -> str | None:
         """Get current file path."""
@@ -1292,18 +1204,16 @@ class MainWindow(QMainWindow):
         return self._is_modified
 
     def get_fs(self) -> float:
-        """Get sampling rate."""
-        try:
-            return float(self._input_fs.text()) if self._input_fs.text() else 100_000_000
-        except ValueError:
-            return 100_000_000
+        """Sampling rate in Hz. Accepts SI suffixes as hinted ('100M', '2.4G')."""
+        from ChannelSimulation.viewer.core.utils import parse_frequency_string
+        val = parse_frequency_string(self._input_fs.text())
+        return val if val and val > 0 else 100_000_000
 
     def get_fc(self) -> float:
-        """Get center frequency."""
-        try:
-            return float(self._input_fc.text()) if self._input_fc.text() else 0.0
-        except ValueError:
-            return 0.0
+        """Center frequency in Hz. Accepts SI suffixes ('5.8G'); 0 = baseband."""
+        from ChannelSimulation.viewer.core.utils import parse_frequency_string
+        val = parse_frequency_string(self._input_fc.text())
+        return val if val is not None and val >= 0 else 0.0
 
     def get_seed(self) -> int:
         """Get random seed."""
@@ -1337,10 +1247,20 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
 
-        # Stop background worker
-        if hasattr(self, '_worker') and self._worker is not None:
-            self._worker.stop()
-            self._worker.wait(5000)
+        # Stop background workers (preview + full-signal export) so no QThread
+        # outlives the window.
+        self._stop_worker()
+        ew = getattr(self, '_export_worker', None)
+        if ew is not None:
+            try:
+                ew.finished.disconnect()
+                ew.progress.disconnect()
+                ew.error.disconnect()
+            except Exception:
+                pass
+            ew.stop()
+            ew.wait(5000)
+            self._export_worker = None
 
         # Release large data held by spectrum viewer
         if hasattr(self, '_spectrum_viewer') and self._spectrum_viewer is not None:

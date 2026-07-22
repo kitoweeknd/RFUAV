@@ -7,6 +7,9 @@ try:
 except ImportError:  # Compatible with direct script execution
     from core.common import EPS
 
+# Per-chunk processing bounds memory on large signals (see cfo.py).
+_CHUNK = 1 << 21  # ~2.1M samples
+
 
 def apply_awgn(
     x: np.ndarray,
@@ -28,23 +31,28 @@ def apply_awgn(
     if rng is None:
         rng = np.random.default_rng()
 
-    sig_power = float(np.mean(np.abs(x) ** 2))
-    # Use provided ref_power for SNR calculation; fall back to input signal power.
-    # ref_power is the power of the original/preprocessed signal, ensuring
-    # that multiple AWGN stages each degrade to the same target SNR relative
-    # to the reference rather than accumulating noise.
-    power_for_snr = ref_power if ref_power is not None else sig_power
+    # Only compute the (O(N)) input power if we actually need it — in the
+    # pipeline ref_power is always supplied, so skip the extra full-array pass.
+    if ref_power is not None:
+        power_for_snr = ref_power
+    else:
+        power_for_snr = float(np.mean(np.abs(x) ** 2))
     snr_linear = 10.0 ** (snr_db / 10.0)
     noise_power = power_for_snr / max(snr_linear, EPS)
     sigma = np.sqrt(noise_power / 2.0)
 
     n = len(x)
-    # Use complex128 output directly, avoid separate rotation array
-    noise_real = rng.standard_normal(n, dtype=np.float64) * sigma
-    noise_imag = rng.standard_normal(n, dtype=np.float64) * sigma
-
-    x_c = np.ascontiguousarray(x, dtype=np.complex128)
-    y = np.empty(n, dtype=np.complex128)
-    y.real = x_c.real + noise_real
-    y.imag = x_c.imag + noise_imag
+    # Preserve complex64 and add noise in cache-sized chunks so we never hold
+    # two whole-signal float64 noise arrays at once (see cfo.py). Noise
+    # precision is fine in 32-bit for the complex64 path.
+    cdt = x.dtype if np.issubdtype(x.dtype, np.complexfloating) else np.complex64
+    rdt = np.float32 if cdt == np.complex64 else np.float64
+    sig = np.asarray(sigma, dtype=rdt)
+    y = np.empty(n, dtype=cdt)
+    for s in range(0, n, _CHUNK):
+        e = min(s + _CHUNK, n)
+        cnt = e - s
+        yr = y[s:e]  # writable view into y
+        yr.real = x[s:e].real + rng.standard_normal(cnt, dtype=rdt) * sig
+        yr.imag = x[s:e].imag + rng.standard_normal(cnt, dtype=rdt) * sig
     return y

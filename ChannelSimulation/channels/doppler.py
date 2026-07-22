@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 
+# Per-sample rotation is applied in cache-sized chunks (see cfo.py) so a 100M
+# sample run never materialises the ~8 whole-signal float64 arrays that used to
+# tip the machine into memory compression (81s → linear in N).
+_CHUNK = 1 << 21  # ~2.1M samples
+
 
 def apply_doppler(
     x: np.ndarray,
@@ -35,10 +40,15 @@ def apply_doppler(
     n = len(x)
     TWO_PI_OVER_FS = 2.0 * np.pi / fs
 
+    # Preserve the input's complex precision (complex64 in the pipeline) — the
+    # phase arrays stay float64 for accuracy, but the output and x_c copy no
+    # longer double to complex128.
+    cdt = x.dtype if np.issubdtype(x.dtype, np.complexfloating) else np.complex64
+
     if out is None:
-        y = np.empty(n, dtype=np.complex128)
+        y = np.empty(n, dtype=cdt)
     else:
-        y = np.ascontiguousarray(out, dtype=np.complex128)
+        y = np.ascontiguousarray(out, dtype=cdt)
 
     if doppler_spread_hz <= 0 and doppler_shift_hz == 0:
         if out is None:
@@ -46,34 +56,24 @@ def apply_doppler(
         y[:] = x
         return y
 
-    # Mean Doppler shift: adds a constant phase rotation
-    if doppler_shift_hz != 0:
-        mean_phase_inc = TWO_PI_OVER_FS * doppler_shift_hz
-        mean_t = np.arange(n, dtype=np.float64)
-        mean_cos = np.cos(mean_phase_inc * mean_t)
-        mean_sin = np.sin(mean_phase_inc * mean_t)
-    else:
-        mean_cos = np.ones(n, dtype=np.float64)
-        mean_sin = np.zeros(n, dtype=np.float64)
-
-    if doppler_spread_hz > 0:
-        # Doppler spread: simulates frequency-selective fading
-        # Use a Gaussian filter on the input to simulate doppler spread
-        # Bandwidth ~ doppler_spread_hz, simplified as additive phase noise
-        sigma_phase = TWO_PI_OVER_FS * doppler_spread_hz
-        phase_noise = np.cumsum(rng.standard_normal(n) * sigma_phase)
-        spread_cos = np.cos(phase_noise)
-        spread_sin = np.sin(phase_noise)
-    else:
-        spread_cos = np.ones(n, dtype=np.float64)
-        spread_sin = np.zeros(n, dtype=np.float64)
-
-    x_c = np.ascontiguousarray(x, dtype=np.complex128)
-    # Total rotation phase is (mean_phase + spread_phase). Using angle-sum:
-    #   cos(a+b) = cos a cos b - sin a sin b
-    #   sin(a+b) = sin a cos b + cos a sin b
-    total_cos = mean_cos * spread_cos - mean_sin * spread_sin
-    total_sin = mean_sin * spread_cos + mean_cos * spread_sin
-    y.real = x_c.real * total_cos - x_c.imag * total_sin
-    y.imag = x_c.real * total_sin + x_c.imag * total_cos
+    # Total phase = mean-shift ramp (deterministic) + spread random walk.
+    # Built and applied per chunk; the random walk carries its running phase
+    # across chunk boundaries so it stays continuous.
+    mean_inc = TWO_PI_OVER_FS * doppler_shift_hz     # 0 when no mean shift
+    sigma_phase = TWO_PI_OVER_FS * doppler_spread_hz  # 0 when no spread
+    spread_running = 0.0
+    for s in range(0, n, _CHUNK):
+        e = min(s + _CHUNK, n)
+        cnt = e - s
+        ph = np.arange(s, e, dtype=np.float64)
+        ph *= mean_inc
+        if sigma_phase > 0:
+            sp = np.cumsum(rng.standard_normal(cnt) * sigma_phase)
+            sp += spread_running
+            spread_running = float(sp[-1])
+            ph += sp
+        rot = np.empty(cnt, dtype=cdt)
+        rot.real = np.cos(ph)
+        rot.imag = np.sin(ph)
+        y[s:e] = x[s:e] * rot
     return y

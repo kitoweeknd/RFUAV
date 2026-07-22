@@ -13,48 +13,52 @@ from __future__ import annotations
 
 import numpy as np
 
-try:
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-    from matplotlib.figure import Figure
-except ImportError:
-    FigureCanvasQTAgg = object  # type: ignore
-    Figure = object  # type: ignore
+import pyqtgraph as pg
 
 from PySide6.QtCore import Qt, Signal, QThread
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
     QSplitter,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
 from ChannelSimulation.viewer.signal_proc.snr_estimator import SNREstimator, SNRResult
-from ChannelSimulation.viewer.core.ui_style import get_color
+from ChannelSimulation.viewer.core.ui_style import get_color, apply_pyqtgraph_theme
 
 
 class _SNRWorker(QThread):
-    """Background thread for SNR estimation — processes ONE signal."""
+    """Background thread for SNR estimation — processes ONE signal.
 
-    finished = Signal(object)  # SNRResult or None
+    Carries a ``gen`` (run-generation id) that is echoed back with the
+    result so the view can discard results from superseded/cancelled runs.
+    Supports cooperative cancellation: :meth:`stop` sets a flag that is
+    checked at the coarse checkpoints available in ``run()``.
+    """
 
-    def __init__(self, signal, fs, bw, nfft, parent=None):
+    # (SNRResult or None, gen)
+    finished = Signal(object, int)
+
+    def __init__(self, signal, fs, bw, nfft, gen, parent=None):
         super().__init__(parent)
         self._signal = signal
         self._fs = fs
         self._bw = bw
         self._nfft = nfft
+        self._gen = gen
+        self._cancelled = False
 
     def run(self):
+        # Bail out early if cancelled before we even started computing.
+        if self._cancelled:
+            return
         estimator = SNREstimator(fs=self._fs, bw=self._bw, nfft=self._nfft)
         result = None
         try:
@@ -63,11 +67,15 @@ class _SNRWorker(QThread):
         except Exception:
             import traceback
             traceback.print_exc()
-        self.finished.emit(result)
+        # A cancel may have arrived while computing — drop the stale result
+        # and stay silent so no handler runs for an abandoned run.
+        if self._cancelled:
+            return
+        self.finished.emit(result, self._gen)
 
     def stop(self) -> None:
-        """Request stop (no-op for thread, kept for API compatibility)."""
-        pass
+        """Request cooperative cancellation of this worker."""
+        self._cancelled = True
 
 
 class SNRView(QWidget):
@@ -76,9 +84,6 @@ class SNRView(QWidget):
     Displays the three-step OFDM signal detection and SNR estimation process
     with before/after SNR comparison.
     """
-
-    # Emitted when user changes parameters so the parent can trigger re-estimation
-    parameters_changed = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -91,10 +96,25 @@ class SNRView(QWidget):
         self._signal_proc: np.ndarray | None = None
         self._worker_orig: _SNRWorker | None = None
         self._worker_proc: _SNRWorker | None = None
+        # Workers whose wait() has not yet returned — kept referenced so a
+        # still-running QThread is never garbage-collected (which would raise
+        # "QThread: Destroyed while thread is still running").
+        self._old_workers: list[_SNRWorker] = []
+        # Run-generation id: bumped on every _start_worker so results from a
+        # superseded/cancelled run are ignored by the done-handlers.
+        self._run_gen = 0
+        # Completion flags for the current run (do NOT rely on isRunning()).
+        self._orig_done = False
+        self._proc_done = False
         self._pending_draw = False
 
         self._init_ui()
         self._setup_figures()
+
+        # Sync params from the toolbar controls so the value used on the first
+        # Estimate matches what is displayed (combo defaults to 16384, not 2048).
+        self._bw = self._spin_bw.value()
+        self._nfft = int(self._combo_nfft.currentText())
 
     # ─────────────────────────────────────────────────────────────────
     #  Public API
@@ -112,27 +132,12 @@ class SNRView(QWidget):
         self._fs = fs
         self._start_worker()
 
-    def set_parameters(self, params: dict) -> None:
-        """Update SNR estimation parameters (fs, bw, nfft)."""
-        changed = False
-        if "bw" in params and params["bw"] != self._bw:
-            self._bw = float(params["bw"])
-            changed = True
-        if "nfft" in params and params["nfft"] != self._nfft:
-            self._nfft = int(params["nfft"])
-            changed = True
-        if changed:
-            self._start_worker()
-
-    def get_snr_results(self) -> tuple[SNRResult | None, SNRResult | None]:
-        """Return (original_snr_result, processed_snr_result)."""
-        return self._result_orig, self._result_proc
-
     # ─────────────────────────────────────────────────────────────────
     #  UI Init
     # ─────────────────────────────────────────────────────────────────
 
     def _init_ui(self) -> None:
+        apply_pyqtgraph_theme()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -177,11 +182,11 @@ class SNRView(QWidget):
         h.addWidget(self._spin_bw)
 
         h.addWidget(QLabel("FFT:"))
-        self._spin_nfft = QComboBox()
-        self._spin_nfft.addItems(["512", "1024", "2048", "4096", "8192", "16384", "32768"])
-        self._spin_nfft.setCurrentText("16384")
-        self._spin_nfft.currentIndexChanged.connect(self._on_param_changed)
-        h.addWidget(self._spin_nfft)
+        self._combo_nfft = QComboBox()
+        self._combo_nfft.addItems(["512", "1024", "2048", "4096", "8192", "16384", "32768"])
+        self._combo_nfft.setCurrentText("16384")
+        self._combo_nfft.currentIndexChanged.connect(self._on_param_changed)
+        h.addWidget(self._combo_nfft)
 
         h.addSpacing(8)
         self._btn_estimate = QPushButton("Estimate")
@@ -347,7 +352,7 @@ class SNRView(QWidget):
         return splitter
 
     def _make_canvas_widget(self, title: str, key: str) -> QWidget:
-        """Wrap a matplotlib canvas in a titled container."""
+        """Wrap a pyqtgraph PlotWidget in a titled container."""
         container = QWidget()
         v = QVBoxLayout(container)
         v.setContentsMargins(0, 0, 0, 0)
@@ -362,26 +367,23 @@ class SNRView(QWidget):
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(lbl)
 
-        canvas = FigureCanvasQTAgg(Figure(dpi=130))
-        canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        v.addWidget(canvas)
+        pw = pg.PlotWidget()
+        pw.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        pw.showGrid(x=True, y=True, alpha=0.25)
+        pw.setMenuEnabled(False)
+        pw.addLegend(offset=(-10, 10))
+        v.addWidget(pw)
 
-        setattr(self, f"_canvas_{key}", canvas)
-        setattr(self, f"_canvas_{key}_title", lbl)
+        setattr(self, f"_pw_{key}", pw)
 
         return container
 
     def _setup_figures(self) -> None:
-        """Create blank figures on each canvas."""
+        """Clear all three plot widgets to an empty state."""
         for key in ("raw", "comp", "ds"):
-            canvas: FigureCanvasQTAgg = getattr(self, f"_canvas_{key}")
-            fig = canvas.figure
-            fig.clear()
-            ax = fig.add_subplot(111)
-            ax.set_title("No data", fontsize=9)
-            ax.set_xlabel("")
-            ax.set_ylabel("")
-            canvas.draw()
+            pw: pg.PlotWidget = getattr(self, f"_pw_{key}")
+            pw.clear()
+            pw.setTitle("No data")
 
     # ─────────────────────────────────────────────────────────────────
     #  Estimation
@@ -403,15 +405,23 @@ class SNRView(QWidget):
             self._btn_estimate.setEnabled(True)
             return
 
-        # Stop any running workers
+        # Supersede any running workers before starting a new run.
+        self._run_gen += 1
+        gen = self._run_gen
         self._stop_workers()
+
+        # Reset per-run state.
+        self._result_orig = None
+        self._result_proc = None
+        self._orig_done = False
+        self._proc_done = False
 
         self._label_status.setText("Estimating…")
         self._btn_estimate.setEnabled(False)
 
         # Launch two workers in parallel — one per signal
         self._worker_orig = _SNRWorker(
-            self._signal_orig, self._fs, self._bw, effective_nfft, self,
+            self._signal_orig, self._fs, self._bw, effective_nfft, gen, self,
         )
         self._worker_orig.finished.connect(self._on_orig_done)
 
@@ -420,47 +430,71 @@ class SNRView(QWidget):
             proc_nfft = min(self._nfft, proc_len)
             proc_nfft = max(64, proc_nfft)
             self._worker_proc = _SNRWorker(
-                self._signal_proc, self._fs, self._bw, proc_nfft, self,
+                self._signal_proc, self._fs, self._bw, proc_nfft, gen, self,
             )
             self._worker_proc.finished.connect(self._on_proc_done)
             self._worker_proc.start()
         else:
             self._result_proc = None
             self._worker_proc = None
+            # Nothing to wait for on the processed side.
+            self._proc_done = True
 
         self._worker_orig.start()
 
     def _stop_workers(self) -> None:
-        """Stop and wait for running workers."""
+        """Cooperatively cancel running workers and detach their signals.
+
+        Does NOT hard-null a worker that may still be running; such workers
+        are moved to ``self._old_workers`` so the QThread object stays alive
+        until it actually finishes (avoids "QThread: Destroyed while thread
+        is still running").
+        """
         for w in (self._worker_orig, self._worker_proc):
-            if w is not None:
+            if w is None:
+                continue
+            try:
                 w.finished.disconnect()
-                w.quit()
-                w.wait(500)
+            except (RuntimeError, TypeError):
+                pass  # was never connected / already disconnected
+            w.stop()  # cooperative cancel flag
+            if not w.wait(200):
+                # Still computing — keep a reference so it isn't GC'd mid-run.
+                self._old_workers.append(w)
         self._worker_orig = None
         self._worker_proc = None
+        self._prune_old_workers()
 
-    def _on_orig_done(self, r_orig: SNRResult | None) -> None:
+    def _prune_old_workers(self) -> None:
+        """Drop references to superseded workers that have finished running."""
+        self._old_workers = [w for w in self._old_workers if w.isRunning()]
+
+    def _on_orig_done(self, r_orig: SNRResult | None, gen: int) -> None:
         """Called when original signal estimation completes."""
+        if gen != self._run_gen:
+            return  # stale result from a superseded/cancelled run
         self._result_orig = r_orig
-        self._check_and_finish()
+        self._orig_done = True
+        self._maybe_finish()
 
-    def _on_proc_done(self, r_proc: SNRResult | None) -> None:
+    def _on_proc_done(self, r_proc: SNRResult | None, gen: int) -> None:
         """Called when processed signal estimation completes."""
+        if gen != self._run_gen:
+            return  # stale result from a superseded/cancelled run
         self._result_proc = r_proc
-        self._check_and_finish()
+        self._proc_done = True
+        self._maybe_finish()
 
-    def _check_and_finish(self) -> None:
-        """Update UI once both workers have finished."""
-        # Only finish if both workers are done (or None if no proc signal)
-        orig_done = self._worker_orig is None or not self._worker_orig.isRunning()
-        proc_done = self._worker_proc is None or not self._worker_proc.isRunning()
-
-        if not (orig_done and proc_done):
+    def _maybe_finish(self) -> None:
+        """Update UI once the expected results for this run have arrived."""
+        # Rely on explicit completion flags, NOT QThread.isRunning() (the
+        # thread may still be technically running when its result arrives).
+        if not (self._orig_done and self._proc_done):
             return
 
-        self._worker_orig = None
-        self._worker_proc = None
+        # Both results are in; the workers have emitted, so let them be
+        # cleaned up on the next _start_worker via _stop_workers.
+        self._prune_old_workers()
 
         if self._result_orig is not None:
             self._update_metric_card(
@@ -537,162 +571,82 @@ class SNRView(QWidget):
         step = max(1, n // max_pts)
         return x[::step], y[::step]
 
+    @staticmethod
+    def _vline(x: float, color: str, style=Qt.PenStyle.DashLine, name=None):
+        pen = pg.mkPen(color, width=1.2, style=style)
+        return pg.InfiniteLine(pos=float(x), angle=90, pen=pen, name=name)
+
     def _draw_raw(self) -> None:
         """Plot ①: Raw signal PSD with detected band markers."""
-        canvas: FigureCanvasQTAgg = self._canvas_raw
-        fig = canvas.figure
-        fig.clear()
-
+        pw: pg.PlotWidget = self._pw_raw
+        pw.clear()
         if self._result_orig is None:
-            ax = fig.add_subplot(111)
-            ax.set_title("No data", fontsize=9)
-            canvas.draw()
+            pw.setTitle("No data")
             return
-
         r = self._result_orig
-        accent = "#1a73e8"
-        bg = get_color("bg_primary")
-
-        ax = fig.add_subplot(111)
-        ax.set_facecolor(bg if bg != "#1e1e1e" else "#2d2d2d")
-
-        # PSD in dB — downsample for rendering
-        psd_db_full = r.psd_full
-        freq_full_mhz = r.freq_full / 1e6
-        freq_plot, psd_db = self._downsample_for_plot(freq_full_mhz, psd_db_full)
-
-        ax.plot(freq_plot, psd_db, color=accent, linewidth=0.8)
-        ax.axvline(r.f1 / 1e6, color="#ea4335", linewidth=1.2, linestyle="--", label=f"f1={r.f1/1e6:.3f} MHz")
-        ax.axvline(r.f2 / 1e6, color="#ea4335", linewidth=1.2, linestyle="--", label=f"f2={r.f2/1e6:.3f} MHz")
-        ax.fill_between(freq_plot, psd_db, alpha=0.2, color=accent)
-
-        ax.set_xlabel("Frequency (MHz)", fontsize=8)
-        ax.set_ylabel("PSD (normalised dB)", fontsize=8)
-        ax.set_title("① Raw Signal PSD — Signal Band Detection", fontsize=9)
-        ax.grid(True, alpha=0.2, color=get_color("border"))
-        ax.legend(fontsize=7, loc="upper right")
-        ax.tick_params(labelsize=7)
-
-        fig.tight_layout(pad=0.8)
-        canvas.draw()
+        accent = get_color("accent")
+        freq_plot, psd_db = self._downsample_for_plot(r.freq_full / 1e6, r.psd_full)
+        pw.plot(freq_plot, psd_db, pen=pg.mkPen(accent, width=1),
+                fillLevel=float(np.min(psd_db)), brush=pg.mkBrush(26, 115, 232, 60), name="PSD")
+        pw.addItem(self._vline(r.f1 / 1e6, "#ea4335"))
+        pw.addItem(self._vline(r.f2 / 1e6, "#ea4335"))
+        pw.setLabel("bottom", "Frequency (MHz)")
+        pw.setLabel("left", "PSD (normalised dB)")
+        pw.setTitle(f"① Signal Band  f1={r.f1/1e6:.3f}  f2={r.f2/1e6:.3f} MHz")
 
     def _draw_compensated(self) -> None:
         """Plot ②: Frequency-compensated signal PSD."""
-        canvas: FigureCanvasQTAgg = self._canvas_comp
-        fig = canvas.figure
-        fig.clear()
-
+        pw: pg.PlotWidget = self._pw_comp
+        pw.clear()
         if self._result_orig is None:
-            ax = fig.add_subplot(111)
-            ax.set_title("No data", fontsize=9)
-            canvas.draw()
+            pw.setTitle("No data")
             return
-
         r = self._result_orig
-        accent = "#34a853"
-        bg = get_color("bg_primary")
-
-        ax = fig.add_subplot(111)
-        ax.set_facecolor(bg if bg != "#1e1e1e" else "#2d2d2d")
-
-        f_center = r.f_center
-        psd_comp_full = r.psd_comp
-        freq_comp_full = r.freq_comp / 1e6
-        freq_plot, psd_plot = self._downsample_for_plot(freq_comp_full, psd_comp_full)
-
-        ax.plot(freq_plot, psd_plot, color=accent, linewidth=0.8)
-        ax.axvline(-(r.f2 - f_center) / 1e6, color="#ea4335", linewidth=1.2, linestyle="--", label="Signal band")
-        ax.axvline(-(r.f1 - f_center) / 1e6, color="#ea4335", linewidth=1.2, linestyle="--")
-        ax.fill_between(freq_plot, psd_plot, alpha=0.2, color=accent)
-
-        ax.set_xlabel("Frequency (MHz)", fontsize=8)
-        ax.set_ylabel("Power (linear)", fontsize=8)
-        ax.set_title("② Frequency Compensated — Band Shift Corrected", fontsize=9)
-        ax.grid(True, alpha=0.2, color=get_color("border"))
-        ax.legend(fontsize=7)
-        ax.tick_params(labelsize=7)
-
-        fig.tight_layout(pad=0.8)
-        canvas.draw()
+        accent = get_color("success")
+        freq_plot, psd_plot = self._downsample_for_plot(r.freq_comp / 1e6, r.psd_comp)
+        pw.plot(freq_plot, psd_plot, pen=pg.mkPen(accent, width=1),
+                fillLevel=float(np.min(psd_plot)), brush=pg.mkBrush(52, 168, 83, 60))
+        pw.addItem(self._vline(-(r.f2 - r.f_center) / 1e6, "#ea4335"))
+        pw.addItem(self._vline(-(r.f1 - r.f_center) / 1e6, "#ea4335"))
+        pw.setLabel("bottom", "Frequency (MHz)")
+        pw.setLabel("left", "Power (linear)")
+        pw.setTitle("② Frequency Compensated — Band Shift Corrected")
 
     def _draw_downsampled(self) -> None:
-        """Plot ③: Downsampled FFT with signal and noise band markers + SNR."""
-        canvas: FigureCanvasQTAgg = self._canvas_ds
-        fig = canvas.figure
-        fig.clear()
-
+        """Plot ③: Downsampled FFT with signal and noise band regions + SNR."""
+        pw: pg.PlotWidget = self._pw_ds
+        pw.clear()
         if self._result_orig is None:
-            ax = fig.add_subplot(111)
-            ax.set_title("No data", fontsize=9)
-            canvas.draw()
+            pw.setTitle("No data")
             return
-
         r = self._result_orig
-        accent_orig = "#1a73e8"
-        accent_proc = "#ea4335"
-        bg = get_color("bg_primary")
-
-        ax = fig.add_subplot(111)
-        ax.set_facecolor(bg if bg != "#1e1e1e" else "#2d2d2d")
-
         freq_ds_full = r.freq_ds / 1e6
-        freq_plot, psd_ds_plot = self._downsample_for_plot(freq_ds_full, r.psd_ds)
-
-        # Plot original
-        ax.plot(freq_plot, psd_ds_plot, color=accent_orig, linewidth=0.7, alpha=0.9, label="Original")
-
-        # Markers for original — use index-lookup on the full array so markers stay accurate
         n_ds = len(freq_ds_full)
-        ax.axvspan(
-            freq_ds_full[r.idx1], freq_ds_full[min(r.idx2, n_ds - 1)],
-            alpha=0.15, color="#34a853", label="Signal band (orig)"
-        )
-        ax.axvspan(
-            freq_ds_full[r.idx3], freq_ds_full[min(r.idx4, n_ds - 1)],
-            alpha=0.25, color="#fbbc04", label="Noise band (orig)"
-        )
-        ax.axvline(freq_ds_full[r.idx1], color="#34a853", linewidth=1.0, linestyle=":")
-        ax.axvline(freq_ds_full[r.idx2], color="#34a853", linewidth=1.0, linestyle=":")
-        ax.axvline(freq_ds_full[r.idx3], color="#fbbc04", linewidth=1.0, linestyle="--")
-        ax.axvline(freq_ds_full[r.idx4], color="#fbbc04", linewidth=1.0, linestyle="--")
+        freq_plot, psd_ds_plot = self._downsample_for_plot(freq_ds_full, r.psd_ds)
+        pw.plot(freq_plot, psd_ds_plot, pen=pg.mkPen(get_color("accent"), width=1), name="Original")
 
-        # Plot processed if available
-        if self._result_proc is not None:
-            proc_plot_freq, proc_plot_psd = self._downsample_for_plot(
-                freq_ds_full, self._result_proc.psd_ds
-            )
-            ax.plot(
-                proc_plot_freq, proc_plot_psd,
-                color=accent_proc, linewidth=0.7, alpha=0.8, label="Processed"
-            )
+        # Signal band (green) and noise band (yellow) as shaded regions.
+        sig_band = pg.LinearRegionItem(
+            values=[freq_ds_full[r.idx1], freq_ds_full[min(r.idx2, n_ds - 1)]],
+            brush=pg.mkBrush(52, 168, 83, 45), movable=False)
+        noise_band = pg.LinearRegionItem(
+            values=[freq_ds_full[r.idx3], freq_ds_full[min(r.idx4, n_ds - 1)]],
+            brush=pg.mkBrush(251, 188, 4, 55), movable=False)
+        for band in (sig_band, noise_band):
+            band.setZValue(-10)
+            pw.addItem(band)
 
-        # SNR annotation
         if self._result_proc is not None:
+            pf, pp = self._downsample_for_plot(freq_ds_full, self._result_proc.psd_ds)
+            pw.plot(pf, pp, pen=pg.mkPen(get_color("danger"), width=1), name="Processed")
             delta = self._result_proc.snr_db - r.snr_db
-            delta_str = f"{delta:+.2f} dB"
+            title = (f"③ SNR orig={r.snr_db:.2f} dB  proc={self._result_proc.snr_db:.2f} dB  "
+                     f"Δ={delta:+.2f} dB")
         else:
-            delta_str = "—"
-
-        ax.text(
-            0.02, 0.95,
-            f"SNR (orig): {r.snr_db:.2f} dB"
-            + (f"\nSNR (proc): {self._result_proc.snr_db:.2f} dB\nΔ: {delta_str}"
-               if self._result_proc else ""),
-            transform=ax.transAxes,
-            fontsize=8,
-            verticalalignment="top",
-            bbox=dict(boxstyle="round,pad=0.3", fc=get_color("bg_secondary"), alpha=0.8),
-        )
-
-        ax.set_xlabel("Frequency (MHz)", fontsize=8)
-        ax.set_ylabel("PSD", fontsize=8)
-        ax.set_title("③ Downsampled FFT — Signal vs Noise Band Integration", fontsize=9)
-        ax.grid(True, alpha=0.2, color=get_color("border"))
-        ax.legend(fontsize=6, loc="upper right")
-        ax.tick_params(labelsize=7)
-
-        fig.tight_layout(pad=0.8)
-        canvas.draw()
+            title = f"③ SNR orig={r.snr_db:.2f} dB"
+        pw.setLabel("bottom", "Frequency (MHz)")
+        pw.setLabel("left", "PSD")
+        pw.setTitle(title)
 
     # ─────────────────────────────────────────────────────────────────
     #  Event handlers
@@ -700,7 +654,7 @@ class SNRView(QWidget):
 
     def _on_param_changed(self) -> None:
         self._bw = self._spin_bw.value()
-        self._nfft = int(self._spin_nfft.currentText())
+        self._nfft = int(self._combo_nfft.currentText())
         self._label_status.setText("Parameters changed — click Estimate to recalculate")
 
     def _on_estimate_clicked(self) -> None:

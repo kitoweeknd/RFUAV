@@ -2,17 +2,13 @@
 UI Style System
 ~~~~~~~~~~~~~~~
 
-Defines QSS stylesheets in Qt Fusion Design Language style,
-supporting Light Fusion and Dark Fusion theme switching.
+Defines QSS stylesheets for a modern dark signal-analysis aesthetic
+("Graphite + Cyan"), with a coherent light variant.
 
-Color specifications follow the PRD document:
-- Primary color: #1a73e8
-- Secondary color: #5f6368
-- Accent color: #ea4335
-- Success color: #34a853
-- Background: #ffffff / #1e1e1e (dark)
-- Card background: #f8f9fa / #2d2d2d (dark)
-- Border color: #dadce0 / #404040 (dark)
+Dark palette (default):
+- Base #0f1115 · Panel #171a21 · Raised #1e232c (layered surfaces = depth)
+- Accent (cyan) #22d3ee · Success #34d399 · Danger #ff6b5e
+- Text #e6e9ef / secondary #8b93a1
 """
 
 from __future__ import annotations
@@ -23,86 +19,96 @@ from typing import Final
 # Theme color definitions
 # ============================================================================
 
-# Light theme
+# Light theme (cyan accent, coherent with dark)
 THEME_LIGHT: Final[dict[str, str]] = {
-    # Background colors
+    # Background colors (layered surfaces)
     "bg_primary": "#ffffff",
-    "bg_secondary": "#f8f9fa",
-    "bg_tertiary": "#f1f3f4",
+    "bg_secondary": "#f4f6f8",
+    "bg_tertiary": "#eceff3",
     # Text colors
-    "text_primary": "#202124",
-    "text_secondary": "#5f6368",
-    "text_disabled": "#9aa0a6",
+    "text_primary": "#1a1d23",
+    "text_secondary": "#5b6472",
+    "text_disabled": "#9aa3b0",
     # Accent colors
-    "accent": "#1a73e8",
-    "accent_hover": "#1557b0",
-    "accent_disabled": "#aec4eb",
+    "accent": "#0891b2",
+    "accent_hover": "#0e7490",
+    "accent_pressed": "#155e75",
+    "accent_disabled": "#a5d8e4",
+    "accent_soft": "rgba(8, 145, 178, 0.12)",
+    "accent_soft_hover": "rgba(8, 145, 178, 0.20)",
+    "text_on_accent": "#ffffff",
     # Functional colors
-    "danger": "#ea4335",
-    "danger_hover": "#c5221f",
-    "success": "#34a853",
-    "warning": "#fbbc04",
+    "danger": "#e5484d",
+    "danger_hover": "#c93b40",
+    "success": "#12a150",
+    "success_hover": "#0f8a45",
+    "success_pressed": "#0c733a",
+    "warning": "#f5a623",
     # Borders
-    "border": "#dadce0",
-    "border_focus": "#1a73e8",
-    "border_error": "#ea4335",
+    "border": "#dce1e7",
+    "border_focus": "#0891b2",
+    "border_error": "#e5484d",
     # Controls
-    "control_bg": "#f1f3f4",
-    "control_hover": "#e8eaed",
-    "slider_track": "#dadce0",
-    "slider_handle": "#1a73e8",
+    "control_bg": "#eceff3",
+    "control_hover": "#e2e6ec",
+    "slider_track": "#dce1e7",
+    "slider_handle": "#0891b2",
     # Channel card
     "card_bg": "#ffffff",
-    "card_shadow": "0 3px 6px rgba(0,0,0,0.08)",
     # Spectrum
     "spectrum_bg": "#ffffff",
-    "grid_line": "#e0e0e0",
+    "grid_line": "#e3e7ec",
 }
 
-# Dark theme
+# Dark theme (Graphite + Cyan — default)
 THEME_DARK: Final[dict[str, str]] = {
-    # Background colors
-    "bg_primary": "#1e1e1e",
-    "bg_secondary": "#2d2d2d",
-    "bg_tertiary": "#383838",
+    # Background colors (near-black base → layered cool-graphite surfaces)
+    "bg_primary": "#0f1115",
+    "bg_secondary": "#171a21",
+    "bg_tertiary": "#1e232c",
     # Text colors
-    "text_primary": "#e0e0e0",
-    "text_secondary": "#9aa0a6",
-    "text_disabled": "#6b6b6b",
-    # Accent colors
-    "accent": "#4a90e2",
-    "accent_hover": "#5da0f2",
-    "accent_disabled": "#3a4a5a",
+    "text_primary": "#e6e9ef",
+    "text_secondary": "#8b93a1",
+    "text_disabled": "#565d69",
+    # Accent colors (cyan)
+    "accent": "#22d3ee",
+    "accent_hover": "#38dced",
+    "accent_pressed": "#0fb6d4",
+    "accent_disabled": "#1c3a42",
+    "accent_soft": "rgba(34, 211, 238, 0.14)",
+    "accent_soft_hover": "rgba(34, 211, 238, 0.22)",
+    "text_on_accent": "#062830",
     # Functional colors
-    "danger": "#f2574a",
-    "danger_hover": "#ff6b63",
-    "success": "#3dba5f",
-    "warning": "#fcc934",
+    "danger": "#ff6b5e",
+    "danger_hover": "#ff8478",
+    "success": "#34d399",
+    "success_hover": "#4ade9f",
+    "success_pressed": "#22b883",
+    "warning": "#fbbf24",
     # Borders
-    "border": "#404040",
-    "border_focus": "#4a90e2",
-    "border_error": "#f2574a",
+    "border": "#2a2f3a",
+    "border_focus": "#22d3ee",
+    "border_error": "#ff6b5e",
     # Controls
-    "control_bg": "#383838",
-    "control_hover": "#454545",
-    "slider_track": "#404040",
-    "slider_handle": "#4a90e2",
+    "control_bg": "#1e232c",
+    "control_hover": "#262c37",
+    "slider_track": "#2a2f3a",
+    "slider_handle": "#22d3ee",
     # Channel card
-    "card_bg": "#2d2d2d",
-    "card_shadow": "0 3px 6px rgba(0,0,0,0.3)",
+    "card_bg": "#171a21",
     # Spectrum
-    "spectrum_bg": "#1e1e1e",
-    "grid_line": "#404040",
+    "spectrum_bg": "#0f1115",
+    "grid_line": "#232833",
 }
 
-# Current theme (default light)
-_current_theme: dict[str, str] = THEME_LIGHT.copy()
-_is_dark_theme: bool = False
+# Current theme (default dark — the norm for signal-analysis / SDR tools).
+_current_theme: dict[str, str] = THEME_DARK
+_is_dark_theme: bool = True
 
-
-def get_theme() -> dict[str, str]:
-    """Get current theme color dictionary"""
-    return _current_theme.copy()
+# Cache of fully composed stylesheets keyed by the dark-theme flag.
+# Themes are immutable Final constants, so a stylesheet built for a given
+# flag never goes stale; both entries may coexist across theme switches.
+_stylesheet_cache: dict[bool, str] = {}
 
 
 def is_dark_theme() -> bool:
@@ -113,7 +119,9 @@ def is_dark_theme() -> bool:
 def set_theme(dark: bool) -> None:
     """Set theme type"""
     global _current_theme, _is_dark_theme
-    _current_theme = THEME_DARK.copy() if dark else THEME_LIGHT.copy()
+    if dark == _is_dark_theme:
+        return
+    _current_theme = THEME_DARK if dark else THEME_LIGHT
     _is_dark_theme = dark
 
 
@@ -243,6 +251,11 @@ def get_toolbar_qss() -> str:
         background-color: {get_color('control_bg')};
     }}
 
+    QToolButton:checked {{
+        background-color: {get_color('accent_soft')};
+        color: {get_color('accent')};
+    }}
+
     QToolButton:disabled {{
         color: {get_color('text_disabled')};
     }}
@@ -279,7 +292,8 @@ def get_button_qss() -> str:
     QPushButton#btnPrimary {{
         background-color: {get_color('accent')};
         border-color: {get_color('accent')};
-        color: #ffffff;
+        color: {get_color('text_on_accent')};
+        font-weight: 600;
     }}
 
     QPushButton#btnPrimary:hover {{
@@ -287,10 +301,15 @@ def get_button_qss() -> str:
         border-color: {get_color('accent_hover')};
     }}
 
+    QPushButton#btnPrimary:pressed {{
+        background-color: {get_color('accent_pressed')};
+        border-color: {get_color('accent_pressed')};
+    }}
+
     QPushButton#btnPrimary:disabled {{
         background-color: {get_color('accent_disabled')};
         border-color: {get_color('accent_disabled')};
-        color: #ffffff;
+        color: {get_color('text_disabled')};
     }}
 
     QPushButton#btnDanger {{
@@ -305,23 +324,24 @@ def get_button_qss() -> str:
     }}
 
     QPushButton#btnScenario {{
-        background-color: {get_color('success')};
-        border: 2px solid {get_color('success')};
+        background-color: {get_color('accent_soft')};
+        border: 1px solid {get_color('accent')};
         border-radius: 6px;
-        color: #ffffff;
-        font-weight: bold;
+        color: {get_color('accent')};
+        font-weight: 600;
         padding: 6px 14px;
         min-height: 24px;
     }}
 
     QPushButton#btnScenario:hover {{
-        background-color: #2d9648;
-        border-color: #2d9648;
+        background-color: {get_color('accent_soft_hover')};
+        border-color: {get_color('accent_hover')};
+        color: {get_color('accent_hover')};
     }}
 
     QPushButton#btnScenario:pressed {{
-        background-color: #257a3d;
-        border-color: #257a3d;
+        background-color: {get_color('accent_soft_hover')};
+        border-color: {get_color('accent_pressed')};
     }}
 
     QPushButton#btnScenario:disabled {{
@@ -674,36 +694,6 @@ def get_splitter_qss() -> str:
     """
 
 
-def get_card_qss() -> str:
-    """Card stylesheet (channel configuration card)"""
-    return f"""
-    QWidget.card {{
-        background-color: {get_color('card_bg')};
-        border: 1px solid {get_color('border')};
-        border-radius: 8px;
-        padding: 0;
-    }}
-
-    QWidget.cardTitle {{
-        background-color: transparent;
-        border: none;
-    }}
-
-    QPushButton.cardToggle {{
-        background-color: transparent;
-        border: none;
-        padding: 12px;
-        color: {get_color('text_primary')};
-        text-align: left;
-        font-weight: bold;
-    }}
-
-    QPushButton.cardToggle:hover {{
-        background-color: {get_color('control_hover')};
-    }}
-    """
-
-
 def get_spinbox_qss() -> str:
     """Spinbox stylesheet"""
     return f"""
@@ -781,8 +771,41 @@ def get_textedit_qss() -> str:
     """
 
 
+def get_dockwidget_qss() -> str:
+    """Dock widget title-bar stylesheet (matches the themed surfaces)."""
+    return f"""
+    QDockWidget {{
+        color: {get_color('text_primary')};
+        font-weight: 600;
+    }}
+
+    QDockWidget::title {{
+        background-color: {get_color('bg_secondary')};
+        padding: 8px 12px;
+        border-bottom: 1px solid {get_color('border')};
+        text-align: left;
+    }}
+
+    QDockWidget::close-button, QDockWidget::float-button {{
+        background: transparent;
+        border: none;
+        padding: 2px;
+        icon-size: 14px;
+        right: 6px;
+    }}
+
+    QDockWidget::close-button:hover, QDockWidget::float-button:hover {{
+        background-color: {get_color('control_hover')};
+        border-radius: 4px;
+    }}
+    """
+
+
 def get_all_stylesheet() -> str:
     """Get complete stylesheet (all component styles combined)"""
+    cached = _stylesheet_cache.get(_is_dark_theme)
+    if cached is not None:
+        return cached
     parts = [
         get_main_window_qss(),
         get_menu_qss(),
@@ -798,63 +821,15 @@ def get_all_stylesheet() -> str:
         get_statusbar_qss(),
         get_tabwidget_qss(),
         get_splitter_qss(),
-        get_card_qss(),
         get_spinbox_qss(),
         get_tooltip_qss(),
         get_dialog_qss(),
         get_textedit_qss(),
+        get_dockwidget_qss(),
     ]
-    return "\n".join(parts)
-
-
-# ============================================================================
-# Layout constants
-# ============================================================================
-
-class LayoutConstants:
-    """Layout system constants (base spacing 8px)"""
-
-    # Spacing
-    SPACING_XS: Final[int] = 4
-    SPACING_SM: Final[int] = 8
-    SPACING_MD: Final[int] = 12
-    SPACING_LG: Final[int] = 16
-    SPACING_XL: Final[int] = 24
-
-    # Padding
-    PADDING_XS: Final[int] = 4
-    PADDING_SM: Final[int] = 8
-    PADDING_MD: Final[int] = 12
-    PADDING_LG: Final[int] = 16
-    PADDING_XL: Final[int] = 24
-
-    # Control sizes
-    BUTTON_HEIGHT: Final[int] = 36
-    INPUT_HEIGHT: Final[int] = 32
-    SLIDER_HEIGHT: Final[int] = 4
-    SLIDER_HANDLE_SIZE: Final[int] = 18
-
-    # Border radius
-    RADIUS_XS: Final[int] = 2
-    RADIUS_SM: Final[int] = 4
-    RADIUS_MD: Final[int] = 8
-
-    # Left panel width
-    LEFT_PANEL_WIDTH: Final[int] = 320
-
-    # Window minimum size
-    WINDOW_MIN_WIDTH: Final[int] = 1200
-    WINDOW_MIN_HEIGHT: Final[int] = 800
-
-    # Toolbar height
-    TOOLBAR_HEIGHT: Final[int] = 48
-
-    # Status bar height
-    STATUSBAR_HEIGHT: Final[int] = 24
-
-    # DPI settings
-    DPI_SCREEN: Final[int] = 150
-    DPI_EXPORT: Final[int] = 300
+    stylesheet = "\n".join(parts)
+    _stylesheet_cache[_is_dark_theme] = stylesheet
+    return stylesheet
 
 
 # ============================================================================
@@ -870,6 +845,31 @@ def get_spectrogram_cmap() -> str:
     return SPECTROGRAM_CMAP_DARK if is_dark_theme() else SPECTROGRAM_CMAP_LIGHT
 
 
+def get_pg_colormap():
+    """Return a pyqtgraph ColorMap for the spectrogram (matplotlib 'turbo').
+
+    Bridges the theme's colormap name to a pyqtgraph ColorMap so ImageItem /
+    HistogramLUTItem render with the same palette the old matplotlib canvas used.
+    """
+    import pyqtgraph as pg
+    return pg.colormap.getFromMatplotlib(get_spectrogram_cmap())
+
+
+def apply_pyqtgraph_theme() -> None:
+    """Set pyqtgraph's global background/foreground from the active theme.
+
+    Called once at startup and again on theme switch so every pyqtgraph plot
+    (spectrogram, PSD, time, SNR) picks up the dark/light palette.
+    """
+    import pyqtgraph as pg
+    pg.setConfigOptions(
+        background=get_color("spectrum_bg"),
+        foreground=get_color("text_primary"),
+        antialias=False,  # snappier interaction; curves are downsampled/clipped anyway
+        imageAxisOrder="row-major",  # image arrays are (row=freq, col=time)
+    )
+
+
 # ============================================================================
 # Helper functions
 # ============================================================================
@@ -879,8 +879,3 @@ def apply_stylesheet(app, stylesheet: str | None = None) -> None:
     if stylesheet is None:
         stylesheet = get_all_stylesheet()
     app.setStyleSheet(stylesheet)
-
-
-def reload_theme_stylesheet(app) -> None:
-    """Reload theme stylesheet (for dynamic theme switching)"""
-    apply_stylesheet(app)

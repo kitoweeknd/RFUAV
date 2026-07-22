@@ -8,26 +8,68 @@ and theme setup. Uses lazy import strategy to speed up startup.
 
 from __future__ import annotations
 
+import os
+import stat
 import sys
 import traceback
 from pathlib import Path
+
+
+def _unhide_qt_plugins() -> None:
+    """Clear the macOS 'hidden' (UF_HIDDEN) flag on PySide6's Qt plugin files.
+
+    On macOS the venv's files can get the 'hidden' chflag applied — by uv on
+    (re)install, and, when the project lives under an iCloud-synced folder
+    (~/Desktop, ~/Documents), re-applied CONTINUOUSLY by the sync daemon. Qt
+    scans its plugin dirs with QDir, which SKIPS hidden files, so
+    libqcocoa.dylib becomes invisible and the app aborts with "Could not find
+    the Qt platform plugin cocoa". Pointing QT_QPA_PLATFORM_PLUGIN_PATH at the
+    dir does NOT help — the scan still skips hidden entries — so the flag must
+    actually be cleared.
+
+    Because the flag can reappear within seconds, this is called again from
+    get_app() in the tightest possible window right before QApplication is
+    constructed (not just once at import), to win the race against the re-hider.
+    Best-effort, macOS only; the Qt frameworks load via dlopen (which ignores
+    the flag), so only the scanned plugin directory needs clearing.
+    """
+    if sys.platform != "darwin" or not hasattr(os, "chflags"):
+        return
+    try:
+        import PySide6
+        plugins = Path(PySide6.__file__).parent / "Qt" / "plugins"
+        if not plugins.is_dir():
+            return
+        # Unhide the plugin dirs themselves and every file under them (a hidden
+        # parent dir would make QDir skip the whole subtree).
+        for p in [plugins, *plugins.rglob("*")]:
+            try:
+                flags = p.lstat().st_flags
+                if flags & stat.UF_HIDDEN:
+                    os.chflags(p, flags & ~stat.UF_HIDDEN)
+            except OSError:
+                pass
+    except Exception:
+        pass
+
 
 # ============================================================================
 # High DPI Configuration (must be set before QApplication creation)
 # ============================================================================
 try:
+    from PySide6 import __version__ as _PYSIDE_VERSION
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
 
-    # Enable high DPI scaling — only for PySide6 < 6.5 (deprecated afterwards).
-    # PySide6 6.5+ handles HiDPI automatically.
-    import importlib.metadata
-    try:
-        pyside_version = importlib.metadata.version("PySide6")
-    except Exception:
-        pyside_version = "0.0.0"
-    major_minor = tuple(int(x) for x in pyside_version.split(".")[:2])
-    if major_minor < (6, 5):
+    # Ensure Qt can see its platform plugins even if uv hid the venv files.
+    _unhide_qt_plugins()
+
+    # The AA_EnableHighDpiScaling / AA_UseHighDpiPixmaps attributes are only
+    # needed on PySide6 < 6.5; 6.5+ handles HiDPI automatically and marks them
+    # deprecated (setting them emits a DeprecationWarning). Gate on the cheap
+    # __version__ attribute (no importlib.metadata scan) so we neither pay the
+    # lookup cost nor trigger the warning on modern PySide6.
+    if tuple(int(x) for x in _PYSIDE_VERSION.split(".")[:2]) < (6, 5):
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 except ImportError:
@@ -46,6 +88,10 @@ def get_app() -> QApplication:
     """Get the global QApplication instance."""
     global _app_instance
     if _app_instance is None:
+        # Clear the macOS hidden flag on the Qt plugins in the tightest possible
+        # window before QApplication scans them — the iCloud/uv re-hider can
+        # re-apply it seconds after the import-time pass, so do it again here.
+        _unhide_qt_plugins()
         _app_instance = QApplication(sys.argv)
         _app_instance.setApplicationName("RFUAV ChannelSim Viewer")
         _app_instance.setApplicationVersion("1.3.0")
@@ -54,8 +100,12 @@ def get_app() -> QApplication:
     return _app_instance
 
 
-def _create_splash_pixmap(message: str) -> "QPixmap":
-    """Create splash screen pixmap with message."""
+def _create_splash_pixmap() -> "QPixmap":
+    """Create the base splash screen pixmap (title + version only).
+
+    The per-message status text is overlaid separately via
+    ``QSplashScreen.showMessage`` so this pixmap only needs to be built once.
+    """
     from PySide6.QtGui import QPixmap, QColor, QPainter, QFont
     pixmap = QPixmap(400, 200)
     pixmap.fill(QColor("#1a73e8"))
@@ -65,8 +115,6 @@ def _create_splash_pixmap(message: str) -> "QPixmap":
     painter.drawText(pixmap.rect(), Qt.AlignCenter, "RFUAV ChannelSim Viewer")
     painter.setFont(QFont("Segoe UI", 10))
     painter.drawText(pixmap.rect().adjusted(0, 30, 0, 0), Qt.AlignCenter, "v1.3.0")
-    painter.setFont(QFont("Segoe UI", 9))
-    painter.drawText(pixmap.rect().adjusted(0, 60, 0, 0), Qt.AlignCenter, message)
     painter.end()
     return pixmap
 
@@ -82,13 +130,14 @@ def show_splash_screen(message: str = "Initializing...") -> "QSplashScreen | Non
     """
     try:
         from PySide6.QtCore import Qt
-        from PySide6.QtGui import QPixmap, QColor
+        from PySide6.QtGui import QColor
         from PySide6.QtWidgets import QSplashScreen
 
-        pixmap = _create_splash_pixmap(message)
+        pixmap = _create_splash_pixmap()
         splash = QSplashScreen(pixmap, Qt.WindowStaysOnTopHint)
         splash.setWindowFlag(Qt.FramelessWindowHint)
         splash.show()
+        splash.showMessage(message, Qt.AlignBottom | Qt.AlignHCenter, QColor("#ffffff"))
         return splash
     except Exception as e:
         print(f"[WARNING] Failed to create splash screen: {e}")
@@ -105,11 +154,9 @@ def update_splash_message(splash, message: str) -> None:
     if splash is not None:
         try:
             from PySide6.QtCore import Qt
-            from PySide6.QtGui import QPixmap, QColor
-            from PySide6.QtWidgets import QSplashScreen
+            from PySide6.QtGui import QColor
 
-            pixmap = _create_splash_pixmap(message)
-            splash.setPixmap(pixmap)
+            splash.showMessage(message, Qt.AlignBottom | Qt.AlignHCenter, QColor("#ffffff"))
             splash.repaint()
             get_app().processEvents()
         except Exception:
@@ -138,21 +185,27 @@ def setup_unhandled_exception_handler() -> None:
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
             return
 
-        # Log the exception
-        log_dir = get_log_dir()
-        from datetime import datetime
-        log_file = log_dir / f"crash_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        # Log the exception to a crash file, but never let an I/O error here
+        # mask the original traceback.
+        try:
+            log_dir = get_log_dir()
+            from datetime import datetime
+            log_file = log_dir / f"crash_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
-        with open(log_file, "w", encoding="utf-8") as f:
-            f.write(f"RFUAV ChannelSim Viewer Crash Report\n")
-            f.write(f"Time: {datetime.now().isoformat()}\n")
-            f.write(f"Python: {sys.version}\n")
-            f.write(f"\nException Type: {exc_type.__name__}\n")
-            f.write(f"Exception Message: {exc_value}\n")
-            f.write(f"\nStack Trace:\n")
-            f.write("".join(traceback.format_exception(exc_type, exc_value, exc_traceback)))
+            with open(log_file, "w", encoding="utf-8") as f:
+                f.write(f"RFUAV ChannelSim Viewer Crash Report\n")
+                f.write(f"Time: {datetime.now().isoformat()}\n")
+                f.write(f"Python: {sys.version}\n")
+                f.write(f"\nException Type: {exc_type.__name__}\n")
+                f.write(f"Exception Message: {exc_value}\n")
+                f.write(f"\nStack Trace:\n")
+                f.write("".join(traceback.format_exception(exc_type, exc_value, exc_traceback)))
 
-        print(f"[CRITICAL] Unhandled exception occurred. Saved to: {log_file}")
+            print(f"[CRITICAL] Unhandled exception occurred. Saved to: {log_file}")
+        except Exception as log_error:
+            print(f"[CRITICAL] Unhandled exception occurred (failed to write crash log: {log_error})")
+
+        # Always print the original traceback, regardless of logging success.
         traceback.print_exception(exc_type, exc_value, exc_traceback)
 
     sys.excepthook = exception_handler
@@ -187,6 +240,12 @@ def restore_window_state(window) -> bool:
 
         if state.get("maximized"):
             window.showMaximized()
+
+        # Restore dock/toolbar layout (movable panels) if present.
+        dock_state = state.get("dock_state")
+        if dock_state:
+            from PySide6.QtCore import QByteArray
+            window.restoreState(QByteArray.fromBase64(dock_state.encode("ascii")))
 
         return True
     except Exception as e:
@@ -244,6 +303,8 @@ def save_window_state(window) -> None:
                 "height": geo.height(),
             },
             "maximized": window.isMaximized(),
+            # Dock/toolbar arrangement (base64) so a rearranged layout persists.
+            "dock_state": bytes(window.saveState().toBase64()).decode("ascii"),
         }
 
         with open(state_file, "w", encoding="utf-8") as f:
@@ -254,8 +315,6 @@ def save_window_state(window) -> None:
 
 def _ensure_presets_exist() -> None:
     """Ensure default presets exist, create if missing."""
-    from ChannelSimulation.viewer.business.presets_manager import PresetsManager
-
     presets_dir = Path(__file__).parent / "core" / "presets"
     if not presets_dir.exists() or not list(presets_dir.glob("*.yaml")):
         from ChannelSimulation.viewer.business.presets_manager import create_default_presets
@@ -279,10 +338,9 @@ def main() -> int:
         # Ensure default presets exist
         _ensure_presets_exist()
 
-        # Lazy import core modules
+        # Lazy import core modules (dark theme by default)
         update_splash_message(splash, "Loading UI styles...")
-        from ChannelSimulation.viewer.core.ui_style import get_all_stylesheet
-        setup_theme(app)
+        setup_theme(app, dark=True)
 
         update_splash_message(splash, "Loading main window...")
         from ChannelSimulation.viewer.main_window import MainWindow

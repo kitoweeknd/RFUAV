@@ -3,11 +3,13 @@ Common Utility Functions
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 Provides common utility functions for file size formatting, progress percentage,
-numeric display, etc.
+numeric display, and application data/log directory paths. The directory
+helpers only resolve and create paths; they do not configure Python logging.
 """
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 from pathlib import Path
@@ -115,19 +117,6 @@ def format_power(db_value: float, unit: str = "dB") -> str:
     return f"{db_value:.2f} {unit}"
 
 
-def format_percentage(value: float, decimals: int = 1) -> str:
-    """Format numeric value as percentage string
-
-    Args:
-        value: Value between 0 and 1
-        decimals: Number of decimal places
-
-    Returns:
-        Formatted percentage string, e.g. "45.5%"
-    """
-    return f"{value * 100:.{decimals}f}%"
-
-
 def parse_frequency_string(s: str) -> float | None:
     """Parse frequency string to Hz value
 
@@ -145,19 +134,19 @@ def parse_frequency_string(s: str) -> float | None:
     """
     s = s.strip().lower()
 
-    # Try to parse unit
+    # Try to parse unit (longest suffix first so single letters can't shadow
+    # multi-character ones)
     multipliers = {
         "g": 1e9,
         "m": 1e6,
         "k": 1e3,
-        "": 1,
     }
 
-    for suffix, mult in multipliers.items():
+    for suffix in sorted(multipliers, key=len, reverse=True):
         if s.endswith(suffix):
             try:
                 num_str = s[:-len(suffix)].strip()
-                return float(num_str) * mult
+                return float(num_str) * multipliers[suffix]
             except ValueError:
                 continue
 
@@ -166,45 +155,6 @@ def parse_frequency_string(s: str) -> float | None:
         return float(s)
     except ValueError:
         return None
-
-
-def parse_size_string(s: str) -> int | None:
-    """Parse size string to bytes
-
-    Supported formats:
-    - "1.5GB", "1.5G"
-    - "100MB", "100M"
-    - "1KB", "1K"
-    - "500"
-
-    Args:
-        s: Size string
-
-    Returns:
-        Bytes, returns None if parsing fails
-    """
-    s = s.strip().lower()
-
-    multipliers = {
-        "gb": 1024 ** 3,
-        "g": 1024 ** 3,
-        "mb": 1024 ** 2,
-        "m": 1024 ** 2,
-        "kb": 1024,
-        "k": 1024,
-        "b": 1,
-        "": 1,
-    }
-
-    for suffix, mult in multipliers.items():
-        if s.endswith(suffix):
-            try:
-                num_str = s[:-len(suffix)].strip()
-                return int(float(num_str) * mult)
-            except ValueError:
-                continue
-
-    return None
 
 
 def clamp(value: float, min_val: float, max_val: float) -> float:
@@ -221,24 +171,41 @@ def clamp(value: float, min_val: float, max_val: float) -> float:
     return max(min_val, min(max_val, value))
 
 
+@functools.lru_cache(maxsize=1)
 def get_app_data_dir() -> Path:
     """Get application data directory
+
+    Prefers Qt's platform-appropriate writable location (derived from the
+    application's organization/app names), falling back to a hand-rolled
+    per-OS path when Qt is unavailable or returns nothing:
 
     On Windows: %APPDATA%/channelsim_viewer
     On macOS: ~/Library/Application Support/channelsim_viewer
     On Linux: ~/.config/channelsim_viewer
 
+    Cached with ``lru_cache`` so the mkdir/stat only runs once per process.
+
     Returns:
         Application data directory path
     """
-    if sys.platform == "win32":
-        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = Path.home() / ".config"
+    base_dir = ""
+    try:
+        from PySide6.QtCore import QStandardPaths
+        base_dir = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    except Exception:
+        base_dir = ""
 
-    app_dir = base / "channelsim_viewer"
+    if base_dir:
+        app_dir = Path(base_dir)
+    else:
+        if sys.platform == "win32":
+            base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+        elif sys.platform == "darwin":
+            base = Path.home() / "Library" / "Application Support"
+        else:
+            base = Path.home() / ".config"
+        app_dir = base / "channelsim_viewer"
+
     app_dir.mkdir(parents=True, exist_ok=True)
     return app_dir
 
@@ -252,84 +219,6 @@ def get_log_dir() -> Path:
     log_dir = get_app_data_dir() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
-
-
-def ensure_dir(path: str | Path) -> Path:
-    """Ensure directory exists, create if it doesn't
-
-    Args:
-        path: Directory path
-
-    Returns:
-        Directory path
-    """
-    p = Path(path)
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
-def get_file_extension(path: str | Path) -> str:
-    """Get file extension (without dot)
-
-    Args:
-        path: File path
-
-    Returns:
-        Extension, e.g. "iq", "yaml", "png"
-    """
-    return Path(path).suffix.lstrip(".").lower()
-
-
-def guess_iq_format(file_path: str | Path) -> str:
-    """Guess IQ data format based on file extension
-
-    Args:
-        file_path: File path
-
-    Returns:
-        Format name, e.g. "iq_float32", "int16", "numpy", etc.
-    """
-    ext = get_file_extension(file_path)
-
-    format_map = {
-        "iq": "iq_float32",
-        "cf32": "iq_float32",
-        "cfile": "raw_binary",
-        "raw": "raw_binary",
-        "bin": "raw_binary",
-        "iq16": "int16",
-        "s16": "int16",
-        "mat": "matlab",
-        "npy": "numpy",
-        "npz": "numpy_zip",
-    }
-
-    return format_map.get(ext, "unknown")
-
-
-def safe_dict_get(d: dict[str, Any], key: str, default: Any = None) -> Any:
-    """Safely get dictionary value with nested access support
-
-    Args:
-        d: Dictionary
-        key: Key (supports dot-separated nested keys, e.g. "a.b.c")
-        default: Default value
-
-    Returns:
-        Value or default
-    """
-    keys = key.split(".")
-    current = d
-
-    for k in keys:
-        if isinstance(current, dict):
-            current = current.get(k)
-            if current is None:
-                return default
-        else:
-            return default
-
-    return current if current is not None else default
 
 
 def dict_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:

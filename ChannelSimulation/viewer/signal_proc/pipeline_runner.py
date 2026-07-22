@@ -20,9 +20,6 @@ from typing import Any
 
 import numpy as np
 
-# Pool & memory management
-from .array_pool import get_pool
-
 try:
     from ChannelSimulation.channel_pipeline import STAGE_ORDER as _STAGE_ORDER
     from ChannelSimulation.core.io_utils import read_interleaved_iq
@@ -165,7 +162,6 @@ class PipelineRunner:
 
         # Intermediate signal storage
         self._stage_signals: dict[str, np.ndarray] = {}
-        self._preprocess_signal: np.ndarray | None = None
         self._preprocess_power: float | None = None
 
         # Stage configuration
@@ -246,6 +242,7 @@ class PipelineRunner:
         self,
         file_path: str | Path,
         dtype: type = np.float32,
+        max_samples: int | None = None,
     ) -> int:
         """Load IQ file
 
@@ -274,9 +271,12 @@ class PipelineRunner:
 
         # For large files (>100MB), use memory mapping
         if file_size > 100 * 1024 * 1024:
-            self._iq_data = self._load_memmap(file_path, dtype)
+            self._iq_data = self._load_memmap(file_path, dtype, max_samples)
         else:
             self._iq_data = read_interleaved_iq(file_path, dtype)
+            # Small-file path materialises everything; crop for preview.
+            if max_samples and len(self._iq_data) > max_samples:
+                self._iq_data = self._iq_data[:max_samples]
 
         if len(self._iq_data) == 0:
             raise ValueError(f"Failed to load IQ data from file: {file_path}")
@@ -287,15 +287,21 @@ class PipelineRunner:
         self,
         file_path: Path,
         dtype: type,
+        max_samples: int | None = None,
     ) -> np.ndarray:
         """Memory-map large file, converting to float32 complex directly.
 
         Uses zero-copy strided views: real and imag are extracted as slices
-        (no new array is allocated for the raw interleaved data).
+        (no new array is allocated for the raw interleaved data). When
+        ``max_samples`` is set (preview), only that many leading complex samples
+        are materialised — the rest of the mmap is never touched, so loading a
+        preview slice of a huge file is cheap.
         """
         # Map the raw interleaved data.
         raw: np.ndarray = np.memmap(file_path, dtype=dtype, mode="r")
         n = raw.size & ~1  # round down to even (ignore last sample if odd)
+        if max_samples and max_samples > 0:
+            n = min(n, max_samples * 2)  # 2 floats (I,Q) per complex sample
         if n == 0:
             return np.array([], dtype=_WORKING_DTYPE)
         if raw.size != n:
@@ -305,14 +311,34 @@ class PipelineRunner:
         real_v = raw[0::2].view(np.float32)
         imag_v = raw[1::2].view(np.float32)
 
-        # Assemble into complex64 directly in a pre-allocated pool buffer.
-        out = get_pool().acquire((n // 2,), _WORKING_DTYPE, zero=False)
-        out[:len(real_v)] = real_v + 1j * imag_v
+        # Assemble into complex64 directly in a freshly allocated array. A pooled
+        # buffer is not reused here (it lives for the whole load) and would pin
+        # more than the pool budget, so plain np.empty is preferable.
+        # Fill the real/imag views separately: `real_v + 1j*imag_v` would first
+        # build a full-size complex128 temporary (1.6 GB for a 100M-sample file).
+        out = np.empty((n // 2,), dtype=_WORKING_DTYPE)
+        out.real = real_v
+        out.imag = imag_v
         return out  # already complex64
 
     def set_iq_data(self, iq_data: np.ndarray) -> None:
         """Set IQ data directly"""
         self._iq_data = iq_data
+
+    def limit_samples(self, max_samples: int | None) -> None:
+        """Crop the loaded IQ to the first ``max_samples`` (preview truncation).
+
+        Used only by the interactive preview so a huge capture doesn't have to
+        be processed in full for an on-screen spectrogram. Export/save leaves
+        this unset and processes the whole signal.
+        """
+        if (
+            max_samples
+            and max_samples > 0
+            and self._iq_data is not None
+            and len(self._iq_data) > max_samples
+        ):
+            self._iq_data = self._iq_data[:max_samples]
 
     # =========================================================================
     # Signal Processing
@@ -337,16 +363,16 @@ class PipelineRunner:
         rng = np.random.default_rng(self._seed)
 
         # ── Load & convert to float32 complex ──────────────────────────────────
-        # Complex64 conversion: if source is already complex64 the view is returned
-        # without any copy; otherwise a new array is allocated.
+        # Complex64 conversion: astype copies by default, so this yields a fresh
+        # array. Combined with _remove_dc returning a new array, the stored
+        # "original" below stays independent of the preprocessed signal.
         x = self._iq_data.astype(_WORKING_DTYPE)
         x = normalize_power(x)
         results["original"] = x
 
-        # ── Preprocessing (DC removal in-place) ─────────────────────────────────
+        # ── Preprocessing (DC removal, gain, filtering) ─────────────────────────
         x = self._apply_preprocess(x)
         results["preprocess"] = x
-        self._preprocess_signal = x
         # Record preprocessed signal power as the reference for all AWGN stages.
         # Each AWGN stage uses this reference to compute noise power, so that
         # setting SNR=15dB always degrades to 15dB relative to the original
@@ -365,6 +391,11 @@ class PipelineRunner:
             x = self._apply_stage(stage_name, x, rng)
             # Store as view — no extra copy; PipelineRunner holds the backing array.
             self._stage_signals[stage_name] = x
+            # When requested, also surface each intermediate stage in the returned
+            # dict so callers (the viewer's per-stage inspector / spectrum precompute)
+            # can see every enabled stage — not just preprocess/final.
+            if return_all_stages:
+                results[stage_name] = x
 
         results["final"] = x
         return results
@@ -395,12 +426,15 @@ class PipelineRunner:
         return x
 
     def _remove_dc(self, x: np.ndarray) -> np.ndarray:
-        """Remove DC component in-place (no new array)."""
-        # Compute mean in-place equivalent using subtract-assign.
-        # np.mean always creates a scalar; we avoid any extra allocation.
+        """Remove DC component, returning a NEW array (does not mutate ``x``).
+
+        ``run()`` stores the pre-DC signal as ``results["original"]`` and passes
+        that same array here, so an in-place ``x -= mean_val`` would corrupt the
+        stored original into the DC-removed signal. ``x - mean_val`` allocates a
+        fresh array and leaves the original untouched.
+        """
         mean_val = np.mean(x)
-        x -= mean_val
-        return x
+        return x - mean_val
 
     def _apply_digital_filter(
         self,
@@ -557,22 +591,6 @@ class PipelineRunner:
         except ImportError as e:
             print(f"[WARNING] Cannot import {stage_name} module: {e}")
             return x
-
-    # =========================================================================
-    # Intermediate Signal Access
-    # =========================================================================
-
-    def get_stage_signal(self, stage_name: str) -> np.ndarray | None:
-        """Get signal for a specified stage"""
-        return self._stage_signals.get(stage_name)
-
-    def get_all_stage_signals(self) -> dict[str, np.ndarray]:
-        """Get signals for all stages"""
-        return dict(self._stage_signals)
-
-    def get_stage_names(self) -> list[str]:
-        """Get all available stage names"""
-        return list(self._stage_signals.keys())
 
     # =========================================================================
     # Properties

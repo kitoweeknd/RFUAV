@@ -35,7 +35,13 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = [
-    "PySide6>=6.5",
+    "PySide6>=6.5,<6.9",
+    "pyqtgraph>=0.13",
+]
+# Optional compute accelerator: numexpr multithreads the spectrum dB elementwise
+# step (log10/|·|²). The viewer falls back to numpy automatically if it is absent.
+accel = [
+    "numexpr>=2.8",
 ]
 dev = [
     "pytest>=7.0",
