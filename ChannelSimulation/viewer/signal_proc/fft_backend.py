@@ -35,38 +35,12 @@ from numpy.fft import fftshift, ifftshift, fftfreq  # noqa: F401
 
 __all__ = [
     "fft", "ifft", "fftshift", "ifftshift", "fftfreq",
-    "BACKEND_NAME", "WORKERS", "default_workers",
+    "BACKEND_NAME", "WORKERS",
 ]
 
 # Default worker count: all logical cores. Capped defensively so a machine with
 # a huge core count does not oversubscribe on small transforms.
 WORKERS: int = max(1, min(os.cpu_count() or 1, 32))
-
-
-class default_workers:
-    """Context manager to temporarily change the default per-FFT worker count.
-
-    Used when transforms are already being run concurrently from a thread pool
-    (per-stage fan-out): the outer pool provides the parallelism, so each FFT is
-    limited to a slice of the cores to keep ``pool × per_fft ≈ cores`` and avoid
-    oversubscription. Not re-entrant across threads (it mutates a module global),
-    so wrap the *whole* pooled section, not individual tasks.
-    """
-
-    def __init__(self, n: int):
-        self._n = max(1, int(n))
-        self._prev = WORKERS
-
-    def __enter__(self):
-        global WORKERS
-        self._prev = WORKERS
-        WORKERS = self._n
-        return self
-
-    def __exit__(self, *exc):
-        global WORKERS
-        WORKERS = self._prev
-        return False
 
 
 def _select_backend():

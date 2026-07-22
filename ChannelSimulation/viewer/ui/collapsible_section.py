@@ -7,6 +7,8 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QToolButton, QVBoxLayout, QWidget
 
+from ChannelSimulation.viewer.core.ui_style import get_color
+
 
 class CollapsibleSection(QWidget):
     """A titled header that expands/collapses its content (dropdown-style)."""
@@ -31,20 +33,38 @@ class CollapsibleSection(QWidget):
             Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
         )
         self._btn.setAutoRaise(True)
+        self._btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn.setStyleSheet(
-            "QToolButton { border: none; font-weight: bold; padding: 4px 2px; text-align: left; }"
+            f"""
+            QToolButton {{
+                border: none;
+                border-radius: 5px;
+                font-weight: 600;
+                font-size: 12px;
+                letter-spacing: 0.3px;
+                padding: 6px 6px;
+                color: {get_color('text_primary')};
+                text-align: left;
+            }}
+            QToolButton:hover {{
+                background-color: {get_color('control_hover')};
+            }}
+            """
         )
         self._btn.toggled.connect(self._on_toggled)
 
+        # Clean 1px divider (flat, theme-coloured — not the dated sunken bevel).
         self._line = QFrame()
-        self._line.setFrameShape(QFrame.Shape.HLine)
-        self._line.setFrameShadow(QFrame.Shadow.Sunken)
+        self._line.setFixedHeight(1)
+        self._line.setStyleSheet(
+            f"background-color: {get_color('border')}; border: none;"
+        )
 
         self._content.setVisible(expanded)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(4)
+        outer.setSpacing(6)
         outer.addWidget(self._btn)
         outer.addWidget(self._line)
         outer.addWidget(self._content)

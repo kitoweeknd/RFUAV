@@ -94,51 +94,6 @@ class BatchProcessor:
         )
         self._tasks.append(task)
 
-    def add_parameter_sweep(
-        self,
-        input_files: List[str],
-        output_dir: str,
-        base_config: Dict[str, Any],
-        sweep_params: Dict[str, List[Any]],
-    ) -> None:
-        """Add parameter sweep task
-
-        Args:
-            input_files: List of input files
-            output_dir: Output directory
-            base_config: Base configuration
-            sweep_params: Sweep parameters {param_name: [values]}
-        """
-        # Generate parameter combinations
-        import itertools
-
-        param_names = list(sweep_params.keys())
-        param_values = list(sweep_params.values())
-
-        for values in itertools.product(*param_values):
-            config = self._deep_copy_config(base_config)
-            for name, value in zip(param_names, values):
-                # Update config (assuming parameters under stage_configs)
-                parts = name.split(".")
-                if len(parts) == 2:
-                    stage, param = parts
-                    if stage in config.get("stage_configs", {}):
-                        config["stage_configs"][stage]["params"][param] = value
-
-            # Create task for each input file
-            for input_file in input_files:
-                output_name = Path(input_file).stem
-                # Add parameter suffix
-                param_suffix = "_".join(f"{n}{v}" for n, v in zip(param_names, values))
-                task_output_dir = Path(output_dir) / f"{output_name}_{param_suffix}"
-
-                self.add_task(
-                    input_file=input_file,
-                    output_dir=str(task_output_dir),
-                    config=config,
-                    seed_offset=0,
-                )
-
     def run(self, callback: Optional[callable] = None) -> None:
         """Execute batch processing in background thread
 
@@ -152,6 +107,7 @@ class BatchProcessor:
         self._run_callback = callback
 
         class Worker(QThread):
+            progress_signal = Signal(int, int, str)
             finished_signal = Signal(list, int, int)
 
             def __init__(self, processor):
@@ -170,8 +126,24 @@ class BatchProcessor:
                 self._run_callback(results, completed, failed)
 
         self._worker_thread = Worker(self)
+        # Route progress through a Qt signal so the callback (which mutates GUI
+        # widgets) executes on the main thread rather than the worker thread.
+        if self._progress_callback is not None:
+            self._worker_thread.progress_signal.connect(self._progress_callback)
         self._worker_thread.finished_signal.connect(on_finished)
         self._worker_thread.start()
+
+    def _emit_progress(self, current: int, total: int, message: str) -> None:
+        """Report progress in a thread-safe way.
+
+        Emits via the worker's Qt signal so the connected callback runs on the
+        main thread. Falls back to a direct call if no worker thread is active
+        (e.g. ``_run_sync`` invoked synchronously outside ``run``).
+        """
+        if self._worker_thread is not None:
+            self._worker_thread.progress_signal.emit(current, total, message)
+        elif self._progress_callback is not None:
+            self._progress_callback(current, total, message)
 
     def _run_sync(self) -> List[BatchResult]:
         """Synchronous run for internal use"""
@@ -182,9 +154,8 @@ class BatchProcessor:
                 task.status = "stopped"
                 continue
 
-            # Report progress
-            if self._progress_callback:
-                self._progress_callback(i, total, f"Processing {task.input_file}")
+            # Report progress (main-thread safe via the worker's Qt signal).
+            self._emit_progress(i, total, f"Processing {task.input_file}")
 
             # Update status
             task.status = "running"
@@ -206,8 +177,7 @@ class BatchProcessor:
                 task.elapsed = time.perf_counter() - start_time
 
         # Final progress report
-        if self._progress_callback:
-            self._progress_callback(total, total, "Completed")
+        self._emit_progress(total, total, "Completed")
 
         return self._results
 
@@ -300,65 +270,6 @@ class BatchProcessor:
         """Deep copy configuration"""
         import copy
         return copy.deepcopy(config)
-
-    def get_summary_csv(self, results: List[BatchResult]) -> str:
-        """Generate summary CSV
-
-        Args:
-            results: List of processing results
-
-        Returns:
-            CSV content
-        """
-        lines = [
-            "filename,param_combination,processing_time(s),EVM(%),crest_factor(dB),ACLR(dBc),power(dBFS),SNR(dB),status,error",
-        ]
-
-        for result in results:
-            task = result.task
-            metrics = result.metrics
-
-            param_str = json.dumps(task.config.get("stage_configs", {}), ensure_ascii=False)
-            param_str = param_str.replace(",", ";")
-
-            line = [
-                Path(task.input_file).name,
-                param_str[:100],  # truncate
-                f"{result.elapsed:.2f}",
-                f"{metrics.get('evm', 0):.2f}",
-                f"{metrics.get('crest_factor', 0):.2f}",
-                f"{metrics.get('aclr_main', 0):.2f}",
-                f"{metrics.get('power_dbfs', 0):.2f}",
-                f"{metrics.get('snr', 0):.2f}",
-                task.status,
-                task.error[:50] if task.error else "",
-            ]
-            lines.append(",".join(line))
-
-        return "\n".join(lines)
-
-    def export_summary(
-        self,
-        results: List[BatchResult],
-        output_path: str,
-    ) -> None:
-        """Export summary CSV
-
-        Args:
-            results: List of processing results
-            output_path: Output file path
-        """
-        csv_content = self.get_summary_csv(results)
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(csv_content)
-
-    def get_completed_count(self) -> int:
-        """Get number of completed tasks"""
-        return sum(1 for t in self._tasks if t.status == "completed")
-
-    def get_failed_count(self) -> int:
-        """Get number of failed tasks"""
-        return sum(1 for t in self._tasks if t.status == "failed")
 
 
 class BatchProcessorDialog:
@@ -557,7 +468,6 @@ stage_configs:
             QMessageBox.warning(self._dialog, "No Output Directory", "Please select an output directory.")
             return
 
-        self._btn_run = self._dialog.findChild(object, "btnPrimary") or self._dialog.findChild(__import__('PySide6.QtWidgets', fromlist=['QPushButton']).QPushButton, "")
         self._btn_stop.setEnabled(True)
 
         files = [self._file_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self._file_list.count())]

@@ -7,6 +7,9 @@ try:
 except ImportError:  # Compatible with direct script execution
     from core.common import normalize_power
 
+# Per-chunk processing bounds memory on large signals (see cfo.py).
+_CHUNK = 1 << 21  # ~2.1M samples
+
 
 def apply_phase_noise(
     x: np.ndarray,
@@ -22,18 +25,23 @@ def apply_phase_noise(
         rng = np.random.default_rng()
 
     n = len(x)
-    x_c = np.ascontiguousarray(x, dtype=np.complex128)
+    # Preserve the input's complex precision (complex64 in the pipeline).
+    cdt = x.dtype if np.issubdtype(x.dtype, np.complexfloating) else np.complex64
+    y = np.empty(n, dtype=cdt)
 
-    # float32 is sufficient for per-sample phase noise; accumulate in float64
-    dphi = rng.normal(0.0, phase_std_per_sample, size=n).astype(np.float32)
-    phi = np.empty(n, dtype=np.float64)
-    np.cumsum(dphi, out=phi)
-
-    cos_phi = np.cos(phi)
-    sin_phi = np.sin(phi)
-
-    # Fused complex rotation: fill output directly
-    y = np.empty(n, dtype=np.complex128)
-    y.real = x_c.real * cos_phi - x_c.imag * sin_phi
-    y.imag = x_c.real * sin_phi + x_c.imag * cos_phi
+    # Wiener random walk applied per chunk (see cfo.py): keeps temporaries small
+    # so large signals don't trigger memory compression. The accumulated phase
+    # carries across chunk boundaries so the walk stays continuous.
+    running = 0.0
+    for s in range(0, n, _CHUNK):
+        e = min(s + _CHUNK, n)
+        cnt = e - s
+        dphi = rng.normal(0.0, phase_std_per_sample, size=cnt).astype(np.float32)
+        phi = np.cumsum(dphi, dtype=np.float64)  # accumulate in float64
+        phi += running
+        running = float(phi[-1])
+        rot = np.empty(cnt, dtype=cdt)
+        rot.real = np.cos(phi)
+        rot.imag = np.sin(phi)
+        y[s:e] = x[s:e] * rot
     return y

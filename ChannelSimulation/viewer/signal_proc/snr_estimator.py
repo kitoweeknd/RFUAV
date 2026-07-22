@@ -104,16 +104,6 @@ class SNRResult:
         self.psd_ds = psd_ds
         self.freq_ds = freq_ds
 
-    def summary(self) -> dict:
-        return {
-            "snr_db": self.snr_db,
-            "f1_hz": self.f1,
-            "f2_hz": self.f2,
-            "bandwidth_hz": self.f2 - self.f1,
-            "signal_power": self.p_signal,
-            "noise_power": self.p_noise,
-        }
-
 
 class SNREstimator:
     """OFDM UAV signal SNR estimator.
@@ -191,42 +181,6 @@ class SNREstimator:
             psd_ds=psd_ds, freq_ds=freq_ds,
         )
 
-    def estimate_quick(self, signal: np.ndarray) -> float:
-        """Return SNR in dB only (no intermediate data).
-
-        ~3× faster than estimate() — skips PSD storage.
-        """
-        fs, bw = self.fs, self.bw
-        nfft = min(self.nfft, len(signal))
-
-        f1, f2 = self._find_band_edges_quick(signal, fs, nfft, bw)
-        f_center = (f1 + f2) / 2.0
-        sig_comp = self._compensate_quick(signal, fs, f_center)
-        refs = fs / 2.0
-        re_nfft = nfft // 2
-        sig_ds = resample_poly(sig_comp, up=1, down=2)
-
-        idx1, idx2, idx3, idx4 = self._find_indices(
-            f1, f2, f_center, np.zeros(re_nfft), re_nfft, refs
-        )
-        # Need freq vector for index lookup
-        _, freq_ds = _pwelch_centered(sig_ds, refs, re_nfft)
-        idx1, idx2, idx3, idx4 = self._find_indices(
-            f1, f2, f_center, freq_ds, re_nfft, refs
-        )
-
-        n = len(sig_ds)
-        idx1 = np.clip(idx1, 0, n - 1)
-        idx2 = np.clip(idx2, 0, n - 1)
-        idx3 = np.clip(idx3, 0, n - 1)
-        idx4 = np.clip(idx4, 0, n - 1)
-
-        fft_arr = np.fft.fftshift(np.fft.fft(sig_ds, re_nfft) / re_nfft)
-        p_sig = float(np.mean(np.abs(fft_arr[idx1:idx2 + 1]) ** 2))
-        p_nos = float(np.mean(np.abs(fft_arr[idx3:idx4 + 1]) ** 2))
-        lin = (p_sig - p_nos) / max(p_nos, _EPS)
-        return float(_db10(max(lin, _EPS)))
-
     # ------------------------------------------------------------------ #
     #  Internal steps                                                     #
     # ------------------------------------------------------------------ #
@@ -262,42 +216,22 @@ class SNREstimator:
         f2 = float(fvec[idx_above[-1]])
         return f1, f2, psd_db_raw, fvec
 
-    def _find_band_edges_quick(self, x, fs, nfft, bw):
-        """Lightweight version — returns edges only."""
-        psd, fvec = _pwelch_centered(x, fs, nfft)
-        psd_db = _db10(psd)
-
-        margin = max(10, nfft // 20)
-        core = psd_db[margin:-margin] if len(psd_db) > 2 * margin else psd_db
-        noise_floor = float(np.percentile(core, 15))
-        threshold = noise_floor + 6.0
-        above = psd_db > threshold
-
-        if not np.any(above):
-            pk = int(np.argmax(psd_db))
-            bw_nfft = max(1, int(round(nfft * (bw / fs) * 0.9)))
-            f1 = float(fvec[max(0, pk - bw_nfft // 2)])
-            f2 = float(fvec[min(pk + bw_nfft // 2, nfft - 1)])
-            return f1, f2
-
-        idx_above = np.where(above)[0]
-        return float(fvec[idx_above[0]]), float(fvec[idx_above[-1]])
-
     def _compensate(
         self, x: np.ndarray, fs: float, f_center: float
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Step 2: down-convert to baseband."""
+        """Step 2: down-convert to baseband and compute its PSD.
+
+        ``psd_comp`` is plotted against a frequency axis by the SNR view, so it
+        must be a real (frequency-domain) PSD — not the time-domain power
+        ``|sig|**2``. Use the same Welch helper and linear-power convention as
+        ``_downsample`` / ``psd_ds`` (also plotted directly), which yields a
+        zero-centred baseband axis spanning [-fs/2, fs/2).
+        """
         n = len(x)
         t = np.arange(n, dtype=np.float64) / fs
         sig = x * np.exp(-1j * 2.0 * np.pi * f_center * t)
-        return sig, np.abs(sig) ** 2, f_center - fs / 2 + np.fft.fftshift(
-            np.fft.fftfreq(n, 1 / fs)
-        )
-
-    def _compensate_quick(self, x, fs, f_center):
-        n = len(x)
-        t = np.arange(n, dtype=np.float64) / fs
-        return x * np.exp(-1j * 2.0 * np.pi * f_center * t)
+        psd_comp, freq_comp = _pwelch_centered(sig, fs, min(self.nfft, n))
+        return sig, psd_comp, freq_comp
 
     def _downsample(
         self, sig: np.ndarray, refs: float, re_nfft: int
@@ -340,12 +274,9 @@ class SNREstimator:
         """Step 4: compute SNR from FFT bins."""
         fft_arr = np.fft.fftshift(np.fft.fft(sig_ds, re_nfft) / re_nfft)
 
-        n = len(sig_ds)
-        idx1 = min(idx1, n - 1)
-        idx2 = min(idx2, n - 1)
-        idx3 = min(idx3, n - 1)
-        idx4 = min(idx4, n - 1)
-
+        # Indices are already clamped to [0, re_nfft-1] by _find_indices, which is
+        # exactly the length of fft_arr — no further clamping (the old min(idx,
+        # len(sig_ds)-1) used the wrong bound, since fft_arr has re_nfft bins).
         p_sig = float(np.mean(np.abs(fft_arr[idx1:idx2 + 1]) ** 2))
         p_nos = float(np.mean(np.abs(fft_arr[idx3:idx4 + 1]) ** 2))
 

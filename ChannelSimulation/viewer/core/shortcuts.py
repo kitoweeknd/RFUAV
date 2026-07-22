@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import html
 from enum import Enum, auto
-from functools import cached_property
 from typing import Callable
 
 from PySide6.QtCore import Qt
@@ -45,16 +44,6 @@ class Shortcut:
 
     def __repr__(self) -> str:
         return f"Shortcut({self.id}, {self.key_sequence})"
-
-    @cached_property
-    def qkey_sequence(self) -> "QKeySequence":
-        """Lazily-constructed QKeySequence.
-
-        Building the QKeySequence is deferred to first access (and cached) so
-        importing this module does not perform QtGui work for all 20+ shortcuts.
-        """
-        from PySide6.QtGui import QKeySequence
-        return QKeySequence(self.key_sequence)
 
 
 # All shortcut definitions
@@ -104,13 +93,6 @@ SHORTCUTS: list[Shortcut] = [
     ),
 
     # View operations
-    Shortcut(
-        id="view.toggle_theme",
-        category=ShortcutCategory.VIEW,
-        label="Toggle Theme",
-        key_sequence="Ctrl+T",
-        description="Toggle between light/dark theme",
-    ),
     Shortcut(
         id="view.zoom_in",
         category=ShortcutCategory.VIEW,
@@ -218,65 +200,6 @@ SHORTCUTS: list[Shortcut] = [
         description="Show keyboard shortcuts help dialog",
     ),
 ]
-
-
-def get_shortcut(shortcut_id: str) -> Shortcut | None:
-    """Get shortcut definition by ID
-
-    Args:
-        shortcut_id: Shortcut ID
-
-    Returns:
-        Shortcut definition or None
-    """
-    for shortcut in SHORTCUTS:
-        if shortcut.id == shortcut_id:
-            return shortcut
-    return None
-
-
-def get_shortcuts_by_category(category: ShortcutCategory) -> list[Shortcut]:
-    """Get all shortcuts in the specified category
-
-    Args:
-        category: Category
-
-    Returns:
-        List of shortcuts
-    """
-    return [s for s in SHORTCUTS if s.category == category]
-
-
-def get_all_categories() -> list[ShortcutCategory]:
-    """Get all shortcut categories
-
-    Returns:
-        List of categories
-    """
-    return list(ShortcutCategory)
-
-
-def format_shortcut_list() -> str:
-    """Format shortcut list as text
-
-    Returns:
-        Formatted text
-    """
-    lines = ["Keyboard Shortcuts", "=" * 40, ""]
-
-    current_category = None
-    for shortcut in SHORTCUTS:
-        if shortcut.category != current_category:
-            current_category = shortcut.category
-            lines.append(f"\n{current_category.name}:")
-            lines.append("-" * 20)
-
-        if shortcut.key_sequence:
-            lines.append(f"  {shortcut.label}: {shortcut.key_sequence}")
-        else:
-            lines.append(f"  {shortcut.label}: (None)")
-
-    return "\n".join(lines)
 
 
 def get_shortcut_table_html() -> str:

@@ -132,27 +132,6 @@ class SNRView(QWidget):
         self._fs = fs
         self._start_worker()
 
-    def set_parameters(self, params: dict) -> None:
-        """Update SNR estimation parameters (bw, nfft).
-
-        The values are applied to the toolbar controls but re-estimation is
-        NOT started automatically — the user triggers it with the Estimate
-        button. This matches the behaviour of editing the controls directly,
-        so both parameter-entry paths are manual (least-surprising given the
-        explicit Estimate button).
-        """
-        if "bw" in params:
-            self._bw = float(params["bw"])
-            self._spin_bw.setValue(self._bw)
-        if "nfft" in params:
-            self._nfft = int(params["nfft"])
-            self._combo_nfft.setCurrentText(str(self._nfft))
-        self._label_status.setText("Parameters changed — click Estimate to recalculate")
-
-    def get_snr_results(self) -> tuple[SNRResult | None, SNRResult | None]:
-        """Return (original_snr_result, processed_snr_result)."""
-        return self._result_orig, self._result_proc
-
     # ─────────────────────────────────────────────────────────────────
     #  UI Init
     # ─────────────────────────────────────────────────────────────────
@@ -396,7 +375,6 @@ class SNRView(QWidget):
         v.addWidget(pw)
 
         setattr(self, f"_pw_{key}", pw)
-        setattr(self, f"_canvas_{key}_title", lbl)
 
         return container
 

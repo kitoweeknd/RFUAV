@@ -59,27 +59,27 @@ class SignalInfoPanel(QWidget):
 
         # File info labels
         self._label_file = QLabel("--")
-        self._label_file.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 11px;")
+        self._style_file_label(self._label_file)
         info_layout.addRow("File:", self._label_file)
 
         self._label_samples = QLabel("--")
-        self._label_samples.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 11px;")
+        self._style_file_label(self._label_samples)
         info_layout.addRow("Samples:", self._label_samples)
 
         self._label_duration = QLabel("--")
-        self._label_duration.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 11px;")
+        self._style_file_label(self._label_duration)
         info_layout.addRow("Duration:", self._label_duration)
 
         self._label_fs = QLabel("--")
-        self._label_fs.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 11px;")
+        self._style_file_label(self._label_fs)
         info_layout.addRow("Sample Rate:", self._label_fs)
 
         self._label_power = QLabel("--")
-        self._label_power.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 11px;")
+        self._style_file_label(self._label_power)
         info_layout.addRow("Power:", self._label_power)
 
         self._label_fc = QLabel("--")
-        self._label_fc.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 11px;")
+        self._style_file_label(self._label_fc)
         info_layout.addRow("Center Frequency:", self._label_fc)
 
         self._overview_section = CollapsibleSection(
@@ -157,49 +157,73 @@ class SignalInfoPanel(QWidget):
         row: int,
         col: int,
     ) -> dict[str, QWidget]:
-        """Create a metric card"""
+        """Create a metric card (instrument-style readout)."""
         card = QFrame()
-        card.setFrameShape(QFrame.Shape.StyledPanel)
-        card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {get_color('bg_secondary')};
-                border: 1px solid {get_color('border')};
-                border-radius: 8px;
-                padding: 8px;
-            }}
-        """)
+        card.setObjectName("metricCard")
+        card.setStyleSheet(self._card_qss())
         card.setMinimumWidth(120)
         card.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(14, 11, 14, 12)
+        layout.setSpacing(5)
 
-        # Title
-        title_label = QLabel(title)
-        title_label.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 10px;")
-        title_label.setWordWrap(False)
-        title_label.setMinimumHeight(title_label.sizeHint().height())
+        # Title — small uppercase label
+        title_label = QLabel(title.upper())
+        title_label.setStyleSheet(
+            f"color: {get_color('text_secondary')}; font-size: 10px; font-weight: 600;"
+            f" letter-spacing: 0.6px; background: transparent; border: none;"
+        )
+        title_label.setWordWrap(True)
+        layout.addWidget(title_label)
 
-        # Value
+        # Value — large tabular monospace readout (dimmed while it reads "--")
         value_label = QLabel(value)
-        value_label.setStyleSheet(f"""
-            color: {get_color('accent')};
-            font-size: 18px;
-            font-weight: bold;
-            font-family: "Consolas", "Courier New", monospace;
-        """)
+        value_label.setObjectName("metricValue")
+        self._style_value(value_label, get_color("text_disabled"))
         layout.addWidget(value_label)
 
         # Description
         desc_label = QLabel(description)
-        desc_label.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 9px;")
+        desc_label.setStyleSheet(
+            f"color: {get_color('text_secondary')}; font-size: 10px;"
+            f" background: transparent; border: none;"
+        )
         desc_label.setWordWrap(True)
         layout.addWidget(desc_label)
 
         parent_layout.addWidget(card, row, col)
 
         return {"card": card, "title": title_label, "value": value_label, "desc": desc_label}
+
+    @staticmethod
+    def _card_qss() -> str:
+        return f"""
+            QFrame#metricCard {{
+                background-color: {get_color('card_bg')};
+                border: 1px solid {get_color('border')};
+                border-radius: 10px;
+            }}
+            QFrame#metricCard:hover {{
+                border-color: {get_color('accent')};
+            }}
+        """
+
+    @staticmethod
+    def _style_value(label: "QLabel", color: str) -> None:
+        """Apply the shared big-readout style with a given colour."""
+        label.setStyleSheet(
+            f"color: {color}; font-size: 20px; font-weight: 700;"
+            f' font-family: "SF Mono","JetBrains Mono","Consolas","Courier New",monospace;'
+            f" background: transparent; border: none;"
+        )
+
+    @staticmethod
+    def _style_file_label(label: "QLabel") -> None:
+        """Apply the shared file-info value style (used by all overview rows)."""
+        label.setStyleSheet(
+            f"color: {get_color('text_primary')}; font-size: 12px; font-weight: 500;"
+        )
 
     def _reset_info(self) -> None:
         """Reset info display"""
@@ -210,7 +234,7 @@ class SignalInfoPanel(QWidget):
         self._label_power.setText("--")
         self._label_fc.setText("--")
 
-        # Raw (unformatted) signal state, kept so get_info() can round-trip.
+        # Raw (unformatted) signal state captured as update_info() arrives.
         self._raw_info: Dict[str, Any] = {}
 
         # Tracks whether the metrics section was auto-expanded once already.
@@ -218,7 +242,9 @@ class SignalInfoPanel(QWidget):
 
         # Reset metric cards
         for key in self._metrics_cards:
-            self._metrics_cards[key]["value"].setText("--")
+            v = self._metrics_cards[key]["value"]
+            v.setText("--")
+            self._style_value(v, get_color("text_disabled"))
 
     def update_info(self, info: Dict[str, Any]) -> None:
         """Update signal information
@@ -278,7 +304,7 @@ class SignalInfoPanel(QWidget):
         # EVM
         if "evm" in metrics:
             evm = metrics["evm"]
-            self._metrics_cards["evm"]["value"].setText(f"{evm:.2f}%")
+            self._metrics_cards["evm"]["value"].setText(f"{evm:.2f}")
             # Set color based on threshold
             if evm <= 5:
                 color = get_color("success")
@@ -286,50 +312,32 @@ class SignalInfoPanel(QWidget):
                 color = get_color("accent")
             else:
                 color = get_color("danger")
-            self._metrics_cards["evm"]["value"].setStyleSheet(f"""
-                color: {color};
-                font-size: 18px;
-                font-weight: bold;
-                font-family: "Consolas", "Courier New", monospace;
-            """)
+            self._style_value(self._metrics_cards["evm"]["value"], color)
 
         # Crest factor
         if "crest_factor" in metrics:
             cf = metrics["crest_factor"]
-            self._metrics_cards["crest_factor"]["value"].setText(f"{cf:.2f} dB")
+            self._metrics_cards["crest_factor"]["value"].setText(f"{cf:.2f}")
+            self._style_value(self._metrics_cards["crest_factor"]["value"], get_color("text_primary"))
 
         # ACLR (using main channel)
         if "aclr_main" in metrics:
             aclr = metrics["aclr_main"]
-            self._metrics_cards["aclr"]["value"].setText(f"{aclr:.2f} dBc")
+            self._metrics_cards["aclr"]["value"].setText(f"{aclr:.2f}")
+            self._style_value(self._metrics_cards["aclr"]["value"], get_color("text_primary"))
 
         # Power dBFS
         if "power_dbfs" in metrics:
             power = metrics["power_dbfs"]
             if power > -100:
                 self._metrics_cards["power_dbfs"]["value"].setText(f"{power:.2f}")
+                self._style_value(self._metrics_cards["power_dbfs"]["value"], get_color("text_primary"))
             else:
                 self._metrics_cards["power_dbfs"]["value"].setText("--")
+                self._style_value(self._metrics_cards["power_dbfs"]["value"], get_color("text_disabled"))
 
         # SNR
         if "snr" in metrics:
             snr = metrics["snr"]
-            self._metrics_cards["snr"]["value"].setText(f"{snr:.2f} dB")
-
-    def set_info(self, info: Dict[str, Any]) -> None:
-        """Set signal information (one-time update)"""
-        self.update_info(info)
-
-    def get_info(self) -> Dict[str, Any]:
-        """Get current signal information.
-
-        Returns raw numeric/native values (not formatted display strings) so
-        the state can round-trip. Keys not yet set are returned as ``None``.
-        """
-        return {
-            "n_samples": self._raw_info.get("n_samples"),
-            "duration": self._raw_info.get("duration"),
-            "fs": self._raw_info.get("fs"),
-            "fc": self._raw_info.get("fc"),
-            "power": self._raw_info.get("power"),
-        }
+            self._metrics_cards["snr"]["value"].setText(f"{snr:.2f}")
+            self._style_value(self._metrics_cards["snr"]["value"], get_color("text_primary"))

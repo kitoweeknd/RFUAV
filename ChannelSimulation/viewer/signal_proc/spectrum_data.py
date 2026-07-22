@@ -88,6 +88,12 @@ class SpectrumCalculator:
     # Rendering limits (prevent Matplotlib OOM)
     MAX_PLOT_POINTS = 2_000_000
     MAX_STFT_COLS = 3_000
+    # Cap STFT frequency rows too. The long-signal path uses nperseg=4096 → 4096
+    # rows; a ~12M-px image is heavy to pan and memory-hungry. A display can't
+    # resolve that many lines, so decimating rows to <=2048 shrinks the rendered
+    # QImage ~2x with no visible loss and keeps pan/zoom smooth. (The short path
+    # is already 2048 rows, so it is untouched.)
+    MAX_STFT_ROWS = 2_048
 
     # Display dtype for all spectrum / time-domain arrays.
     # float32 halves memory vs float64 with negligible precision loss for UI.
@@ -118,7 +124,6 @@ class SpectrumCalculator:
     # enough to resolve typical OFDM subcarrier spacing (≥ 10 kHz)
     DEFAULT_NPERSEG = 2048
     DEFAULT_NOVERLAP = 1536   # 75% overlap for smooth spectrogram
-    DEFAULT_NFFT = 2048
 
     # Small value for numerical stability
     EPS = 1e-12
@@ -165,25 +170,6 @@ class SpectrumCalculator:
         self.fill_stft(data, original, processed)
         self.fill_residual(data)
         return data
-
-    def ensure_for_view(
-        self,
-        data: SpectrumData,
-        original: np.ndarray,
-        processed: np.ndarray,
-        view_type: int,
-    ) -> None:
-        """Compute only what the given view mode needs (0–3 = Time, PSD, STFT, Residual)."""
-        if view_type == 0:
-            self.fill_time_domain(data, original, processed)
-        elif view_type == 1:
-            self.fill_psd(data, original, processed)
-        elif view_type == 2:
-            self.fill_stft(data, original, processed)
-        elif view_type == 3:
-            self.fill_psd(data, original, processed)
-            self.fill_stft(data, original, processed)
-            self.fill_residual(data)
 
     def fill_time_domain(
         self,
@@ -327,14 +313,18 @@ class SpectrumCalculator:
 
         windowed = signal * window_vals
         spectrum = fb.fft(windowed)
-        spectrum_single = spectrum[: n // 2]
+        # Two-sided PSD for complex IQ: keep the full spectrum and fftshift both
+        # the PSD and the frequency axis so the result spans [-fs/2, fs/2)+fc —
+        # consistent with the Welch and decimated-FFT paths (a one-sided slice
+        # would discard the negative-frequency half of a complex baseband signal).
         # Power directly from real/imag avoids the sqrt in abs()**2.
-        psd = spectrum_single.real ** 2 + spectrum_single.imag ** 2
+        psd = spectrum.real ** 2 + spectrum.imag ** 2
         window_power = np.sum(window_vals**2)
         psd = psd / (window_power * self._fs)
+        psd = np.fft.fftshift(psd)
         # float32 output for display (saves ~50 % memory vs float64).
         psd_db = (10 * np.log10(psd + self.EPS)).astype(self.DISPLAY_DTYPE)
-        freqs = np.fft.fftfreq(n, 1 / self._fs)[: n // 2]
+        freqs = np.fft.fftshift(np.fft.fftfreq(n, 1 / self._fs))
         if self._fc != 0:
             freqs = freqs + self._fc
         return psd_db, freqs
@@ -397,6 +387,9 @@ class SpectrumCalculator:
         # scipy stft: shape (nfreq, ntime) → matches imshow convention directly.
         stft_db = self._decimate_2d(stft_db, self.MAX_STFT_COLS, axis=1)
         times = self._decimate_1d(times, self.MAX_STFT_COLS)
+        # Cap frequency rows too (same index step as the axis → stays aligned).
+        stft_db = self._decimate_2d(stft_db, self.MAX_STFT_ROWS, axis=0)
+        freqs_shifted = self._decimate_1d(freqs_shifted, self.MAX_STFT_ROWS)
 
         if self._fc != 0:
             freqs_shifted = freqs_shifted + self._fc
@@ -448,11 +441,14 @@ class SpectrumCalculator:
         # floor as 20*log10(|z|+EPS)), fused + multithreaded via numexpr.
         stft_db = _complex_to_db(spec, 10.0, self.EPS ** 2, self.DISPLAY_DTYPE)
         stft_db = stft_db.T                                   # → (nfreq, ntime)  for imshow
+        # Cap frequency rows (display can't resolve 4096 lines; keeps image small).
+        stft_db = self._decimate_2d(stft_db, self.MAX_STFT_ROWS, axis=0)
 
         # Time axis: mid-point of each non-overlapping block
         times = (starts.astype(np.float64) + nperseg * 0.5) / fs
 
         freqs_shifted = np.fft.fftshift(np.fft.fftfreq(nperseg, 1.0 / fs))
+        freqs_shifted = self._decimate_1d(freqs_shifted, self.MAX_STFT_ROWS)
         if self._fc != 0:
             freqs_shifted = freqs_shifted + self._fc
 
@@ -725,79 +721,3 @@ class SpectrumCalculator:
             return arr[:, ::step]
         else:
             return arr[::step, :]
-
-    def find_peaks(
-        self,
-        psd: np.ndarray,
-        freqs: np.ndarray,
-        n_peaks: int = 5,
-        prominence: float | None = None,
-    ) -> list[dict]:
-        """Find spectral peaks
-
-        Args:
-            psd: PSD data
-            freqs: Frequency axis
-            n_peaks: Maximum number of peaks
-            prominence: Peak prominence threshold
-
-        Returns:
-            List of peaks [{freq, power, ...}, ...]
-        """
-        try:
-            from scipy.signal import find_peaks
-        except ImportError:
-            return self._find_peaks_fallback(psd, freqs, n_peaks)
-
-        # Find peaks
-        peaks, properties = find_peaks(
-            psd,
-            height=np.nanmean(psd),
-            prominence=prominence if prominence else 10,
-        )
-
-        if len(peaks) == 0:
-            return []
-
-        # Sort by height
-        heights = psd[peaks]
-        sorted_idx = np.argsort(heights)[::-1]
-        peaks = peaks[sorted_idx[:n_peaks]]
-
-        return [
-            {
-                "freq": float(freqs[p]),
-                "power": float(psd[p]),
-                "index": int(p),
-            }
-            for p in peaks
-        ]
-
-    def _find_peaks_fallback(
-        self,
-        psd: np.ndarray,
-        freqs: np.ndarray,
-        n_peaks: int = 5,
-    ) -> list[dict]:
-        """Peak finding fallback without scipy"""
-        # Simple peak detection
-        peaks = []
-        for i in range(1, len(psd) - 1):
-            if psd[i] > psd[i - 1] and psd[i] > psd[i + 1]:
-                peaks.append(i)
-
-        if not peaks:
-            return []
-
-        # Sort by height
-        peaks.sort(key=lambda i: psd[i], reverse=True)
-        peaks = peaks[:n_peaks]
-
-        return [
-            {
-                "freq": float(freqs[p]),
-                "power": float(psd[p]),
-                "index": int(p),
-            }
-            for p in peaks
-        ]

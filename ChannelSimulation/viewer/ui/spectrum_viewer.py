@@ -18,7 +18,7 @@ Four views: Time domain, PSD, Spectrogram (STFT), Residual.
 
 Public interface preserved for MainWindow / CFO estimator:
 ``apply_processing_result``, ``apply_spectrum_data``, ``apply_stage_spectrum``,
-``apply_config_b_data`` / ``_toggle_compare_mode``, ``set_theme``, ``set_config``,
+``set_theme``, ``set_config``,
 ``clear_data``, ``zoom_in`` / ``zoom_out`` / ``reset_zoom``,
 ``get_current_view_type`` / ``get_current_stage_id``, ``export_figure``, and the
 readable ``_raw_original`` / ``_raw_processed`` attributes.
@@ -26,12 +26,10 @@ readable ``_raw_original`` / ``_raw_processed`` attributes.
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QRectF, Signal
+from PySide6.QtCore import QRectF
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -68,6 +66,10 @@ STAGE_DISPLAY_LABELS = {
 class SpectrumViewer(QWidget):
     """pyqtgraph-based spectrum viewer with instant view/stage switching."""
 
+    # Fixed initial time window shown right after a file loads: 1/8 of the full
+    # span. Full frequency axis is always shown; pan/zoom reveals the rest.
+    INITIAL_TIME_FRAC = 0.125
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._calculator = SpectrumCalculator()
@@ -77,7 +79,13 @@ class SpectrumViewer(QWidget):
         self._current_stage_name = "final"
         self._current_stage_id = 0
         self._available_stages: list[str] = ["final"]
-        self._is_dark_theme = False
+
+        # View-range control: the visible range is reset only on new data or a
+        # view-type change — NOT on stage switch or theme change — so the user's
+        # zoom/pan survives stage comparison. Persistent auto-range used to fight
+        # every wheel/Zoom action; now ranging is one-shot and user-driven.
+        self._needs_range_reset = True
+        self._full_extent: tuple[float, float, float, float] | None = None
 
         self._raw_original: np.ndarray | None = None
         self._raw_processed: np.ndarray | None = None
@@ -88,15 +96,10 @@ class SpectrumViewer(QWidget):
         # reaching into the worker's global cache, so lookups never depend on the
         # worker's internal signal-id counter.
         self._stage_spectra: dict[str, dict] = {}
-        self._signal_id: int | None = None
 
         # STFT colour-scale lock (survives stacking runs; reset on new file).
         self._levels: tuple[float, float] | None = None
         self._is_first_processing = True
-
-        # Config-B compare mode (secondary feature; overlay curves).
-        self._compare_mode = False
-        self._cfg_b: dict | None = None
 
         self._init_ui()
 
@@ -130,6 +133,11 @@ class SpectrumViewer(QWidget):
         self._stage_combo.currentIndexChanged.connect(self._on_stage_changed)
         bl.addWidget(self._stage_combo)
 
+        bl.addSpacing(16)
+        hint = QLabel("Zoom: wheel = both · wheel/drag on an axis = that axis only")
+        hint.setStyleSheet(f"color: {get_color('text_secondary')}; font-size: 11px;")
+        bl.addWidget(hint)
+
         bl.addStretch()
         self._cursor_label = QLabel("")
         self._cursor_label.setStyleSheet(
@@ -140,6 +148,14 @@ class SpectrumViewer(QWidget):
 
         # ── graphics layout: [Original] [Processed] [Histogram] ────────────
         self._glw = pg.GraphicsLayoutWidget()
+        self._glw.setToolTip(
+            "Wheel over a plot zooms both axes.\n"
+            "Wheel or drag directly over the Time axis zooms time only "
+            "(frequency scale fixed).\n"
+            "Wheel or drag over the Frequency axis zooms frequency only "
+            "(time scale fixed).\n"
+            "Double-click / the [A] button fits everything."
+        )
         layout.addWidget(self._glw, stretch=1)
 
         self._plot_orig = self._glw.addPlot(row=0, col=0)
@@ -148,20 +164,28 @@ class SpectrumViewer(QWidget):
             p.showGrid(x=True, y=True, alpha=0.25)
             p.setMenuEnabled(False)
 
-        # Persistent artists per column (created once, updated in place).
+        # Persistent artists per column (created once, updated in place). The
+        # STFT is pre-decimated to <=~3000 columns, so pyqtgraph renders the
+        # QImage ONCE in setImage and Qt just transforms that cached pixmap on
+        # pan/zoom — no per-frame work. (autoDownsample was tried but recomputes
+        # a mean-pool over the whole ~6M-px image on every pan/zoom/axis-drag
+        # frame, which reintroduced lag and could fault at extreme zoom.)
         self._img_orig = pg.ImageItem()
         self._img_proc = pg.ImageItem()
         self._curve_orig = pg.PlotDataItem(pen=pg.mkPen(get_color("accent"), width=1))
         self._curve_proc = pg.PlotDataItem(pen=pg.mkPen(get_color("danger"), width=1))
-        self._curve_b = pg.PlotDataItem(  # config-B overlay (compare mode)
-            pen=pg.mkPen(get_color("success"), width=1, style=Qt.PenStyle.DashLine)
-        )
-        self._curve_b.setVisible(False)
         self._plot_orig.addItem(self._img_orig)
         self._plot_orig.addItem(self._curve_orig)
         self._plot_proc.addItem(self._img_proc)
         self._plot_proc.addItem(self._curve_proc)
-        self._plot_proc.addItem(self._curve_b)
+
+        # Curves can hold up to ~2M points (time domain). Configure downsampling
+        # + clip-to-view at the PlotItem level (AFTER addItem, which otherwise
+        # re-applies the plot's off-by-default settings) so only the visible,
+        # on-screen-resolution samples are drawn — snappy pan/zoom on line views.
+        for p in (self._plot_orig, self._plot_proc):
+            p.setDownsampling(auto=True, mode="peak")
+            p.setClipToView(True)
 
         cmap = get_pg_colormap()
         for im in (self._img_orig, self._img_proc):
@@ -174,7 +198,12 @@ class SpectrumViewer(QWidget):
         self._hist.sigLevelsChanged.connect(self._on_hist_levels_changed)
         self._glw.addItem(self._hist, row=0, col=2)
 
-        self._glw.scene().sigMouseMoved.connect(self._on_mouse_moved)
+        # Rate-limit the cursor readout: sigMouseMoved fires on every pixel of
+        # motion, and updating a toolbar label that often makes the whole scene
+        # feel laggy. SignalProxy coalesces to ~60 Hz.
+        self._mouse_proxy = pg.SignalProxy(
+            self._glw.scene().sigMouseMoved, rateLimit=60, slot=self._on_mouse_moved
+        )
 
         self._apply_view_layout()
 
@@ -183,6 +212,7 @@ class SpectrumViewer(QWidget):
     # =====================================================================
     def _on_view_changed(self, index: int) -> None:
         self._current_view_type = int(index)
+        self._needs_range_reset = True  # new view semantics → refit once
         self._apply_view_layout()
         self._redraw()
 
@@ -281,13 +311,13 @@ class SpectrumViewer(QWidget):
         # Reset the colour-scale lock so it re-derives for this run.
         self._is_first_processing = True
         self._levels = None
+        self._needs_range_reset = True  # new file → apply fixed initial window
         self._redraw()
 
     def apply_spectrum_data(self, spectrum_data: dict) -> None:
         """Final-stage spectra (from spectrum_ready). Stores + redraws."""
         if not spectrum_data:
             return
-        self._signal_id = spectrum_data.get("signal_id", self._signal_id)
         self._stage_spectra["final"] = spectrum_data
         # 'original' spectra live inside every stage dict (stft_original/psd_original).
         if self._current_stage_name == "final":
@@ -300,28 +330,6 @@ class SpectrumViewer(QWidget):
         self._stage_spectra[stage_name] = spectrum_data
         if stage_name == self._current_stage_name:
             self._redraw()
-
-    def apply_config_b_data(self, original_b, processed_b, fs_b, label: str = "Config B") -> None:
-        """Store Config-B processed signal for the compare overlay (PSD/time only)."""
-        try:
-            calc = SpectrumCalculator(fs=fs_b, fc=self._calculator.fc)
-            psd_b, freq_b = calc.compute_psd(processed_b)
-            n = len(processed_b)
-            step = max(1, n // 2_000_000)
-            self._cfg_b = {
-                "label": label,
-                "psd": psd_b, "freq_psd": freq_b,
-                "time_axis": np.arange(0, n, step) / fs_b,
-                "time": np.abs(processed_b[::step]),
-            }
-        except Exception:
-            self._cfg_b = None
-        if self._compare_mode:
-            self._redraw()
-
-    def _toggle_compare_mode(self) -> None:
-        self._compare_mode = not self._compare_mode
-        self._redraw()
 
     # =====================================================================
     # Rendering
@@ -371,6 +379,11 @@ class SpectrumViewer(QWidget):
             self._draw_residual(d)
         self._plot_orig.setTitle(self._orig_title())
         self._plot_proc.setTitle(self._proc_title())
+        # Range only once per new-data / view change; never on stage switch,
+        # so a user's zoom persists while stepping through pipeline stages.
+        if self._needs_range_reset:
+            self._apply_initial_range()
+            self._needs_range_reset = False
 
     def _draw_time(self, d: dict) -> None:
         t = d.get("time_axis")
@@ -380,8 +393,6 @@ class SpectrumViewer(QWidget):
             n = min(len(t), len(yo)); self._curve_orig.setData(t[:n], yo[:n])
         if t is not None and yp is not None:
             n = min(len(t), len(yp)); self._curve_proc.setData(t[:n], yp[:n])
-        self._draw_compare_overlay(kind="time")
-        self._autorange()
 
     def _draw_psd(self, d: dict) -> None:
         f = d.get("freq_axis_psd")
@@ -391,8 +402,6 @@ class SpectrumViewer(QWidget):
             self._curve_orig.setData(f / 1e6, po)
         if f is not None and pp is not None:
             self._curve_proc.setData(f / 1e6, pp)
-        self._draw_compare_overlay(kind="psd")
-        self._autorange()
 
     def _draw_stft(self, d: dict) -> None:
         so = d.get("stft_original")
@@ -409,7 +418,6 @@ class SpectrumViewer(QWidget):
         self._hist.blockSignals(True)
         self._hist.setLevels(*levels)
         self._hist.blockSignals(False)
-        self._autorange()
 
     def _draw_residual(self, d: dict) -> None:
         # left: residual PSD line
@@ -429,7 +437,6 @@ class SpectrumViewer(QWidget):
             self._hist.blockSignals(True)
             self._hist.setLevels(lo, hi)
             self._hist.blockSignals(False)
-        self._autorange()
 
     def _set_image(self, img: pg.ImageItem, arr, t_axis, f_axis, levels) -> None:
         """setImage + map to (time seconds, frequency MHz) via setRect. No teardown."""
@@ -438,17 +445,9 @@ class SpectrumViewer(QWidget):
         t0, t1 = float(t_axis[0]), float(t_axis[-1])
         f0, f1 = float(f_axis[0]) / 1e6, float(f_axis[-1]) / 1e6
         img.setRect(QRectF(t0, f0, max(t1 - t0, 1e-12), max(f1 - f0, 1e-12)))
-
-    def _draw_compare_overlay(self, kind: str) -> None:
-        if not self._compare_mode or self._cfg_b is None:
-            self._curve_b.setVisible(False)
-            return
-        b = self._cfg_b
-        if kind == "psd":
-            self._curve_b.setData(b["freq_psd"] / 1e6, b["psd"])
-        else:
-            self._curve_b.setData(b["time_axis"], b["time"])
-        self._curve_b.setVisible(True)
+        # Remember the full data extent so ranging (initial window, limits,
+        # Reset) can reference it without re-reading the arrays.
+        self._full_extent = (t0, t1, f0, f1)
 
     def _resolve_levels(self, stft: np.ndarray) -> tuple[float, float]:
         """Percentile colour levels, locked on the first run after a file load."""
@@ -471,18 +470,83 @@ class SpectrumViewer(QWidget):
         return lv
 
     def _on_hist_levels_changed(self) -> None:
-        """User dragged the colorbar: mirror levels to both images + lock them."""
+        """User dragged the colorbar: mirror levels to the visible images.
+
+        Only the STFT view owns the persistent colour lock (``self._levels``);
+        a drag in the Residual view shows its own residual-dB range and must not
+        overwrite the lock, or STFT contrast breaks when switching back.
+        """
         lo, hi = self._hist.getLevels()
-        self._levels = (lo, hi)
+        if self._current_view_type == _V_STFT:
+            self._levels = (lo, hi)
         for im in (self._img_orig, self._img_proc):
             if im.isVisible():
                 im.setLevels((lo, hi))
 
-    def _autorange(self) -> None:
-        self._plot_orig.enableAutoRange()
-        self._plot_proc.enableAutoRange()
+    def _apply_initial_range(self) -> None:
+        """One-shot view range after new data / view change.
 
-    def _on_mouse_moved(self, pos) -> None:
+        Image views (STFT, residual-right): full frequency axis + a fixed
+        initial time window (INITIAL_TIME_FRAC of the span), with pan/zoom
+        bounded to the data. For the STFT view both plots are axis-linked, so
+        the SAME limits are set on both — mismatched limits make the link
+        clamp-bounce during single-axis zoom. Line views (Time, PSD,
+        residual-left): clear any image limits (their MHz bounds would wrongly
+        clamp an amplitude axis) and fit all.
+        """
+        vt = self._current_view_type
+        if vt == _V_STFT:
+            self._set_image_limits(self._plot_orig.getViewBox())
+            self._set_image_limits(self._plot_proc.getViewBox())  # identical → no bounce
+            self._set_initial_window(self._plot_orig.getViewBox())  # proc follows via link
+        elif vt == _V_RESID:
+            vb_o = self._plot_orig.getViewBox()
+            self._clear_limits(vb_o)
+            vb_o.autoRange()                                       # residual PSD line
+            self._set_image_limits(self._plot_proc.getViewBox())
+            self._set_initial_window(self._plot_proc.getViewBox())  # residual STFT image
+        else:  # time / psd — line views
+            for p in (self._plot_orig, self._plot_proc):
+                vb = p.getViewBox()
+                self._clear_limits(vb)
+                vb.autoRange()
+
+    @staticmethod
+    def _clear_limits(vb) -> None:
+        vb.setLimits(xMin=None, xMax=None, yMin=None, yMax=None,
+                     minXRange=None, maxXRange=None, minYRange=None, maxYRange=None)
+
+    def _set_image_limits(self, vb) -> None:
+        """Bound pan (data extent + 2% margin) and zoom (can't zoom out past the
+        full image; can't zoom in to a degenerate sub-pixel view)."""
+        if self._full_extent is None:
+            self._clear_limits(vb)
+            return
+        t0, t1, f0, f1 = self._full_extent
+        tspan, fspan = t1 - t0, f1 - f0
+        if tspan <= 0 or fspan <= 0:
+            self._clear_limits(vb)
+            return
+        mx, my = tspan * 0.02, fspan * 0.02
+        vb.setLimits(
+            xMin=t0 - mx, xMax=t1 + mx, yMin=f0 - my, yMax=f1 + my,
+            maxXRange=tspan * 1.1, maxYRange=fspan * 1.1,      # not past full extent
+            minXRange=tspan * 5e-4, minYRange=fspan * 5e-4,    # not into a degenerate view
+        )
+
+    def _set_initial_window(self, vb) -> None:
+        """Full frequency axis + fixed initial time window."""
+        if self._full_extent is None:
+            vb.autoRange()
+            return
+        t0, t1, f0, f1 = self._full_extent
+        tspan = t1 - t0
+        x_hi = t0 + tspan * self.INITIAL_TIME_FRAC if tspan > 0 else t1
+        vb.setRange(xRange=(t0, x_hi), yRange=(f0, f1), padding=0)
+
+    def _on_mouse_moved(self, evt) -> None:
+        # Via SignalProxy the payload is a tuple of the signal's args.
+        pos = evt[0] if isinstance(evt, (tuple, list)) else evt
         for p, tag in ((self._plot_orig, "L"), (self._plot_proc, "R")):
             vb = p.getViewBox()
             if p.sceneBoundingRect().contains(pos):
@@ -494,7 +558,6 @@ class SpectrumViewer(QWidget):
     # Public interface (MainWindow / toolbar)
     # =====================================================================
     def set_theme(self, dark: bool) -> None:
-        self._is_dark_theme = dark
         apply_pyqtgraph_theme()
         cmap = get_pg_colormap()
         for im in (self._img_orig, self._img_proc):
@@ -513,17 +576,26 @@ class SpectrumViewer(QWidget):
     def get_current_stage_id(self) -> int:
         return self._current_stage_id
 
+    def _active_viewboxes(self) -> list:
+        """Viewboxes to drive directly. In linked views the proc VB follows
+        orig, so returning only orig avoids double-applying the transform."""
+        if self._current_view_type == _V_RESID:
+            return [self._plot_orig.getViewBox(), self._plot_proc.getViewBox()]
+        return [self._plot_orig.getViewBox()]
+
     def zoom_in(self) -> None:
-        for p in (self._plot_orig, self._plot_proc):
-            p.getViewBox().scaleBy((1 / 1.25, 1 / 1.25))
+        for vb in self._active_viewboxes():
+            vb.scaleBy((1 / 1.25, 1 / 1.25))
 
     def zoom_out(self) -> None:
-        for p in (self._plot_orig, self._plot_proc):
-            p.getViewBox().scaleBy((1.25, 1.25))
+        for vb in self._active_viewboxes():
+            vb.scaleBy((1.25, 1.25))
 
     def reset_zoom(self) -> None:
-        for p in (self._plot_orig, self._plot_proc):
-            p.getViewBox().autoRange()
+        """Reset = fit the whole spectrogram (full extent), unlike the fixed
+        window applied on load."""
+        for vb in self._active_viewboxes():
+            vb.autoRange()
 
     def export_figure(self, file_path: str, dpi: int = 300) -> None:
         from pyqtgraph.exporters import ImageExporter
@@ -535,15 +607,12 @@ class SpectrumViewer(QWidget):
         self._raw_processed = None
         self._stage_signals = {}
         self._stage_spectra = {}
-        self._signal_id = None
         self._available_stages = ["final"]
         self._current_stage_name = "final"
         self._current_stage_id = 0
         self._levels = None
         self._is_first_processing = True
-        self._cfg_b = None
-        self._compare_mode = False
-        for it in (self._curve_orig, self._curve_proc, self._curve_b):
+        for it in (self._curve_orig, self._curve_proc):
             it.clear()
         for im in (self._img_orig, self._img_proc):
             im.clear()

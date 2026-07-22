@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 
+# Process per-sample rotation in chunks. Doing it whole-array at N=100M meant
+# ~5 separate 800MB float64 temporaries (arange/phase/cos/sin) — ~4GB that tips
+# the machine into memory compression and turned a ~2s op into ~30s. Chunking
+# keeps temporaries at a few MB (cache-resident) so the cost is linear in N.
+_CHUNK = 1 << 21  # ~2.1M samples
+
 
 def apply_cfo(
     x: np.ndarray,
@@ -11,25 +17,20 @@ def apply_cfo(
 ) -> np.ndarray:
     """Carrier Frequency Offset (CFO).
 
-    Uses in-place multiplication by writing the rotation directly into
-    the output array's view, avoiding creation of a separate rotation array.
+    Applies a phase ramp exp(j·2π·cfo·t/fs) in cache-sized chunks. The output
+    keeps the input's complex precision (complex64 in the pipeline).
     """
-    if out is None:
-        y = np.empty(len(x), dtype=np.complex128)
-    else:
-        y = np.ascontiguousarray(out, dtype=np.complex128)
-
+    cdt = x.dtype if np.issubdtype(x.dtype, np.complexfloating) else np.complex64
     n = len(x)
-    TWO_PI_OVER_FS = 2.0 * np.pi / fs
-    TWO_PI_OVER_FS_CFO = TWO_PI_OVER_FS * cfo_hz
+    y = np.empty(n, dtype=cdt) if out is None else np.ascontiguousarray(out, dtype=cdt)
 
-    # Compute phase directly into the imag view of the output
-    t = np.arange(n, dtype=np.float64)
-    phase = t * TWO_PI_OVER_FS_CFO
-    cos_p = np.cos(phase)
-    sin_p = np.sin(phase)
-
-    x_c = np.ascontiguousarray(x, dtype=np.complex128)
-    y.real = x_c.real * cos_p - x_c.imag * sin_p
-    y.imag = x_c.real * sin_p + x_c.imag * cos_p
+    w = (2.0 * np.pi / fs) * cfo_hz
+    for s in range(0, n, _CHUNK):
+        e = min(s + _CHUNK, n)
+        # Phase stays float64 for precision (t can reach tens of millions).
+        ph = np.arange(s, e, dtype=np.float64) * w
+        rot = np.empty(e - s, dtype=cdt)
+        rot.real = np.cos(ph)
+        rot.imag = np.sin(ph)
+        y[s:e] = x[s:e] * rot
     return y

@@ -94,27 +94,6 @@ class MetricsCalculator:
 
         return metrics
 
-    def calculate_evm(
-        self,
-        reference: np.ndarray,
-        degraded: np.ndarray,
-    ) -> float:
-        """Calculate EVM (Error Vector Magnitude)
-
-        EVM = sqrt(P_error / P_reference) * 100%
-
-        Args:
-            reference: Original signal
-            degraded: Processed signal
-
-        Returns:
-            EVM percentage
-        """
-        # _align_signals also trims to the common length, so no separate
-        # length-matching step is needed here.
-        reference, degraded = self._align_signals(reference, degraded)
-        return self._evm_from_aligned(reference, degraded)
-
     def _evm_from_aligned(self, reference: np.ndarray, degraded: np.ndarray) -> float:
         """EVM for already time-aligned, equal-length signals."""
         if len(reference) == 0:
@@ -273,24 +252,6 @@ class MetricsCalculator:
 
         return float(10 * np.log10(p_signal / p_fullscale))
 
-    def calculate_snr(
-        self,
-        reference: np.ndarray,
-        degraded: np.ndarray,
-    ) -> float:
-        """Calculate SNR (Signal-to-Noise Ratio)
-
-        Args:
-            reference: Original signal
-            degraded: Processed signal
-
-        Returns:
-            SNR (dB)
-        """
-        # _align_signals also trims to the common length.
-        reference, degraded = self._align_signals(reference, degraded)
-        return self._snr_from_aligned(reference, degraded)
-
     def _snr_from_aligned(self, reference: np.ndarray, degraded: np.ndarray) -> float:
         """SNR for already time-aligned, equal-length signals."""
         if len(reference) == 0:
@@ -308,39 +269,3 @@ class MetricsCalculator:
 
         snr = p_signal / p_noise
         return float(10 * np.log10(snr))
-
-    def calculate_evm_percent(self, evm: float) -> str:
-        """Convert EVM value to quality assessment
-
-        Args:
-            evm: EVM value (percentage)
-
-        Returns:
-            Quality assessment string
-        """
-        if evm <= 5:
-            return "Excellent"
-        elif evm <= 10:
-            return "Good"
-        elif evm <= 20:
-            return "Fair"
-        else:
-            return "Poor"
-
-    def calculate_acl_quality(self, aclr: float) -> str:
-        """Convert ACLR value to quality assessment
-
-        Args:
-            aclr: ACLR value (dBc)
-
-        Returns:
-            Quality assessment string
-        """
-        if aclr >= 50:
-            return "Excellent"
-        elif aclr >= 45:
-            return "Good"
-        elif aclr >= 35:
-            return "Fair"
-        else:
-            return "Poor"

@@ -117,19 +117,6 @@ def format_power(db_value: float, unit: str = "dB") -> str:
     return f"{db_value:.2f} {unit}"
 
 
-def format_percentage(value: float, decimals: int = 1) -> str:
-    """Format numeric value as percentage string
-
-    Args:
-        value: Value between 0 and 1
-        decimals: Number of decimal places
-
-    Returns:
-        Formatted percentage string, e.g. "45.5%"
-    """
-    return f"{value * 100:.{decimals}f}%"
-
-
 def parse_frequency_string(s: str) -> float | None:
     """Parse frequency string to Hz value
 
@@ -166,50 +153,6 @@ def parse_frequency_string(s: str) -> float | None:
     # Try to parse number directly
     try:
         return float(s)
-    except ValueError:
-        return None
-
-
-def parse_size_string(s: str) -> int | None:
-    """Parse size string to bytes
-
-    Supported formats:
-    - "1.5GB", "1.5G"
-    - "100MB", "100M"
-    - "1KB", "1K"
-    - "500"
-
-    Args:
-        s: Size string
-
-    Returns:
-        Bytes, returns None if parsing fails
-    """
-    s = s.strip().lower()
-
-    multipliers = {
-        "gb": 1024 ** 3,
-        "g": 1024 ** 3,
-        "mb": 1024 ** 2,
-        "m": 1024 ** 2,
-        "kb": 1024,
-        "k": 1024,
-        "b": 1,
-    }
-
-    # Match the longest suffix first so single letters (g/m/k/b) can't shadow
-    # the multi-character units (gb/mb/kb).
-    for suffix in sorted(multipliers, key=len, reverse=True):
-        if s.endswith(suffix):
-            try:
-                num_str = s[:-len(suffix)].strip()
-                return int(float(num_str) * multipliers[suffix])
-            except ValueError:
-                continue
-
-    # Fall back to a bare byte count
-    try:
-        return int(float(s))
     except ValueError:
         return None
 
@@ -276,84 +219,6 @@ def get_log_dir() -> Path:
     log_dir = get_app_data_dir() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
-
-
-def ensure_dir(path: str | Path) -> Path:
-    """Ensure directory exists, create if it doesn't
-
-    Args:
-        path: Directory path
-
-    Returns:
-        Directory path
-    """
-    p = Path(path)
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
-def get_file_extension(path: str | Path) -> str:
-    """Get file extension (without dot)
-
-    Args:
-        path: File path
-
-    Returns:
-        Extension, e.g. "iq", "yaml", "png"
-    """
-    return Path(path).suffix.lstrip(".").lower()
-
-
-def guess_iq_format(file_path: str | Path) -> str:
-    """Guess IQ data format based on file extension
-
-    Args:
-        file_path: File path
-
-    Returns:
-        Format name, e.g. "iq_float32", "int16", "numpy", etc.
-    """
-    ext = get_file_extension(file_path)
-
-    format_map = {
-        "iq": "iq_float32",
-        "cf32": "iq_float32",
-        "cfile": "raw_binary",
-        "raw": "raw_binary",
-        "bin": "raw_binary",
-        "iq16": "int16",
-        "s16": "int16",
-        "mat": "matlab",
-        "npy": "numpy",
-        "npz": "numpy_zip",
-    }
-
-    return format_map.get(ext, "unknown")
-
-
-def safe_dict_get(d: dict[str, Any], key: str, default: Any = None) -> Any:
-    """Safely get dictionary value with nested access support
-
-    Args:
-        d: Dictionary
-        key: Key (supports dot-separated nested keys, e.g. "a.b.c")
-        default: Default value
-
-    Returns:
-        Value or default
-    """
-    keys = key.split(".")
-    current = d
-
-    for k in keys:
-        if isinstance(current, dict):
-            current = current.get(k)
-            if current is None:
-                return default
-        else:
-            return default
-
-    return current if current is not None else default
 
 
 def dict_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
