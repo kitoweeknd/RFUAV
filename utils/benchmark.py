@@ -18,20 +18,9 @@ from .metrics.base_metric import EVAMetric
 from .trainer import model_init_
 
 try:
-    from .DetModels import YOLOV5S
-    from .DetModels.yolo.basic import (
-        LoadImages,
-        Profile,
-        Path,
-        non_max_suppression,
-        Annotator,
-        scale_boxes,
-        colorstr,
-        Colors,
-        letterbox,
-    )
+    from .DetModels import build_detector
 except ImportError:
-    YOLOV5S = None
+    build_detector = None
 
 
 # Supported image and raw data extensions
@@ -435,34 +424,18 @@ class ClassifyModel(nn.Module):
 
 class DetectionModel:
 
-    """
-    A common interface for initializing and running different detection models.
+    """Thin facade over the detection backends in ``utils.DetModels``.
 
-    This class provides methods to initialize and run object detection models such as YOLOv5 and Faster R-CNN.
-    It allows for easy switching between different models by providing a unified interface.
+    Each backend (yolov5 / fasterrcnn / rtdetr) is a standalone class under
+    ``utils/DetModels/``; this class builds the requested one via
+    ``build_detector`` and forwards the unified inference API. Kept for backward
+    compatibility (``TwoStagesDetector``, older scripts, and README examples).
 
-    Attributes:
-    - S1model: The initialized detection model (e.g., YOLOv5S).
-    - model_name: The name of the detection model to be used.
-    - weight_path: The path to the pre-trained model weights.
+    Usage::
 
-    Methods:
-    - __init__(self, cfg=None, model_name=None, weight_path=None):
-        Initializes the detection model based on the provided configuration or parameters.
-        If a configuration dictionary `cfg` is provided, it will be used to set the model name and weight path.
-        Otherwise, the `model_name` and `weight_path` parameters can be specified directly.
-
-    - yolov5_detect(self, source='../example/source/', save_dir='../res', imgsz=(640, 640), conf_thres=0.6, iou_thres=0.45, max_det=1000, line_thickness=3, hide_labels=True, hide_conf=False):
-        Runs YOLOv5 object detection on the specified source.
-        - source: Path to the input image or directory containing images.
-        - save_dir: Directory to save the detection results.
-        - imgsz: Image size for inference (height, width).
-        - conf_thres: Confidence threshold for filtering detections.
-        - iou_thres: IoU threshold for non-maximum suppression.
-        - max_det: Maximum number of detections per image.
-        - line_thickness: Thickness of the bounding box lines.
-        - hide_labels: Whether to hide class labels in the output.
-        - hide_conf: Whether to hide confidence scores in the output.
+        det = DetectionModel(model_name='fasterrcnn')      # or 'rtdetr' / 'yolov5'
+        annotated = det.detect(source='spectrogram.jpg')   # BGR image with boxes
+        frames = det.detect_batch(list_of_bgr_frames)      # batched
     """
 
     def __init__(self, cfg=None, model_name=None, weight_path=None, conf_thres=0.6):
@@ -471,306 +444,32 @@ class DetectionModel:
         if cfg:
             model_name = cfg.get('model_name', model_name)
             weight_path = cfg.get('weight_path', weight_path)
+        if build_detector is None:
+            raise ImportError("Detection backends unavailable (utils.DetModels failed to import)")
 
         self.model_name = model_name
         self.weight_path = weight_path
-        self.conf_thres = conf_thres
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self._use_amp = str(self.device) != 'cpu'
-        self.S1model = None   # yolov5 backend
-        self.det_model = None  # torchvision / transformers backend
-        self.processor = None  # transformers image processor (rtdetr)
-        self.names = None      # class-id -> name mapping (dict or list)
-
-        if model_name == 'yolov5':
-            if YOLOV5S is None:
-                raise ImportError("YOLOv5 backend unavailable (utils.DetModels failed to import)")
-            self.S1model = YOLOV5S(weights=weight_path)
-            self.S1model.inference = self.yolov5_detect
-            self.names = self.S1model.names
-
-        elif model_name == 'fasterrcnn':
-            from torchvision.models.detection import (
-                fasterrcnn_resnet50_fpn_v2,
-                FasterRCNN_ResNet50_FPN_V2_Weights,
-            )
-            if weight_path and os.path.exists(weight_path):
-                num_classes = int(cfg.get('num_classes', 91))
-                self.det_model = fasterrcnn_resnet50_fpn_v2(weights=None, num_classes=num_classes)
-                state = torch.load(weight_path, map_location='cpu')
-                if isinstance(state, dict) and 'model' in state:
-                    state = state['model']
-                self.det_model.load_state_dict(state)
-                self.names = cfg.get('class_names') or {i: str(i) for i in range(num_classes)}
-                self.logger.log_with_color(f"Faster R-CNN: loaded custom weights from {weight_path}")
-            else:
-                weights = FasterRCNN_ResNet50_FPN_V2_Weights.DEFAULT
-                self.det_model = fasterrcnn_resnet50_fpn_v2(weights=weights)
-                self.names = {i: n for i, n in enumerate(weights.meta['categories'])}
-                self.logger.log_with_color("Faster R-CNN: using COCO-pretrained weights")
-            self.det_model.to(self.device).eval()
-
-        elif model_name == 'rtdetr':
-            try:
-                from transformers import RTDetrForObjectDetection, RTDetrImageProcessor
-            except ImportError as e:
-                raise ImportError(
-                    "RT-DETR requires the `transformers` package (pip install transformers)."
-                ) from e
-            ckpt = weight_path or "PekingU/rtdetr_r50vd"
-            self.det_model = RTDetrForObjectDetection.from_pretrained(ckpt).to(self.device).eval()
-            self.processor = RTDetrImageProcessor.from_pretrained(ckpt)
-            self.names = self.det_model.config.id2label
-            self.logger.log_with_color(f"RT-DETR: loaded '{ckpt}'")
-
-        else:
-            raise ValueError(
-                f"Unsupported detection model '{model_name}'. "
-                f"Choose from: 'yolov5', 'fasterrcnn', 'rtdetr'."
-            )
-
-    @torch.no_grad()
-    def yolov5_detect(self,
-                      source='../example/source/',
-                      save_dir='../res',
-                      imgsz=(640, 640),
-                      conf_thres=0.6,
-                      iou_thres=0.45,
-                      max_det=1000,
-                      line_thickness=3,
-                      hide_labels=True,
-                      hide_conf=False,
-                      ):
-
-        color = Colors()
-        detmodel = self.S1model
-        stride, names = detmodel.stride, detmodel.names
-        # Run inference
-        if isinstance(source, np.ndarray):
-            detmodel.eval()
-            im = letterbox(source, imgsz, stride=stride, auto=True)[0]  # padded resize
-            im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-            im = np.ascontiguousarray(im)  # contiguous
-            im = torch.from_numpy(im).to(detmodel.device)
-            im = im.float()  # uint8 to fp16/32
-            im /= 255  # 0 - 255 to 0.0 - 1.0
-            if len(im.shape) == 3:
-                im = im[None]  # expand for batch dim
-
-            # Inference
-            pred = detmodel(im)
-            # NMS
-            pred = non_max_suppression(pred, conf_thres, iou_thres, agnostic=False, max_det=max_det)
-            # Process predictions
-            for i, det in enumerate(pred):  # per image
-                annotator = Annotator(source, line_width=line_thickness, example=str(names))
-                if len(det):
-                    # Rescale boxes from img_size to im0 size
-                    det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], source.shape).round()
-
-                    for *xyxy, conf, cls in reversed(det):
-                        c = int(cls)  # integer class
-                        label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
-
-                        annotator.box_label(xyxy, label, color=color(c + 2, True))
-
-                # Stream results
-                im0 = annotator.result()
-                # Save results (image with detections)
-            return im0
-
-        else:
-            # Ensure the save directory exists
-            os.makedirs(save_dir, exist_ok=True)
-            dataset = LoadImages(source, img_size=imgsz, stride=stride)
-            seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
-            for path, im, im0s, s in dataset:
-                im = torch.from_numpy(im).to(detmodel.device)
-                im = im.float()  # uint8 to fp16/32
-                im /= 255  # 0 - 255 to 0.0 - 1.0
-                if len(im.shape) == 3:
-                    im = im[None]  # expand for batch dim
-
-                # Inference
-                pred = detmodel(im)
-                # NMS
-                pred = non_max_suppression(pred, conf_thres, iou_thres, agnostic=False, max_det=max_det)
-                # Process predictions
-                for i, det in enumerate(pred):  # per image
-                    seen += 1
-                    p, im0, frame = path, im0s.copy(), getattr(dataset, 'frame', 0)
-
-                    p = Path(p)  # to Path
-                    save_path = os.path.join(save_dir, p.name)  # im.jpg
-                    s += '%gx%g ' % im.shape[2:]  # print string
-                    annotator = Annotator(im0, line_width=line_thickness, example=str(names))
-                    if len(det):
-                        # Rescale boxes from img_size to im0 size
-                        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
-
-                        # Print results
-                        for c in det[:, 5].unique():
-                            n = (det[:, 5] == c).sum()  # detections per class
-                            s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
-
-                        for *xyxy, conf, cls in reversed(det):
-                            c = int(cls)  # integer class
-                            label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
-
-                            annotator.box_label(xyxy, label, color=color(c + 2, True))
-
-                    # Stream results
-                    im0 = annotator.result()
-                    # Save results (image with detections)
-                    if save_dir == 'buffer':
-                        return im0
-                    else:
-                        cv2.imwrite(save_path, im0)
-                        del im0  # Release memory after saving
-
-            # Print results
-            self.logger.log_with_color(f"Results saved to {colorstr('bold', save_dir)}")
-
-    @torch.no_grad()
-    def yolov5_detect_batch(self,
-                            sources,
-                            imgsz=(640, 640),
-                            conf_thres=0.6,
-                            iou_thres=0.45,
-                            max_det=1000,
-                            line_thickness=3,
-                            hide_labels=True,
-                            hide_conf=False,
-                            ):
-        """Batched counterpart of the numpy branch of ``yolov5_detect``.
-
-        Takes a list of BGR frames and runs a single forward over the whole
-        batch (instead of one forward per frame), then annotates each image.
-        Returns a list of annotated BGR images aligned with ``sources``. Every
-        per-image op (letterbox / NMS / scale_boxes / annotate) is identical to
-        ``yolov5_detect``; only the model forward is batched. Falls back to
-        per-frame detection if the letterboxed frames are not all the same shape
-        (so they cannot be stacked)."""
-        if not sources:
-            return []
-        color = Colors()
-        detmodel = self.S1model
-        stride, names = detmodel.stride, detmodel.names
-        detmodel.eval()
-
-        letterboxed = [letterbox(src, imgsz, stride=stride, auto=True)[0] for src in sources]
-        if len({lb.shape for lb in letterboxed}) != 1:
-            # Different padded sizes can't be stacked; process individually.
-            return [self.yolov5_detect(source=src, imgsz=imgsz, conf_thres=conf_thres,
-                                       iou_thres=iou_thres, max_det=max_det,
-                                       line_thickness=line_thickness,
-                                       hide_labels=hide_labels, hide_conf=hide_conf)
-                    for src in sources]
-
-        ims = np.ascontiguousarray(
-            np.stack([lb.transpose((2, 0, 1))[::-1] for lb in letterboxed])  # BHWC(BGR)->BCHW(RGB)
-        )
-        ims = torch.from_numpy(ims).to(detmodel.device).float() / 255
-
-        pred = detmodel(ims)
-        pred = non_max_suppression(pred, conf_thres, iou_thres, agnostic=False, max_det=max_det)
-
-        results = []
-        for i, det in enumerate(pred):  # per image
-            annotator = Annotator(sources[i], line_width=line_thickness, example=str(names))
-            if len(det):
-                det[:, :4] = scale_boxes(ims.shape[2:], det[:, :4], sources[i].shape).round()
-                for *xyxy, conf, cls in reversed(det):
-                    c = int(cls)
-                    label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
-                    annotator.box_label(xyxy, label, color=color(c + 2, True))
-            results.append(annotator.result())
-        return results
-
-    def _autocast(self):
-        """Mixed-precision context on CUDA; a no-op on CPU."""
-        dev = 'cuda' if self._use_amp else 'cpu'
-        return torch.autocast(device_type=dev, enabled=self._use_amp)
-
-    def detect_batch(self, sources, conf_thres=None):
-        """Backend-agnostic batched detection.
-
-        `sources`: list of BGR np.ndarray frames. Returns a list of annotated
-        BGR np.ndarray images aligned with `sources`. Routes to the active
-        backend (yolov5 / fasterrcnn / rtdetr)."""
-        conf = self.conf_thres if conf_thres is None else conf_thres
-        if self.model_name == 'yolov5':
-            return self.yolov5_detect_batch(sources, conf_thres=conf)
-        if self.model_name == 'fasterrcnn':
-            return self._fasterrcnn_detect_batch(sources, conf)
-        if self.model_name == 'rtdetr':
-            return self._rtdetr_detect_batch(sources, conf)
-        raise ValueError(f"Unsupported detection model '{self.model_name}'")
+        self.detector = build_detector(model_name, weight_path=weight_path,
+                                       cfg=cfg, conf_thres=conf_thres)
+        self.device = self.detector.device
+        self.names = self.detector.names
+        # Backward-compat: expose the underlying model object (was the raw YOLOV5S).
+        self.S1model = getattr(self.detector, 'model', None)
 
     def detect(self, source, conf_thres=None):
-        """Backend-agnostic single-image detection.
+        """Single image (path or BGR ndarray) -> annotated BGR image."""
+        return self.detector.detect(source, conf_thres=conf_thres)
 
-        `source`: image path or BGR np.ndarray. Returns one annotated BGR image."""
-        conf = self.conf_thres if conf_thres is None else conf_thres
-        img = source if isinstance(source, np.ndarray) else cv2.imread(source)
-        if img is None:
-            raise ValueError(f"Could not read image: {source}")
-        return self.detect_batch([img], conf_thres=conf)[0]
+    def detect_batch(self, sources, conf_thres=None):
+        """List of BGR frames -> list of annotated BGR images."""
+        return self.detector.detect_batch(sources, conf_thres=conf_thres)
 
-    @torch.no_grad()
-    def _fasterrcnn_detect_batch(self, sources, conf_thres):
-        tensors = [
-            torch.from_numpy(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
-                 .permute(2, 0, 1).float().div(255).to(self.device)
-            for bgr in sources
-        ]
-        with self._autocast():
-            outputs = self.det_model(tensors)  # torchvision detectors batch a list natively
-        results = []
-        for bgr, out in zip(sources, outputs):
-            scores = out['scores'].detach().cpu().numpy()
-            keep = scores >= conf_thres
-            boxes = out['boxes'].detach().cpu().numpy()[keep]
-            labels = out['labels'].detach().cpu().numpy()[keep]
-            results.append(self._draw_boxes(bgr.copy(), boxes, scores[keep], labels))
-        return results
-
-    @torch.no_grad()
-    def _rtdetr_detect_batch(self, sources, conf_thres):
-        pils = [Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)) for bgr in sources]
-        inputs = self.processor(images=pils, return_tensors="pt").to(self.device)
-        with self._autocast():
-            outputs = self.det_model(**inputs)
-        target_sizes = torch.tensor([[im.height, im.width] for im in pils], device=self.device)
-        post = self.processor.post_process_object_detection(
-            outputs, target_sizes=target_sizes, threshold=conf_thres)
-        results = []
-        for bgr, res in zip(sources, post):
-            results.append(self._draw_boxes(
-                bgr.copy(),
-                res['boxes'].detach().cpu().numpy(),
-                res['scores'].detach().cpu().numpy(),
-                res['labels'].detach().cpu().numpy(),
-            ))
-        return results
-
-    def _draw_boxes(self, bgr, boxes, scores, labels, line_thickness=3):
-        """Draw xyxy boxes + labels on a BGR image (fasterrcnn / rtdetr backends)."""
-        palette = Colors()
-        for box, score, lab in zip(boxes, scores, labels):
-            x1, y1, x2, y2 = (int(v) for v in box[:4])
-            lab = int(lab)
-            c = palette(lab + 2, True)  # BGR
-            cv2.rectangle(bgr, (x1, y1), (x2, y2), c, line_thickness, lineType=cv2.LINE_AA)
-            if isinstance(self.names, dict):
-                name = self.names.get(lab, str(lab))
-            elif self.names is not None and lab < len(self.names):
-                name = self.names[lab]
-            else:
-                name = str(lab)
-            cv2.putText(bgr, f"{name} {float(score):.2f}", (x1, max(12, y1 - 5)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, c, 2, lineType=cv2.LINE_AA)
-        return bgr
+    def yolov5_detect(self, *args, **kwargs):
+        """Backward-compatible YOLOv5-only entry point (numpy -> annotated image;
+        path/dir -> writes to save_dir). Raises if the active backend isn't yolov5."""
+        if not hasattr(self.detector, 'yolov5_detect'):
+            raise AttributeError("yolov5_detect is only available for the 'yolov5' backend")
+        return self.detector.yolov5_detect(*args, **kwargs)
 
 
 def is_valid_file(path, total_ext):

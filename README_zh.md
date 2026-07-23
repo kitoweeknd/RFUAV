@@ -272,6 +272,15 @@ annotated = det.detect(source='path/to/spectrogram.jpg')   # 返回带框的 BGR
 annotated_frames = det.detect_batch(list_of_bgr_frames)    # 批处理
 ```
 
+每个后端都是 [`utils/DetModels/`](utils/DetModels/) 下的独立类 —— `YoloV5Detector`、`FasterRCNNDetector`、`RTDetrDetector`(共享 `BaseDetector`）—— 通过 `build_detector(model_name, ...)` 构建。上面的 `DetectionModel` 只是它们的薄门面,所以你也可以直接用某个后端:
+
+```python
+from utils.DetModels import FasterRCNNDetector, build_detector
+
+det = FasterRCNNDetector()                       # 或 build_detector('rtdetr')
+frames = det.detect_batch(list_of_bgr_frames)
+```
+
 ### 2.5 两阶段检测和分类
 
 我们提供了一个结合检测和分类的两阶段流水线：第一阶段检测无人机信号，第二阶段对检测到的信号进行分类。您可以直接处理原始数据包，结果将保存为带有检测和分类注释的视频。

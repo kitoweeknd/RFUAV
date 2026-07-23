@@ -272,6 +272,15 @@ annotated = det.detect(source='path/to/spectrogram.jpg')  # BGR image with boxes
 annotated_frames = det.detect_batch(list_of_bgr_frames)   # batched
 ```
 
+Each backend is a standalone class under [`utils/DetModels/`](utils/DetModels/) — `YoloV5Detector`, `FasterRCNNDetector`, `RTDetrDetector` (all sharing `BaseDetector`) — built via `build_detector(model_name, ...)`. `DetectionModel` above is just a thin facade over them, so you can also use a backend directly:
+
+```python
+from utils.DetModels import FasterRCNNDetector, build_detector
+
+det = FasterRCNNDetector()                       # or build_detector('rtdetr')
+frames = det.detect_batch(list_of_bgr_frames)
+```
+
 ### 2.5 Two-Stage Detection and Classification
 
 We provide a two-stage pipeline that combines detection and classification: the first stage detects drone signals, and the second stage classifies the detected signals. You can process raw data packs directly, and the results will be saved as a video with both detection and classification annotations.
