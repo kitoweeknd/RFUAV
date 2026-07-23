@@ -107,6 +107,16 @@ class ClassifyModel(nn.Module):
 
         self.save = save
 
+        # Build the eval transform ONCE (was rebuilt per image) and cache fonts,
+        # so the per-frame inference loop doesn't repeat this setup work.
+        self._transform = transforms.Compose([
+            transforms.Resize((self.cfg['image_size'], self.cfg['image_size'])),
+            transforms.ToTensor(),
+        ])
+        self._font_cache = {}
+        # Autocast only helps on CUDA; a no-op context on CPU.
+        self._use_amp = str(self.device) != 'cpu' and torch.cuda.is_available()
+
     def inference(self, source='../example/', save_path: str = '../result'):
         """
         Performs inference on the given source data.
@@ -207,10 +217,10 @@ class ClassifyModel(nn.Module):
         origin_image = Image.open(source).convert('RGB')
         preprocessed_image = self.preprocess(source)
 
-        with torch.no_grad():
+        with torch.no_grad(), self._autocast():
             temp = self.model(preprocessed_image)
 
-        probabilities = torch.softmax(temp, dim=1)
+        probabilities = torch.softmax(temp.float(), dim=1)
 
         predicted_class_index = torch.argmax(probabilities, dim=1).item()
         predicted_class_name = self._idx_to_name[predicted_class_index]
@@ -232,26 +242,38 @@ class ClassifyModel(nn.Module):
         """
         Transforming raw data into a video and performing inference on video.
 
+        Frames are inferred in batches (was one-at-a-time, which left the GPU
+        almost idle) using the cached transform; results are drawn afterwards.
+
         Parameters:
         - source (str): Path to the raw data.
         """
-        res = []
         images = generate_images(source)
         name = os.path.splitext(os.path.basename(source))[0]
+        if not images:
+            self.logger.log_with_color(f"No frames generated from: {source}")
+            return
 
-        for image in images:
-            with torch.no_grad():
-                temp = self.model(self.preprocess(image))
+        batch_size = int(self.cfg.get('batch_size') or 8)
+        names, probs_pct = [], []
+        with torch.no_grad():
+            for i in range(0, len(images), batch_size):
+                chunk = images[i:i + batch_size]
+                batch = torch.stack(
+                    [self._transform(im.convert('RGB')) for im in chunk]
+                ).to(self.device, non_blocking=True)
+                with self._autocast():
+                    outputs = self.model(batch)
+                probabilities = torch.softmax(outputs.float(), dim=1)
+                conf, idx = probabilities.max(dim=1)
+                for j in range(len(chunk)):
+                    names.append(self._idx_to_name[int(idx[j].item())])
+                    probs_pct.append(float(conf[j].item()) * 100)
 
-            probabilities = torch.softmax(temp, dim=1)
-
-            predicted_class_index = torch.argmax(probabilities, dim=1).item()
-            predicted_class_name = self._idx_to_name[predicted_class_index]
-
-            _ = self.add_result(res=predicted_class_name,
-                                probability=probabilities[0][predicted_class_index].item() * 100,
-                                image=image)
-            res.append(_)
+        res = [
+            self.add_result(res=n, probability=p, image=im)
+            for n, p, im in zip(names, probs_pct, images)
+        ]
 
         imageio.mimsave(os.path.join(self.save_path, name + '.mp4'), res, fps=5)
 
@@ -279,9 +301,18 @@ class ClassifyModel(nn.Module):
         Returns:
         - image (PIL.Image): Image with added result.
         """
+        # Load the font once and cache it (was reloaded from disk every frame),
+        # falling back to the default font if the TTF isn't installed.
+        key = (font, font_size)
+        fnt = self._font_cache.get(key)
+        if fnt is None:
+            try:
+                fnt = ImageFont.truetype(font, font_size)
+            except Exception:
+                fnt = ImageFont.load_default()
+            self._font_cache[key] = fnt
         draw = ImageDraw.Draw(image)
-        font = ImageFont.truetype(font, font_size)
-        draw.text(position, res + f" {probability:.2f}%", fill=text_color, font=font)
+        draw.text(position, res + f" {probability:.2f}%", fill=text_color, font=fnt)
 
         return image
 
@@ -296,15 +327,15 @@ class ClassifyModel(nn.Module):
         logger = colorful_logger('Inference')
         return logger
 
+    def _autocast(self):
+        """Mixed-precision context on CUDA; a no-op on CPU."""
+        dev = 'cuda' if self._use_amp else 'cpu'
+        return torch.autocast(device_type=dev, enabled=self._use_amp)
+
     def preprocess(self, img):
 
-        transform = transforms.Compose([
-            transforms.Resize((self.cfg['image_size'], self.cfg['image_size'])),
-            transforms.ToTensor(),
-        ])
-
         image = (img if isinstance(img, Image.Image) else Image.open(img)).convert('RGB')
-        preprocessed_image = transform(image)
+        preprocessed_image = self._transform(image)
 
         preprocessed_image = preprocessed_image.to(self.device)
         preprocessed_image = preprocessed_image.unsqueeze(0)
@@ -340,9 +371,7 @@ class ClassifyModel(nn.Module):
                     self.model.eval()
                     _dataset = datasets.ImageFolder(
                         root=os.path.join(data_path, snr, CM),
-                        transform=transforms.Compose([
-                        transforms.Resize((self.cfg['image_size'], self.cfg['image_size'])),
-                        transforms.ToTensor(),])
+                        transform=self._transform,
                     )
                     dataset = DataLoader(_dataset, batch_size=self.cfg['batch_size'], shuffle=self.cfg['shuffle'])
                     self.logger.log_with_color("Starting Benchmark...")
@@ -363,7 +392,8 @@ class ClassifyModel(nn.Module):
                     for images, labels in dataset:
                         images, labels = images.to(self.device), labels.to(self.device)
                         labels = remap[labels]  # folder-local -> global/training indices
-                        outputs = self.model(images)
+                        with self._autocast():
+                            outputs = self.model(images).float()
                         for output in outputs:
                             probabilities.append(list(torch.softmax(output, dim=0)))
                         _, predicted = outputs.max(1)
@@ -435,15 +465,69 @@ class DetectionModel:
         - hide_conf: Whether to hide confidence scores in the output.
     """
 
-    def __init__(self, cfg=None, model_name=None, weight_path=None):
+    def __init__(self, cfg=None, model_name=None, weight_path=None, conf_thres=0.6):
         self.logger = colorful_logger('Inference')
+        cfg = cfg or {}
         if cfg:
-            model_name = cfg['model_name']
-            weight_path = cfg['weight_path']
+            model_name = cfg.get('model_name', model_name)
+            weight_path = cfg.get('weight_path', weight_path)
+
+        self.model_name = model_name
+        self.weight_path = weight_path
+        self.conf_thres = conf_thres
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self._use_amp = str(self.device) != 'cpu'
+        self.S1model = None   # yolov5 backend
+        self.det_model = None  # torchvision / transformers backend
+        self.processor = None  # transformers image processor (rtdetr)
+        self.names = None      # class-id -> name mapping (dict or list)
 
         if model_name == 'yolov5':
+            if YOLOV5S is None:
+                raise ImportError("YOLOv5 backend unavailable (utils.DetModels failed to import)")
             self.S1model = YOLOV5S(weights=weight_path)
             self.S1model.inference = self.yolov5_detect
+            self.names = self.S1model.names
+
+        elif model_name == 'fasterrcnn':
+            from torchvision.models.detection import (
+                fasterrcnn_resnet50_fpn_v2,
+                FasterRCNN_ResNet50_FPN_V2_Weights,
+            )
+            if weight_path and os.path.exists(weight_path):
+                num_classes = int(cfg.get('num_classes', 91))
+                self.det_model = fasterrcnn_resnet50_fpn_v2(weights=None, num_classes=num_classes)
+                state = torch.load(weight_path, map_location='cpu')
+                if isinstance(state, dict) and 'model' in state:
+                    state = state['model']
+                self.det_model.load_state_dict(state)
+                self.names = cfg.get('class_names') or {i: str(i) for i in range(num_classes)}
+                self.logger.log_with_color(f"Faster R-CNN: loaded custom weights from {weight_path}")
+            else:
+                weights = FasterRCNN_ResNet50_FPN_V2_Weights.DEFAULT
+                self.det_model = fasterrcnn_resnet50_fpn_v2(weights=weights)
+                self.names = {i: n for i, n in enumerate(weights.meta['categories'])}
+                self.logger.log_with_color("Faster R-CNN: using COCO-pretrained weights")
+            self.det_model.to(self.device).eval()
+
+        elif model_name == 'rtdetr':
+            try:
+                from transformers import RTDetrForObjectDetection, RTDetrImageProcessor
+            except ImportError as e:
+                raise ImportError(
+                    "RT-DETR requires the `transformers` package (pip install transformers)."
+                ) from e
+            ckpt = weight_path or "PekingU/rtdetr_r50vd"
+            self.det_model = RTDetrForObjectDetection.from_pretrained(ckpt).to(self.device).eval()
+            self.processor = RTDetrImageProcessor.from_pretrained(ckpt)
+            self.names = self.det_model.config.id2label
+            self.logger.log_with_color(f"RT-DETR: loaded '{ckpt}'")
+
+        else:
+            raise ValueError(
+                f"Unsupported detection model '{model_name}'. "
+                f"Choose from: 'yolov5', 'fasterrcnn', 'rtdetr'."
+            )
 
     @torch.no_grad()
     def yolov5_detect(self,
@@ -546,6 +630,147 @@ class DetectionModel:
 
             # Print results
             self.logger.log_with_color(f"Results saved to {colorstr('bold', save_dir)}")
+
+    @torch.no_grad()
+    def yolov5_detect_batch(self,
+                            sources,
+                            imgsz=(640, 640),
+                            conf_thres=0.6,
+                            iou_thres=0.45,
+                            max_det=1000,
+                            line_thickness=3,
+                            hide_labels=True,
+                            hide_conf=False,
+                            ):
+        """Batched counterpart of the numpy branch of ``yolov5_detect``.
+
+        Takes a list of BGR frames and runs a single forward over the whole
+        batch (instead of one forward per frame), then annotates each image.
+        Returns a list of annotated BGR images aligned with ``sources``. Every
+        per-image op (letterbox / NMS / scale_boxes / annotate) is identical to
+        ``yolov5_detect``; only the model forward is batched. Falls back to
+        per-frame detection if the letterboxed frames are not all the same shape
+        (so they cannot be stacked)."""
+        if not sources:
+            return []
+        color = Colors()
+        detmodel = self.S1model
+        stride, names = detmodel.stride, detmodel.names
+        detmodel.eval()
+
+        letterboxed = [letterbox(src, imgsz, stride=stride, auto=True)[0] for src in sources]
+        if len({lb.shape for lb in letterboxed}) != 1:
+            # Different padded sizes can't be stacked; process individually.
+            return [self.yolov5_detect(source=src, imgsz=imgsz, conf_thres=conf_thres,
+                                       iou_thres=iou_thres, max_det=max_det,
+                                       line_thickness=line_thickness,
+                                       hide_labels=hide_labels, hide_conf=hide_conf)
+                    for src in sources]
+
+        ims = np.ascontiguousarray(
+            np.stack([lb.transpose((2, 0, 1))[::-1] for lb in letterboxed])  # BHWC(BGR)->BCHW(RGB)
+        )
+        ims = torch.from_numpy(ims).to(detmodel.device).float() / 255
+
+        pred = detmodel(ims)
+        pred = non_max_suppression(pred, conf_thres, iou_thres, agnostic=False, max_det=max_det)
+
+        results = []
+        for i, det in enumerate(pred):  # per image
+            annotator = Annotator(sources[i], line_width=line_thickness, example=str(names))
+            if len(det):
+                det[:, :4] = scale_boxes(ims.shape[2:], det[:, :4], sources[i].shape).round()
+                for *xyxy, conf, cls in reversed(det):
+                    c = int(cls)
+                    label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                    annotator.box_label(xyxy, label, color=color(c + 2, True))
+            results.append(annotator.result())
+        return results
+
+    def _autocast(self):
+        """Mixed-precision context on CUDA; a no-op on CPU."""
+        dev = 'cuda' if self._use_amp else 'cpu'
+        return torch.autocast(device_type=dev, enabled=self._use_amp)
+
+    def detect_batch(self, sources, conf_thres=None):
+        """Backend-agnostic batched detection.
+
+        `sources`: list of BGR np.ndarray frames. Returns a list of annotated
+        BGR np.ndarray images aligned with `sources`. Routes to the active
+        backend (yolov5 / fasterrcnn / rtdetr)."""
+        conf = self.conf_thres if conf_thres is None else conf_thres
+        if self.model_name == 'yolov5':
+            return self.yolov5_detect_batch(sources, conf_thres=conf)
+        if self.model_name == 'fasterrcnn':
+            return self._fasterrcnn_detect_batch(sources, conf)
+        if self.model_name == 'rtdetr':
+            return self._rtdetr_detect_batch(sources, conf)
+        raise ValueError(f"Unsupported detection model '{self.model_name}'")
+
+    def detect(self, source, conf_thres=None):
+        """Backend-agnostic single-image detection.
+
+        `source`: image path or BGR np.ndarray. Returns one annotated BGR image."""
+        conf = self.conf_thres if conf_thres is None else conf_thres
+        img = source if isinstance(source, np.ndarray) else cv2.imread(source)
+        if img is None:
+            raise ValueError(f"Could not read image: {source}")
+        return self.detect_batch([img], conf_thres=conf)[0]
+
+    @torch.no_grad()
+    def _fasterrcnn_detect_batch(self, sources, conf_thres):
+        tensors = [
+            torch.from_numpy(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+                 .permute(2, 0, 1).float().div(255).to(self.device)
+            for bgr in sources
+        ]
+        with self._autocast():
+            outputs = self.det_model(tensors)  # torchvision detectors batch a list natively
+        results = []
+        for bgr, out in zip(sources, outputs):
+            scores = out['scores'].detach().cpu().numpy()
+            keep = scores >= conf_thres
+            boxes = out['boxes'].detach().cpu().numpy()[keep]
+            labels = out['labels'].detach().cpu().numpy()[keep]
+            results.append(self._draw_boxes(bgr.copy(), boxes, scores[keep], labels))
+        return results
+
+    @torch.no_grad()
+    def _rtdetr_detect_batch(self, sources, conf_thres):
+        pils = [Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)) for bgr in sources]
+        inputs = self.processor(images=pils, return_tensors="pt").to(self.device)
+        with self._autocast():
+            outputs = self.det_model(**inputs)
+        target_sizes = torch.tensor([[im.height, im.width] for im in pils], device=self.device)
+        post = self.processor.post_process_object_detection(
+            outputs, target_sizes=target_sizes, threshold=conf_thres)
+        results = []
+        for bgr, res in zip(sources, post):
+            results.append(self._draw_boxes(
+                bgr.copy(),
+                res['boxes'].detach().cpu().numpy(),
+                res['scores'].detach().cpu().numpy(),
+                res['labels'].detach().cpu().numpy(),
+            ))
+        return results
+
+    def _draw_boxes(self, bgr, boxes, scores, labels, line_thickness=3):
+        """Draw xyxy boxes + labels on a BGR image (fasterrcnn / rtdetr backends)."""
+        palette = Colors()
+        for box, score, lab in zip(boxes, scores, labels):
+            x1, y1, x2, y2 = (int(v) for v in box[:4])
+            lab = int(lab)
+            c = palette(lab + 2, True)  # BGR
+            cv2.rectangle(bgr, (x1, y1), (x2, y2), c, line_thickness, lineType=cv2.LINE_AA)
+            if isinstance(self.names, dict):
+                name = self.names.get(lab, str(lab))
+            elif self.names is not None and lab < len(self.names):
+                name = self.names[lab]
+            else:
+                name = str(lab)
+            cv2.putText(bgr, f"{name} {float(score):.2f}", (x1, max(12, y1 - 5)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, c, 2, lineType=cv2.LINE_AA)
+        return bgr
 
 
 def is_valid_file(path, total_ext):
