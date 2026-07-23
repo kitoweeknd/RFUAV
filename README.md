@@ -296,7 +296,7 @@ test.benchmark(data_path='Your benchmark data path',
 
 **Data Segmentation**
 
-You can directly access our raw data for processing as needed. We provide a MATLAB tool (`tools/rawdata_crop.m`) for segmenting the raw data. You can specify any segment of raw data to be split at regular intervals (e.g., every 2 seconds). The segmented data packets are smaller and easier to process.
+You can directly access our raw data for processing as needed. We provide a MATLAB tool (`tools/RawSignalClip.m`) for segmenting the raw data. You can specify any segment of raw data to be split at regular intervals (set `time_sec`). The segmented data packets are smaller and easier to process.
 
 **Data Augmentation**
 

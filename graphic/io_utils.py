@@ -37,4 +37,11 @@ def _complex_from_file(filepath: str, start: int, count: int,
     # `count` elements = 2 * count interleaved floats (I, Q per complex sample);
     # `offset` stays in bytes.
     raw = np.fromfile(filepath, dtype=file_type, offset=skip_bytes, count=2 * count)
-    return raw[::2] + raw[1::2] * 1j
+    # Guard against an odd/truncated tail near EOF (would otherwise mismatch the
+    # I/Q slice lengths), and build the complex array explicitly so a float32
+    # source stays complex64 (never silently upcast to complex128).
+    n = raw.size // 2
+    out = np.empty(n, dtype=np.complex64 if np.dtype(file_type).itemsize <= 4 else np.complex128)
+    out.real = raw[:2 * n:2]
+    out.imag = raw[1:2 * n:2]
+    return out

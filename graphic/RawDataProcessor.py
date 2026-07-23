@@ -8,6 +8,8 @@ import shutil
 import sys
 import tempfile
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from scipy.signal import stft, windows
 import numpy as np
 from io import BytesIO
@@ -15,7 +17,6 @@ from PIL import Image
 from typing import Union
 from scipy.fft import fft
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
 from collections import OrderedDict
 
 from graphic.io_utils import _count_complex_samples, _complex_from_file
@@ -130,7 +131,7 @@ def STFT(data,
     slice_point = int(fs * duration_time)
     f, t, Zxx = stft(data[0: slice_point], fs,
                      return_onesided=onside,
-                     window=windows.hamming(stft_point),
+                     window=windows.hamming(stft_point).astype(np.float32),
                      nperseg=stft_point)
     return f, t, Zxx
 
@@ -181,8 +182,7 @@ def generate_images(datapack: str = None,
                          duration_time=duration_time, onside=False)
         f = np.fft.fftshift(f)
         Zxx = np.fft.fftshift(Zxx, axes=0)
-        aug = 10 * np.log10(np.abs(Zxx))
-        aug = np.clip(aug, a_min=1e-10, a_max=None)
+        aug = 10 * np.log10(np.clip(np.abs(Zxx), 1e-10, None))
         extent = [t.min(), t.max(), f.min(), f.max()]
 
         plt.figure()
@@ -251,8 +251,7 @@ def save_as_video(datapack: str,
                              duration_time=duration_time, onside=False)
             f = np.fft.fftshift(f)
             Zxx = np.fft.fftshift(Zxx, axes=0)
-            aug = 10 * np.log10(np.abs(Zxx))
-            aug = np.clip(aug, a_min=1e-10, a_max=None)
+            aug = 10 * np.log10(np.clip(np.abs(Zxx), 1e-10, None))
             extent = [t.min(), t.max(), f.min(), f.max()]
 
             plt.figure()
@@ -343,8 +342,7 @@ def show_spectrum(datapack: str = '',
     Zxx = np.fft.fftshift(Zxx, axes=0)
 
     fig = plt.figure()
-    aug = 10 * np.log10(np.abs(Zxx))
-    aug = np.clip(aug, a_min=1e-10, a_max=None)
+    aug = 10 * np.log10(np.clip(np.abs(Zxx), 1e-10, None))
     extent = [t.min(), t.max(), f.min(), f.max()]
     plt.imshow(aug, extent=extent, aspect='auto', origin='lower')
     plt.colorbar()
@@ -400,8 +398,7 @@ def show_half_only(datapack: str = '',
 
     # I component
     fig_I = plt.figure()
-    aug_I = 10 * np.log10(np.abs(Zxx_I))
-    aug_I = np.clip(aug_I, a_min=1e-10, a_max=None)
+    aug_I = 10 * np.log10(np.clip(np.abs(Zxx_I), 1e-10, None))
     plt.pcolormesh(t_I, f_I, aug_I, cmap='jet')
     plt.title(drone_name + " I")
     plt.xlabel('Time (s)')
@@ -422,8 +419,7 @@ def show_half_only(datapack: str = '',
 
     # Q component
     fig_Q = plt.figure()
-    aug_Q = 10 * np.log10(np.abs(Zxx_Q))
-    aug_Q = np.clip(aug_Q, a_min=1e-10, a_max=None)
+    aug_Q = 10 * np.log10(np.clip(np.abs(Zxx_Q), 1e-10, None))
     plt.pcolormesh(t_Q, f_Q, aug_Q, cmap='jet')
     plt.title(drone_name + " Q")
     plt.xlabel('Time (s)')
@@ -492,47 +488,28 @@ def draw_and_save(fig_save_path: str,
     print("All done.")
 
 
-def check_folder(folder_path):
-    """Create `folder_path` if it does not exist (no-op if it already exists)."""
-    os.makedirs(folder_path, exist_ok=True)
-
-
 # ----------------------------------------------------------------------
-# Waterfall spectrogram (data-reuse + parallel + streaming)
+# Waterfall spectrogram (batched FFT + streaming)
 # ----------------------------------------------------------------------
-def _compute_fft_frame(data_segment, fft_size, window, frame_idx, fft_cache, cache_lock):
-    """Compute FFT for a single frame with cache.
-
-    Returns: (frame_idx, magnitude)
-    """
-    cache_key = (frame_idx, fft_size)
-    with cache_lock:
-        if cache_key in fft_cache:
-            return frame_idx, fft_cache[cache_key]
-
-    frame_data = data_segment * window
-    magnitude = np.abs(np.fft.fftshift(fft(frame_data)))
-
-    with cache_lock:
-        fft_cache[cache_key] = magnitude
-
-    return frame_idx, magnitude
-
-
 def _generate_spectrogram_image(spectrogram_data, fs, fft_size, num_frames, frame_id):
-    """Generate a spectrogram image from the given data.
+    """Render one waterfall spectrogram to a PNG buffer.
+
+    Uses the matplotlib object-oriented API (Figure + Agg canvas) rather than the
+    global pyplot state, so it is safe to call concurrently from worker threads.
 
     Returns: (frame_id, BytesIO buffer)
     """
-    plt.figure(figsize=(10, 6))
-    plt.imshow(np.log10(spectrogram_data.T), aspect='auto', cmap='jet', origin='lower',
-               extent=[0, num_frames * fft_size / fs, -fs / 2, fs / 2])
-    plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=None, hspace=None)
-    plt.axis('off')
+    fig = Figure(figsize=(10, 6))
+    FigureCanvasAgg(fig)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.axis('off')
+    # Floor the magnitude before log10 to avoid log10(0) = -inf.
+    ax.imshow(np.log10(np.clip(spectrogram_data.T, 1e-10, None)),
+              aspect='auto', cmap='jet', origin='lower',
+              extent=[0, num_frames * fft_size / fs, -fs / 2, fs / 2])
 
     buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=300, bbox_inches='tight', pad_inches=0)
-    plt.close()
+    fig.savefig(buf, format='png', dpi=300)
     buf.seek(0)
 
     return frame_id, BytesIO(buf.getvalue())
@@ -578,7 +555,7 @@ def waterfall_spectrogram_optimized(datapack,
     if location != 'buffer':
         os.makedirs(location, exist_ok=True)
 
-    window = np.hanning(fft_size)
+    window = np.hanning(fft_size).astype(np.float32)
 
     # --- streaming pass: process the file in chunks ---
     processed_frames = 0
@@ -620,52 +597,41 @@ def waterfall_spectrogram_optimized(datapack,
         # Local indices within this chunk
         local_indices = [idx - global_start for idx in target_frame_indices]
 
-        fft_cache = {}
-        fft_cache_lock = Lock()
+        # Batched FFT: compute every frame's magnitude spectrum exactly once
+        # (block-wise to bound peak memory), then slice each target's waterfall
+        # window. This replaces the per-frame FFT + locked cache, which served
+        # the same overlapping frames up to time_scale/target_frame_gap times.
+        mags = np.empty((num_small_frames, fft_size), dtype=np.float32)
+        fft_block = 20_000
+        for b in range(0, num_small_frames, fft_block):
+            be = min(b + fft_block, num_small_frames)
+            block = data[b * fft_size: be * fft_size].reshape(be - b, fft_size)
+            mags[b:be] = np.abs(np.fft.fftshift(fft(block * window, axis=1), axes=1))
+
         fft_results = OrderedDict()
-        spectrogram_images = OrderedDict()
-        spectrogram_lock = Lock()
-
-        def process_fft_for_target_frame(local_idx, global_idx):
-            # `data` is the chunk-LOCAL buffer, so index it with chunk-local frame
-            # indices. Clamp the window start to 0 (the chunk boundary) rather than
-            # reaching into a previous chunk that is no longer resident in RAM.
-            start_frame = max(0, local_idx - time_scale)
-            end_frame = local_idx + 1
-            frame_ffts = []
-            for sf_idx in range(start_frame, end_frame):
-                data_seg = data[sf_idx * fft_size: (sf_idx + 1) * fft_size]
-                _, magnitude = _compute_fft_frame(data_seg, fft_size, window,
-                                                   sf_idx, fft_cache, fft_cache_lock)
-                frame_ffts.append(magnitude)
-            spectrogram = np.array(frame_ffts)
-            return global_idx, spectrogram
-
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            fft_futures = {executor.submit(process_fft_for_target_frame, li, gi): gi
-                           for li, gi in zip(local_indices, target_frame_indices)}
-            for future in as_completed(fft_futures):
-                gi, spectrogram = future.result()
-                fft_results[gi] = spectrogram
+        for local_idx, global_idx in zip(local_indices, target_frame_indices):
+            start_frame = max(0, local_idx - time_scale)  # clamp to chunk boundary
+            fft_results[global_idx] = mags[start_frame: local_idx + 1]
 
         def generate_image_for_frame(global_idx):
-            spectrogram = fft_results[global_idx]
             _, buf = _generate_spectrogram_image(
-                spectrogram, fs, fft_size, num_small_frames, global_idx)
+                fft_results[global_idx], fs, fft_size, num_small_frames, global_idx)
             return global_idx, buf
 
+        # Rendering uses the thread-safe OO matplotlib API, so it can still fan
+        # out; results are collected in the main thread (no lock needed).
+        spectrogram_images = OrderedDict()
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             img_futures = {executor.submit(generate_image_for_frame, gi): gi
                            for gi in target_frame_indices}
             for future in as_completed(img_futures):
                 gi, buf = future.result()
-                with spectrogram_lock:
-                    spectrogram_images[gi] = buf
+                spectrogram_images[gi] = buf
 
         # --- write images to disk / collect in RAM ---
         if location == 'buffer':
             images_chunk = [spectrogram_images[gi] for gi in
-                            sorted(spectrogram_images, key=lambda x: x)]
+                            sorted(spectrogram_images)]
             processed_frames += len(images_chunk)
             all_images.extend(images_chunk)
             print(f"  [{chunk_start:,} – {chunk_end:,}] "
@@ -684,13 +650,6 @@ def waterfall_spectrogram_optimized(datapack,
                   f"{len(spectrogram_images)} waterfall frames  (total: {processed_frames})")
 
     return all_images if location == 'buffer' else None
-
-
-def waterfall_spectrogram(datapack, fft_size, fs, location, time_scale,
-                          file_type=np.float32):
-    """Backward-compatible wrapper. Calls waterfall_spectrogram_optimized."""
-    return waterfall_spectrogram_optimized(
-        datapack, fft_size, fs, location, time_scale, file_type=file_type)
 
 
 # ----------------------------------------------------------------------
