@@ -22,65 +22,70 @@ def split_images(source_dir, target_dir, other_dir, open_dir, close_dir, ratio, 
     for drone in drone_type:
         i = 0
         if drone in special_dir:
-            for detail_type in os.listdir(source_dir+drone+'/'+target_dir+'/'):
-                pics = [_ for _ in os.listdir(source_dir+drone+'/'+target_dir+'/'+detail_type+'/')]
-                os.makedirs(open_dir+detail_type, exist_ok=True)
-                os.makedirs(close_dir+detail_type, exist_ok=True)
+            base = os.path.join(source_dir, drone, target_dir)
+            for detail_type in os.listdir(base):
+                src = os.path.join(base, detail_type)
+                pics = os.listdir(src)
+                os.makedirs(os.path.join(open_dir, detail_type), exist_ok=True)
+                os.makedirs(os.path.join(close_dir, detail_type), exist_ok=True)
                 random.shuffle(pics)
                 split_point = int(len(pics) * ratio)
                 open_files = pics[:split_point]
                 close_files = pics[split_point:]
 
                 for file in open_files:
-                    shutil.copy(os.path.join(source_dir+drone+'/'+target_dir+'/'+detail_type, file), os.path.join(open_dir+detail_type, file))
-
+                    shutil.copy(os.path.join(src, file), os.path.join(open_dir, detail_type, file))
                 for file in close_files:
-                    shutil.copy(os.path.join(source_dir+drone+'/'+target_dir+'/'+detail_type, file), os.path.join(close_dir+detail_type, file))
+                    shutil.copy(os.path.join(src, file), os.path.join(close_dir, detail_type, file))
 
         else:
+            train_dir = os.path.join(target_dir, 'train', drone)
+            valid_dir = os.path.join(target_dir, 'valid', drone)
+            os.makedirs(train_dir, exist_ok=True)
+            os.makedirs(valid_dir, exist_ok=True)
             packs = os.listdir(os.path.join(source_dir, drone))
             for pack in packs:
-                pics = [_ for _ in os.listdir(os.path.join(source_dir, drone, pack))]
-                if not os.path.exists(os.path.join(target_dir, 'train', drone)):
-                    check_path(os.path.join(target_dir, 'train', drone))
-                if not os.path.exists(os.path.join(target_dir, 'valid', drone)):
-                    check_path(os.path.join(target_dir, 'valid', drone))
+                pics = os.listdir(os.path.join(source_dir, drone, pack))
                 random.shuffle(pics)
                 split_point = int(len(pics) * ratio)
                 train = pics[:split_point]
                 val = pics[split_point:]
 
+                # Copy straight to the renamed target (preserve the source
+                # extension instead of forcing .jpg; one op instead of copy+rename).
                 for file in train:
-                    shutil.copy(os.path.join(source_dir, drone, pack, file), os.path.join(target_dir, 'train', drone))
-                    os.rename(os.path.join(target_dir, 'train', drone, file), os.path.join(target_dir, 'train', drone, drone + str(i) + '.jpg'))
+                    ext = os.path.splitext(file)[1]
+                    shutil.copy(os.path.join(source_dir, drone, pack, file),
+                                os.path.join(train_dir, f'{drone}{i}{ext}'))
                     i += 1
                 for file in val:
-                    shutil.copy(os.path.join(source_dir, drone, pack, file), os.path.join(target_dir, 'valid', drone))
-                    os.rename(os.path.join(target_dir, 'valid', drone, file), os.path.join(target_dir, 'valid', drone, drone + str(i) + '.jpg'))
+                    ext = os.path.splitext(file)[1]
+                    shutil.copy(os.path.join(source_dir, drone, pack, file),
+                                os.path.join(valid_dir, f'{drone}{i}{ext}'))
                     i += 1
             print(f'{packs} done')
         print(f'{drone} done')
 
 
-def check_path(directory_path):
-    if not os.path.exists(directory_path):
-        os.makedirs(directory_path)
-        print(f"dir created: {directory_path}")
-    else:
-        print(f"dir exits: {directory_path}")
-
-
 def main():
-    source_directory = 'Your data path'
-    target_dir = 'Your target dir'
-    other_dir = []
-    ratio = 0.3
-    open_dir = ''
-    close_dir = ''
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Randomly split a per-drone image dataset into train/valid (copying files).")
+    parser.add_argument("source_dir", help="Root dir containing one subfolder per drone type.")
+    parser.add_argument("target_dir", help="Output dir (train/ and valid/ are created under it).")
+    parser.add_argument("--ratio", type=float, default=0.3,
+                        help="Fraction of each folder that goes to the first split (default 0.3).")
+    parser.add_argument("--seed", type=int, default=42, help="RNG seed for reproducible splits.")
+    parser.add_argument("--other-dir", nargs="*", default=[],
+                        help="Subfolder names under source_dir to skip.")
+    parser.add_argument("--special-dir", nargs="*", default=[],
+                        help="Drone folders handled via the open/close split instead of train/valid.")
+    parser.add_argument("--open-dir", default="", help="Output dir for the 'open' split (special dirs).")
+    parser.add_argument("--close-dir", default="", help="Output dir for the 'close' split (special dirs).")
+    args = parser.parse_args()
 
-    special_dir = []
-
-    split_images(source_directory, target_dir, other_dir, open_dir, close_dir, ratio, special_dir)
+    split_images(args.source_dir, args.target_dir, args.other_dir, args.open_dir,
+                 args.close_dir, args.ratio, args.special_dir, seed=args.seed)
 
 
 if __name__ == '__main__':

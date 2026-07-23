@@ -1,8 +1,13 @@
 # Merge the data of two drones
 import os
+import sys
+
 import matplotlib.pyplot as plt
 import numpy as np
 
+# Allow running directly as `python tools/DroneMixing.py` (add repo root to path
+# so the sibling `graphic` package is importable, not just via `python -m`).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from graphic.RawDataProcessor import STFT
 
 
@@ -39,14 +44,16 @@ def MergeData(UAV1: str,
     data_UAV2_I = data_UAV2[::2]
     data_UAV2_Q = data_UAV2[1::2]
 
-    data_UAV1_I2_padded = np.pad(data_UAV1_I, (0,  max(len(data_UAV1_I), len(data_UAV2_I)) - len(data_UAV1_I)), 'constant', constant_values=0)
-    data_UAV1_Q2_padded = np.pad(data_UAV1_Q, (0,  max(len(data_UAV1_Q), len(data_UAV2_Q)) - len(data_UAV1_Q)), 'constant', constant_values=0)
-
-    data_UAV2_I1_padded = np.pad(data_UAV2_I, (0,  max(len(data_UAV1_I), len(data_UAV2_I)) - len(data_UAV2_I)), 'constant', constant_values=0)
-    data_UAV2_Q2_padded = np.pad(data_UAV2_Q, (0,  max(len(data_UAV1_Q), len(data_UAV2_Q)) - len(data_UAV2_Q)), 'constant', constant_values=0)
-
-    _data_UAV1 = data_UAV1_I2_padded + data_UAV1_Q2_padded * 1j
-    _data_UAV2 = data_UAV2_I1_padded + data_UAV2_Q2_padded * 1j
+    # Zero-pad both recordings to the same length and combine, keeping the data
+    # complex64 (float32 * 1j would silently promote the whole array to
+    # complex128 — 2x memory, and against this repo's complex64 convention).
+    n = max(len(data_UAV1_I), len(data_UAV2_I))
+    _data_UAV1 = np.zeros(n, dtype=np.complex64)
+    _data_UAV1.real[:len(data_UAV1_I)] = data_UAV1_I
+    _data_UAV1.imag[:len(data_UAV1_Q)] = data_UAV1_Q
+    _data_UAV2 = np.zeros(n, dtype=np.complex64)
+    _data_UAV2.real[:len(data_UAV2_I)] = data_UAV2_I
+    _data_UAV2.imag[:len(data_UAV2_Q)] = data_UAV2_Q
 
     i = 0
     data_merged = _data_UAV1 + _data_UAV2
@@ -60,15 +67,15 @@ def MergeData(UAV1: str,
                          onside=False)
         f = np.fft.fftshift(f)
         Zxx = np.fft.fftshift(Zxx, axes=0)
-        aug = 10 * np.log10(np.abs(Zxx))
+        # Floor the magnitude before log10 (log10(0) = -inf otherwise).
+        aug = 10 * np.log10(np.clip(np.abs(Zxx), 1e-10, None))
         extent = [t.min(), t.max(), f.min(), f.max()]
 
         plt.figure()
         plt.imshow(aug, extent=extent, aspect='auto', origin='lower', cmap='jet')
         plt.axis('off')
         plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=None, hspace=None)
-        plt.savefig(os.path.join(targetFolderPath, name, ' (' + str(i) + ').jpg'), dpi=300)
-        plt.show()
+        plt.savefig(os.path.join(targetFolderPath, name, f'{name}_{i}.jpg'), dpi=300)
         plt.close()
 
         i += 1
@@ -76,23 +83,26 @@ def MergeData(UAV1: str,
 
 # Usage-----------------------------------------------------------------------------------------------------------------
 def main():
-    UAV1 = ''
-    UAV2 = ''
-    targetFolderPath = ''
-    name = 'test'
-
-    duration_time = 0.1
-    fs = 100e6
-    stft_point = 1024
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Mix two UAV IQ recordings and save STFT spectrogram frames.")
+    parser.add_argument("uav1", help="Path to the first UAV IQ file (float32 interleaved).")
+    parser.add_argument("uav2", help="Path to the second UAV IQ file.")
+    parser.add_argument("target", help="Output directory for the mixed spectrogram frames.")
+    parser.add_argument("--name", default="mixed", help="Name prefix for the output subfolder/images.")
+    parser.add_argument("--duration-time", type=float, default=0.1, help="Seconds per frame (default 0.1).")
+    parser.add_argument("--fs", type=float, default=100e6, help="Sampling rate in Hz (default 100e6).")
+    parser.add_argument("--stft-point", type=int, default=1024, help="STFT window size (default 1024).")
+    args = parser.parse_args()
 
     MergeData(
-        UAV1=UAV1,
-        UAV2=UAV2,
-        targetFolderPath=targetFolderPath,
-        name=name,
-        duration_time=duration_time,
-        fs=fs,
-        stft_point=stft_point)
+        UAV1=args.uav1,
+        UAV2=args.uav2,
+        targetFolderPath=args.target,
+        name=args.name,
+        duration_time=args.duration_time,
+        fs=args.fs,
+        stft_point=args.stft_point)
 
 
 if __name__ == '__main__':
