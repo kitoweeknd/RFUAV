@@ -38,6 +38,11 @@ class TwoStagesDetector:
         self.save_path = save_path
         self.target_dir = target_dir
 
+        # Stage models: only the stage(s) selected below get instantiated,
+        # so default both to None and guard reads for single-stage configs.
+        self.S1 = None
+        self.S2model = None
+
         if not cla and det:
             self.DroneDetector(cfg=det)
         elif not det and cla:
@@ -89,7 +94,7 @@ class TwoStagesDetector:
             Processed image if `save` is False, otherwise None.
         """
 
-        if self.S1.S1model:
+        if self.S1 is not None and self.S1.S1model:
             if save:
                 with torch.no_grad():
                     res = self.S1.S1model.inference(source=source, save_dir=self.target_dir)
@@ -98,22 +103,22 @@ class TwoStagesDetector:
                 temp = np.asarray(bytearray(source.read()), dtype=np.uint8)
                 temp = cv2.imdecode(temp, cv2.IMREAD_COLOR)
                 res = self.S1.S1model.inference(source=temp)
-            if not self.S2model:
+            if self.S2model is None:
                 if save:
                     cv2.imwrite(self.save_path, res)
                 else:
                     return res
 
-        if self.S2model:
+        if self.S2model is not None:
             if save: name = os.path.basename(source)[:-4]
             origin_image = Image.open(source).convert('RGB')
             preprocessed_image = self.S2model.preprocess(source)
 
             probability, predicted_class_name = self.S2model.forward(preprocessed_image)
 
-            if not self.S1.S1model:
+            if self.S1 is None or not self.S1.S1model:
                 res = self.S2model.add_result(res=predicted_class_name,
-                                              probability=predicted_class_name,
+                                              probability=probability,
                                               image=origin_image)
                 if save:
                     res.save(os.path.join(self.save_path, name + '.jpg'))
@@ -259,19 +264,6 @@ class TwoStagesDetector:
         """
 
         self.S2model = ClassifyModel(cfg=cfg, weight_path=weight_path)
-
-    @property
-    def set_logger(self):
-
-        """
-        Sets up the logger.
-
-        Returns:
-        - logger (colorful_logger): Logger instance.
-        """
-
-        logger = colorful_logger('Inference')
-        return logger
 
 
 def load_model_from_json(cfg):

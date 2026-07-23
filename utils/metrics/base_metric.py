@@ -144,7 +144,6 @@ class EVAMetric:
                 res['f1'] = f1.compute_metric(f1._results)
 
             elif task == 'precision':
-                _labels = labels.unsqueeze(1)
                 logger.log_with_color('start computing the precision')
                 from .precision import AveragePrecision
                 ap = AveragePrecision()

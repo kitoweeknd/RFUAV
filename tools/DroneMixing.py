@@ -1,4 +1,5 @@
 # Merge the data of two drones
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -49,6 +50,7 @@ def MergeData(UAV1: str,
 
     i = 0
     data_merged = _data_UAV1 + _data_UAV2
+    os.makedirs(os.path.join(targetFolderPath, name), exist_ok=True)
     while (i + 1) * slice_point <= len(data_merged):
 
         f, t, Zxx = STFT(data_merged[int(i * slice_point): int((i + 1) * slice_point)],
@@ -62,14 +64,14 @@ def MergeData(UAV1: str,
         extent = [t.min(), t.max(), f.min(), f.max()]
 
         plt.figure()
-        plt.imshow(aug, extent=extent, aspect='auto', origin='lower')
+        plt.imshow(aug, extent=extent, aspect='auto', origin='lower', cmap='jet')
         plt.axis('off')
         plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=None, hspace=None)
-        plt.savefig(targetFolderPath + name + '/' + ' (' + str(i) + ').jpg', dpi=300)
+        plt.savefig(os.path.join(targetFolderPath, name, ' (' + str(i) + ').jpg'), dpi=300)
         plt.show()
         plt.close()
 
-        i += 2 ** (-1)
+        i += 1
 
 
 # Usage-----------------------------------------------------------------------------------------------------------------
@@ -90,7 +92,7 @@ def main():
         name=name,
         duration_time=duration_time,
         fs=fs,
-        stft_point1=stft_point)
+        stft_point=stft_point)
 
 
 if __name__ == '__main__':

@@ -5,7 +5,17 @@ import random
 import shutil
 
 
-def split_images(source_dir, target_dir, other_dir, open_dir, close_dir, ratio, special_dir):
+def split_images(source_dir, target_dir, other_dir, open_dir, close_dir, ratio, special_dir, seed=42):
+
+    # Ratio convention: `split_point = int(len(pics) * ratio)` and the first
+    # `ratio` fraction of the shuffled files goes to the first split
+    # (train / open_dir); the remaining `1 - ratio` goes to valid / close_dir.
+    # NOTE (correlation leakage): because splitting happens at the frame level,
+    # consecutive frames from a single continuous recording can end up in both
+    # the train and valid splits, which leaks correlated content across them.
+    # Seed the RNG so the split is reproducible across runs (files are copied,
+    # not moved, so an unseeded reshuffle would accumulate duplicates / leakage).
+    random.seed(seed)
 
     drone_type = [_ for _ in os.listdir(source_dir) if _ not in other_dir]
 

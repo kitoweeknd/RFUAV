@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from .yolo import DetectionModel
 from .yolo.basic import Ensemble, Detect
-from .yolo.general import yaml_load
 import numpy as np
 
 
@@ -29,10 +28,6 @@ class YOLOV5S(nn.Module):
         names = model.module.names if hasattr(model, 'module') else model.names  # get class names
         model.half() if fp16 else model.float()
         self.model = model  # explicitly assign for to(), cpu(), cuda(), half()
-
-        # class names
-        if 'names' not in locals():
-            names = yaml_load(data)['names'] if data else {i: f'class{i}' for i in range(999)}
 
         self.__dict__.update(locals())  # assign all variables to self
 
@@ -61,8 +56,7 @@ def attempt_load(weights, device=None, inplace=True, fuse=True):
 
     model = Ensemble()
     for w in weights if isinstance(weights, list) else [weights]:
-        ckpt = torch.load(weights, map_location='cpu')  # load
-        model_state_dict = ckpt['model']
+        ckpt = torch.load(w, map_location='cpu')  # load
         ckpt = ckpt['model'].to(device).float()
 
         # Model compatibility updates

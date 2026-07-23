@@ -29,35 +29,12 @@ def _complex_from_file(filepath: str, start: int, count: int,
     if _is_complex_dtype(file_type):
         bytes_per_sample = np.dtype(file_type).itemsize
         skip_bytes = start * bytes_per_sample
-        read_bytes = count * bytes_per_sample
-        return np.fromfile(filepath, dtype=file_type, offset=skip_bytes, count=read_bytes)
+        # numpy's `count` is an ELEMENT count (not bytes); `offset` is in bytes.
+        return np.fromfile(filepath, dtype=file_type, offset=skip_bytes, count=count)
 
     bytes_per_sample = np.dtype(file_type).itemsize
     skip_bytes = start * 2 * bytes_per_sample
-    read_bytes = count * 2 * bytes_per_sample
-    raw = np.fromfile(filepath, dtype=file_type, offset=skip_bytes, count=read_bytes)
+    # `count` elements = 2 * count interleaved floats (I, Q per complex sample);
+    # `offset` stays in bytes.
+    raw = np.fromfile(filepath, dtype=file_type, offset=skip_bytes, count=2 * count)
     return raw[::2] + raw[1::2] * 1j
-
-
-def _complex_memmap(filepath: str, file_type=np.float32):
-    """Memory-mapped view of a raw IQ file as complex64 samples.
-
-    Supports two layouts:
-    - interleaved float: alternating I, Q, I, Q, ...
-    - direct complex: native complex binary
-
-    The returned array has dtype complex64 and length = total_complex_samples.
-    NumPy memmap is read-only and backed by the OS page cache, so large files
-    are never fully resident in RAM; only touched pages are loaded on demand.
-    """
-    if _is_complex_dtype(file_type):
-        mm = np.memmap(filepath, dtype=file_type, mode='r')
-        if file_type == np.complex128:
-            return mm.astype(np.complex64)
-        return mm
-
-    bytes_per_sample = np.dtype(file_type).itemsize
-    mm = np.memmap(filepath, dtype=file_type, mode='r')
-    i = mm[::2].astype(np.complex64)
-    q = mm[1::2].astype(np.complex64)
-    return i + q * 1j

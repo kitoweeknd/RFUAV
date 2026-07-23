@@ -44,11 +44,17 @@ name_table = {
 def generator(pics_path, txt_path):
     pics = os.listdir(pics_path)
     for pic in pics:
+        count = None
         for _ in name_table.keys():
-            if _ in pic: count = name_table[_]
-        full_path = txt_path + pic.replace('.jpg', '') + '.txt'
-        file = open(full_path, 'w')
-        file.write(str(count) + ' ' + "0.5130208333333334 0.5045138888888889 0.775 0.7701388888888889")
+            if _ in pic:
+                count = name_table[_]
+                break
+        if count is None:
+            print(f'Warning: no label key matched for {pic}, skipping.')
+            continue
+        full_path = os.path.join(txt_path, os.path.splitext(pic)[0] + '.txt')
+        with open(full_path, 'w') as file:
+            file.write(str(count) + ' ' + "0.5130208333333334 0.5045138888888889 0.775 0.7701388888888889")
         print(pic + ' labeled.')
 
     print("Label complete.")
@@ -66,11 +72,11 @@ def split_pics(source_dir, other_dir, train_dir, valid_dir, ratio):
         train_files = pics[split_point:]
 
         for file in valid_files:
-            shutil.copy(os.path.join(source_dir+drone, file), os.path.join(train_dir, file))
+            shutil.copy(os.path.join(source_dir+drone, file), os.path.join(valid_dir, file))
             print(file + ' copied to valid dir.')
 
         for file in train_files:
-            shutil.copy(os.path.join(source_dir+drone, file), os.path.join(valid_dir, file))
+            shutil.copy(os.path.join(source_dir+drone, file), os.path.join(train_dir, file))
             print(file + ' copied to train dir.')
 
 
