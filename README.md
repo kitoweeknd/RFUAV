@@ -185,7 +185,9 @@ The `awgn1` function adjusts the noise level of raw signal data based on the SNR
 
 ### 2.3 Training Custom Drone Classification Models
 
-We provide custom training code for drone identification tasks based on the PyTorch framework. Currently supported models include [ViT](https://arxiv.org/abs/2010.11929), [ResNet](https://arxiv.org/abs/1512.03385), [MobileNet](https://arxiv.org/abs/1704.04861), [Swin Transformer](https://arxiv.org/abs/2103.14030), [EfficientNet](https://arxiv.org/abs/1905.11946), [DenseNet](https://arxiv.org/abs/1608.06993), [VGG](https://arxiv.org/abs/1409.1556), and many others. You can also customize your own model using the code in `utils.trainer.model_init_()`.
+We provide custom training code for drone identification tasks based on the PyTorch framework. Classification models are built with [`timm`](https://github.com/huggingface/pytorch-image-models) (**1000+ architectures**), so any name from `timm.list_models()` can be used directly in the config's `model:` field — for example `resnet50`, `vit_base_patch16_224` ([ViT](https://arxiv.org/abs/2010.11929)), `swinv2_tiny_window8_256` ([Swin](https://arxiv.org/abs/2103.14030)), `convnext_tiny`, `efficientnetv2_rw_s` ([EfficientNet](https://arxiv.org/abs/1905.11946)), `mobilenetv3_large_100` ([MobileNet](https://arxiv.org/abs/1704.04861)), `densenet121` ([DenseNet](https://arxiv.org/abs/1608.06993)), `eva02_base_patch14_224`, and many more. `timm.create_model` automatically resizes the classifier head to `num_classes`; set `pretrained: true` in the config to initialise the backbone from ImageNet weights.
+
+> **Note:** fixed-input architectures (most ViT/Swin variants) require an `image_size` the architecture supports — e.g. `224` for `vit_base_patch16_224`, `256` for `swinv2_*_window8_256`; convolutional backbones accept any size. Run `python -c "import timm; print(timm.list_models('*vit*'))"` to browse available names.
 
 **Training**
 
@@ -217,7 +219,7 @@ Alternatively, you can use the base trainer directly:
 from utils.trainer import Basetrainer
 
 trainer = Basetrainer(
-    model='resnet50',
+    model='resnet50',  # any timm.list_models() name
     train_path='Your train data path',
     val_path='Your val data path',
     num_class=23,

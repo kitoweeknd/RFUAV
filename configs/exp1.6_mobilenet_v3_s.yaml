@@ -1,7 +1,7 @@
 train:
 val:
 save_path:
-model : mobilenet_v3_small
+model : mobilenetv3_small_100
 weights: None
 batch_size: 8
 image_size: 640

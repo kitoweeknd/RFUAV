@@ -3,15 +3,17 @@
 import logging
 import os
 
+import timm
 import torch
 import yaml
 
 DefaultConfig = '../configs/config.yaml'
-Model_list = [
-    "resnet18", "resnet34", "resnet50", "resnet101", "resnet152",
-    "vit_b_16", "vit_b_32", "vit_l_16", "vit_l_32", "vit_h_14",
-    "swin_v2_t", "swin_v2_s", "swin_v2_b", "mobilenet_v3_small",
-    "mobilenet_v3_large"]
+
+
+def is_supported_model(name: str) -> bool:
+    """True if `name` is a valid timm model. Classification models are built
+    with `timm` (1000+ architectures); use any name from `timm.list_models()`."""
+    return isinstance(name, str) and timm.is_model(name.strip())
 
 
 def check_cfg(cfg: str):
@@ -26,8 +28,12 @@ def check_cfg(cfg: str):
     if not os.path.exists(opt['save_path']):
         os.makedirs(opt['save_path'], exist_ok=True)
         logging.info("Save path does not exist, created: {}".format(opt['save_path']))
-    if not isinstance(opt['model'], str) or opt['model'].lower() not in Model_list:
-        raise ValueError("The model you specified is not available")
+    if not is_supported_model(opt['model']):
+        raise ValueError(
+            f"Model '{opt.get('model')}' is not a valid timm model. "
+            f"Pick a name from timm.list_models() (e.g. resnet50, "
+            f"vit_base_patch16_224, convnext_tiny, swinv2_tiny_window8_256)."
+        )
     if not isinstance(opt['num_classes'], int):
         raise ValueError("The number of classes must be an integer")
     if opt['weights'] is None or not os.path.exists(opt['weights']):
