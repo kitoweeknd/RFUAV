@@ -6,11 +6,11 @@ function [] = DoAddNoise(file_out,file_in,fileName,signal_power,noisevalue,targe
     fileInfo = dir(file); 
     fileSize = fileInfo.bytes; 
     times = fileSize /4/ 3e6;  
-    filepathOut = file_out + '\' + fileName(1:end-4) + '-noise' ;
+    filepathOut = fullfile(file_out, fileName(1:end-4) + "-noise");
     if ~exist(filepathOut,"dir")
         mkdir(filepathOut);
     end
-    filepathOut = filepathOut + '\' + num2str(target)+ "dB.dat";  
+    filepathOut = fullfile(filepathOut, num2str(target) + "dB.dat");
     for i = 1:times
         fp = fopen(file,"rb"); 
         fseek(fp,3e6*(i-1),-1);
