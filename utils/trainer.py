@@ -141,7 +141,7 @@ class Basetrainer:
             pretrained = False
 
         if not isinstance(pretrained, bool):
-            self.logger.log_with_color("Invalid pretrained flag, fallback to True")
+            self.logger.warning("Invalid pretrained flag, fallback to True")
             pretrained = True
 
         torch.backends.cudnn.benchmark = self.cudnn_benchmark
@@ -354,9 +354,9 @@ class Basetrainer:
             self.logger.log_with_color(f"Loading pretrained weights from: {weight_path}")
             state_dict = torch.load(weight_path, map_location=self.device, weights_only=True)
             self.model.load_state_dict(state_dict)
-            self.logger.log_with_color(f"Successfully loaded pretrained weights from: {weight_path}")
+            self.logger.success(f"Successfully loaded pretrained weights from: {weight_path}")
         else:
-            self.logger.log_with_color(f"Pretrained weights file not found at: {weight_path}. Skipping weight loading.")
+            self.logger.warning(f"Pretrained weights file not found at: {weight_path}. Skipping weight loading.")
 
 
 def model_init_(model_name, num_class, pretrained=True, image_size=None):
