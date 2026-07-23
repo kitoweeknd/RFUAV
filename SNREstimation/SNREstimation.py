@@ -16,9 +16,14 @@ are importable, e.g.::
     python -m SNREstimation.SNREstimation path/to/signal.iq --fs 100e6 --bw 20e6
 """
 import argparse
+import os
+import sys
 
 import numpy as np
 
+# Allow running directly as `python SNREstimation/SNREstimation.py ...` (add the
+# repo root to the path so `ChannelSimulation` is importable, not just `-m`).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ChannelSimulation.core.io_utils import read_interleaved_iq
 from ChannelSimulation.viewer.signal_proc.snr_estimator import SNREstimator
 

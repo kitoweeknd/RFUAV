@@ -656,6 +656,14 @@ def waterfall_spectrogram_optimized(datapack,
     return all_images if location == 'buffer' else None
 
 
+def waterfall_spectrogram(datapack, fft_size, fs, location, time_scale,
+                          file_type=np.float32):
+    """Backward-compatible alias for ``waterfall_spectrogram_optimized`` (the
+    documented public entry point); delegates with default gap/workers/chunk."""
+    return waterfall_spectrogram_optimized(
+        datapack, fft_size, fs, location, time_scale, file_type=file_type)
+
+
 # ----------------------------------------------------------------------
 # CLI
 # ----------------------------------------------------------------------

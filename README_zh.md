@@ -92,13 +92,12 @@ from graphic.RawDataProcessor import RawDataProcessor
 
 datapack = '您的数据包路径'
 test = RawDataProcessor()
-test.ShowSpectrogram(data_path=datapack,
-                     drone_name='DJ FPV COMBO',
-                     sample_rate=100e6,
-                     stft_point=2048,
-                     duration_time=0.1,
-                     oneside=False,
-                     Middle_Frequency=2400e6)
+test.show_spectrogram(data_path=datapack,
+                      drone_name='DJI FPV COMBO',
+                      sample_rate=100e6,
+                      stft_point=2048,
+                      duration_time=0.1,
+                      oneside=False)
 ```
 
 **批量转换为图像**
@@ -111,16 +110,16 @@ from graphic.RawDataProcessor import RawDataProcessor
 data_path = '您的数据包路径'
 save_path = '您的保存路径'
 test = RawDataProcessor()
-test.TransRawDataintoSpectrogram(fig_save_path=save_path,
-                                 data_path=data_path,
-                                 sample_rate=100e6,
-                                 stft_point=1024,
-                                 duration_time=0.1)
+test.trans_raw_data_into_spectrogram(fig_save_path=save_path,
+                                     data_path=data_path,
+                                     sample_rate=100e6,
+                                     stft_point=1024,
+                                     duration_time=0.1)
 ```
 
 **保存为视频**
 
-您可以使用 `TransRawDataintoVideo()` 方法将频谱图保存为视频，这样可以更好地可视化信号的时间演化：
+您可以使用 `trans_raw_data_into_video()` 方法将频谱图保存为视频，这样可以更好地可视化信号的时间演化：
 
 ```python
 from graphic.RawDataProcessor import RawDataProcessor
@@ -128,12 +127,12 @@ from graphic.RawDataProcessor import RawDataProcessor
 data_path = '您的数据包路径'
 save_path = '您的保存路径'
 test = RawDataProcessor()
-test.TransRawDataintoVideo(save_path=save_path,
-                           data_path=data_path,
-                           sample_rate=100e6,
-                           stft_point=1024,
-                           duration_time=0.1,
-                           fps=5)
+test.trans_raw_data_into_video(save_path=save_path,
+                               data_path=data_path,
+                               sample_rate=100e6,
+                               stft_point=1024,
+                               duration_time=0.1,
+                               fps=5)
 ```
 
 **瀑布频谱图**
@@ -181,6 +180,14 @@ snr_esti = snrEsti(dataIQ, fs, NFFT, f1, f2, idx1, idx2, idx3, idx4);
 **SNR 调整**
 
 `awgn1` 函数根据SNR估计结果调整原始信号数据的噪声水平。信噪比可以在-20 dB到20 dB之间调整，默认步长为2 dB。如果需要，您也可以定义自定义范围。
+
+**Python 命令行**
+
+如需在原始 IQ 文件上快速得到命令行 SNR 读数（委托给 viewer 在用的估计器）：
+
+```bash
+python SNREstimation/SNREstimation.py path/to/signal.iq --fs 100e6 --bw 20e6
+```
 
 ### 2.3 训练自定义无人机分类模型
 

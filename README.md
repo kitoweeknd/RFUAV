@@ -90,13 +90,12 @@ from graphic.RawDataProcessor import RawDataProcessor
 
 datapack = 'Your datapack path'
 test = RawDataProcessor()
-test.ShowSpectrogram(data_path=datapack,
-                     drone_name='DJ FPV COMBO',
-                     sample_rate=100e6,
-                     stft_point=2048,
-                     duration_time=0.1,
-                     oneside=False,
-                     Middle_Frequency=2400e6)
+test.show_spectrogram(data_path=datapack,
+                      drone_name='DJI FPV COMBO',
+                      sample_rate=100e6,
+                      stft_point=2048,
+                      duration_time=0.1,
+                      oneside=False)
 ```
 
 **Batch Conversion to Images**
@@ -109,16 +108,16 @@ from graphic.RawDataProcessor import RawDataProcessor
 data_path = 'Your datapack path'
 save_path = 'Your save path'
 test = RawDataProcessor()
-test.TransRawDataintoSpectrogram(fig_save_path=save_path,
-                                 data_path=data_path,
-                                 sample_rate=100e6,
-                                 stft_point=1024,
-                                 duration_time=0.1)
+test.trans_raw_data_into_spectrogram(fig_save_path=save_path,
+                                     data_path=data_path,
+                                     sample_rate=100e6,
+                                     stft_point=1024,
+                                     duration_time=0.1)
 ```
 
 **Save as Video**
 
-You can use the `TransRawDataintoVideo()` method to save the spectrogram as a video, which provides better visualization of temporal signal evolution:
+You can use the `trans_raw_data_into_video()` method to save the spectrogram as a video, which provides better visualization of temporal signal evolution:
 
 ```python
 from graphic.RawDataProcessor import RawDataProcessor
@@ -126,12 +125,12 @@ from graphic.RawDataProcessor import RawDataProcessor
 data_path = 'Your datapack path'
 save_path = 'Your save path'
 test = RawDataProcessor()
-test.TransRawDataintoVideo(save_path=save_path,
-                           data_path=data_path,
-                           sample_rate=100e6,
-                           stft_point=1024,
-                           duration_time=0.1,
-                           fps=5)
+test.trans_raw_data_into_video(save_path=save_path,
+                               data_path=data_path,
+                               sample_rate=100e6,
+                               stft_point=1024,
+                               duration_time=0.1,
+                               fps=5)
 ```
 
 **Waterfall Spectrogram**
@@ -179,6 +178,14 @@ snr_esti = snrEsti(dataIQ, fs, NFFT, f1, f2, idx1, idx2, idx3, idx4);
 **SNR Adjustment**
 
 The `awgn1` function adjusts the noise level of raw signal data based on the SNR estimation results. The signal-to-noise ratio can be adjusted between -20 dB and 20 dB, with a default step size of 2 dB. You can also define a custom scale if needed.
+
+**Python CLI**
+
+For a quick command-line SNR readout on a raw IQ file (delegates to the maintained estimator used by the viewer):
+
+```bash
+python SNREstimation/SNREstimation.py path/to/signal.iq --fs 100e6 --bw 20e6
+```
 
 ### 2.3 Training Custom Drone Classification Models
 
