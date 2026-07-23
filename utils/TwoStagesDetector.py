@@ -1,6 +1,3 @@
-from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
 import glob
 import json
 import os
@@ -84,54 +81,44 @@ class TwoStagesDetector:
 
     def ImgProcessor(self, source, save=True):
 
-        """Processes an image source using the first and second stage models.
+        """Run the two-stage pipeline on a single spectrogram image path.
 
-        Args:
-            source: The image source to be processed.
-            save (bool): Whether to save the processed image.
-
-        Returns:
-            Processed image if `save` is False, otherwise None.
+        Stage 1 (any detector backend) draws boxes; stage 2 classifies the whole
+        image and overlays the label. Works for detector-only, classifier-only,
+        or both. Returns the annotated image when `save` is False, else writes it
+        under `save_path`.
         """
 
-        if self.S1 is not None and self.S1.S1model:
-            if save:
-                with torch.no_grad():
-                    res = self.S1.S1model.inference(source=source, save_dir=self.target_dir)
-            else:
-                source.seek(0)
-                temp = np.asarray(bytearray(source.read()), dtype=np.uint8)
-                temp = cv2.imdecode(temp, cv2.IMREAD_COLOR)
-                res = self.S1.S1model.inference(source=temp)
-            if self.S2model is None:
-                if save:
-                    cv2.imwrite(self.save_path, res)
-                else:
-                    return res
+        name = os.path.splitext(os.path.basename(source))[0]
+        out_path = os.path.join(self.save_path, name + '.jpg')
 
+        # Stage 1: detection (backend-agnostic) -> annotated BGR image
+        det_img = self.S1.detect(source) if self.S1 is not None else None
+
+        # Stage 2: whole-image classification
         if self.S2model is not None:
-            if save: name = os.path.basename(source)[:-4]
-            origin_image = Image.open(source).convert('RGB')
             preprocessed_image = self.S2model.preprocess(source)
-
             probability, predicted_class_name = self.S2model.forward(preprocessed_image)
 
-            if self.S1 is None or not self.S1.S1model:
+            if det_img is None:
+                # classification only -> annotate the original image (PIL)
+                origin_image = Image.open(source).convert('RGB')
                 res = self.S2model.add_result(res=predicted_class_name,
                                               probability=probability,
                                               image=origin_image)
                 if save:
-                    res.save(os.path.join(self.save_path, name + '.jpg'))
-                else:
-                    return res
+                    res.save(out_path)
+                    return
+                return res
 
-            else:
-                res = put_res_on_img(res, predicted_class_name, probability=probability)
+            det_img = put_res_on_img(det_img, predicted_class_name, probability=probability)
 
-                if save:
-                    cv2.imwrite(self.save_path, res)
-                else:
-                    return res
+        if det_img is None:
+            return
+        if save:
+            cv2.imwrite(out_path, det_img)
+            return
+        return det_img
 
     def RawdataProcess(self, source, fft_size=256, fs=100e6, time_scale=39062, 
                        target_frame_gap=150, num_workers=4, fps=30):
@@ -155,93 +142,81 @@ class TwoStagesDetector:
         - num_workers (int): Number of parallel worker threads
         - fps (int): Output video frame rate
         """
-        name = os.path.splitext(os.path.basename(source))
-        
-        # Use optimized waterfall spectrogram generation function, returns time-ordered spectrograms
-        self.logger.log_with_color(f"Starting to process raw data: {name[0]}")
-        self.logger.log_with_color(f"Generating spectrograms (parallel processing, data reuse)...")
-        
-        # Generate spectrograms (parallel, data reuse)
+        name = os.path.splitext(os.path.basename(source))[0]
+
+        self.logger.log_with_color(f"Starting to process raw data: {name}")
+        self.logger.log_with_color("Generating spectrograms (parallel processing, data reuse)...")
+
+        # Generate spectrograms (parallel, data reuse) -> time-ordered buffers
         images_list = waterfall_spectrogram_optimized(
-            source, fft_size=fft_size, fs=fs, location='buffer', 
-            time_scale=time_scale, target_frame_gap=target_frame_gap, 
+            source, fft_size=fft_size, fs=fs, location='buffer',
+            time_scale=time_scale, target_frame_gap=target_frame_gap,
             num_workers=num_workers
         )
-        
+
         if not images_list:
-            self.logger.log_with_color(f"Warning: No spectrograms generated")
+            self.logger.log_with_color("Warning: No spectrograms generated")
             return
-        
-        self.logger.log_with_color(f"Generated {len(images_list)} spectrograms, starting model inference...")
-        
-        # Result cache (hash table maintaining time order)
-        processed_results = OrderedDict()
-        results_lock = Lock()
-        video_initialized = False
+
+        n = len(images_list)
+        self.logger.log_with_color(f"Generated {n} spectrograms, starting model inference...")
+
+        # Decode each frame buffer per library (was decoded up to 3x per frame):
+        # a BGR array for stage-1 detection + video, and — only when stage 2 is
+        # present — an RGB PIL image via the same PIL path the classifier used.
+        need_pil = self.S2model is not None
+        bgr_frames, pil_frames = [], []
+        for buf in images_list:
+            buf.seek(0)
+            bgr_frames.append(cv2.imdecode(np.frombuffer(buf.read(), dtype=np.uint8), cv2.IMREAD_COLOR))
+            if need_pil:
+                buf.seek(0)
+                pil_frames.append(Image.open(buf).convert('RGB'))
+
+        # --- Stage 2: batch-classify every frame (whole-frame classification,
+        #     independent of stage-1 detections) instead of one frame at a time.
+        cls_results = [None] * n
+        if self.S2model is not None:
+            s2 = self.S2model
+            bs = int(s2.cfg.get('batch_size') or 8)
+            with torch.no_grad():
+                for i in range(0, n, bs):
+                    chunk = pil_frames[i:i + bs]
+                    batch = torch.stack([s2._transform(im) for im in chunk]).to(s2.device, non_blocking=True)
+                    with s2._autocast():
+                        outputs = s2.model(batch)
+                    probs = torch.softmax(outputs.float(), dim=1)
+                    conf, idx = probs.max(dim=1)
+                    for k in range(len(chunk)):
+                        cls_results[i + k] = (s2._idx_to_name[int(idx[k].item())], float(conf[k].item()) * 100)
+
+        # --- Stage 1: batch-detect frames, then compose result + write video in
+        #     time order (no thread pool: GPU forwards don't parallelise across
+        #     Python threads, and batching is what actually speeds this up).
+        has_s1 = self.S1 is not None
         video = None
-        
-        def process_single_image(frame_idx, image_buffer):
-            """Process single spectrogram"""
-            try:
-                result = self.ImgProcessor(image_buffer, save=False)
-                return frame_idx, result
-            except Exception as e:
-                self.logger.log_with_color(f"Error processing frame {frame_idx}: {e}")
-                return frame_idx, None
-        
-        # Process all spectrograms in parallel (non-blocking)
+        video_path = os.path.join(self.save_path, name + '_output.avi')
+        det_bs = 8
         with torch.no_grad():
-            with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                # Submit all tasks (images_list is already sorted by time order)
-                futures = {executor.submit(process_single_image, idx, img): idx 
-                          for idx, img in enumerate(images_list)}
-                
-                # Collect results in completion order (but maintain time order)
-                completed_count = 0
-                next_expected_frame = 0  # Next expected frame index
-                
-                for future in as_completed(futures):
-                    frame_idx, result = future.result()
-                    
-                    if result is not None:
-                        with results_lock:
-                            processed_results[frame_idx] = result
-                            completed_count += 1
-                            
-                            # Initialize video writer (when first result is obtained)
-                            if not video_initialized:
-                                height, width, layers = result.shape
-                                video_name = name[0] + '_output.avi'
-                                fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                                video_path = os.path.join(self.save_path, video_name)
-                                video = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
-                                video_initialized = True
-                                self.logger.log_with_color(f"Video writer initialized: {width}x{height}, {fps}fps")
-                            
-                            # Once new result arrives, write to video immediately (in time order)
-                            if video_initialized:
-                                # Check if consecutive frames can be written (starting from next_expected_frame)
-                                while next_expected_frame in processed_results:
-                                    video.write(processed_results[next_expected_frame])
-                                    del processed_results[next_expected_frame]
-                                    next_expected_frame += 1
-                            
-                            if completed_count % 10 == 0:
-                                self.logger.log_with_color(f"Processed {completed_count}/{len(images_list)} frames, written {next_expected_frame} frames to video")
-        
-        # Write remaining results (in time order)
-        if video_initialized:
-            for frame_idx in sorted(processed_results.keys()):
-                if frame_idx >= next_expected_frame:
-                    video.write(processed_results[frame_idx])
-                    next_expected_frame = frame_idx + 1
-        
-        # Release video writer
-        if video_initialized and video is not None:
+            for i in range(0, n, det_bs):
+                chunk_bgr = bgr_frames[i:i + det_bs]
+                det_imgs = self.S1.detect_batch(chunk_bgr) if has_s1 else chunk_bgr
+                for j, det_img in enumerate(det_imgs):
+                    cls = cls_results[i + j]
+                    if cls is not None:
+                        det_img = put_res_on_img(det_img, cls[0], probability=cls[1])
+                    if video is None:
+                        height, width = det_img.shape[:2]
+                        video = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'XVID'), fps, (width, height))
+                        self.logger.log_with_color(f"Video writer initialized: {width}x{height}, {fps}fps")
+                    video.write(det_img)
+                self.logger.log_with_color(f"Processed {min(i + det_bs, n)}/{n} frames")
+
+        if video is not None:
             video.release()
-            self.logger.log_with_color(f"Video saved: {os.path.join(self.save_path, name[0] + '_output.avi')}")
-        
-        self.logger.log_with_color(f"Completed processing {name[0]}, processed {len(images_list)} frames")
+            self.logger.log_with_color(f"Video saved: {video_path}")
+
+        self.logger.log_with_color(f"Completed processing {name}, processed {n} frames")
 
     def DroneDetector(self, cfg):
 

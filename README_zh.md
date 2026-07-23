@@ -60,10 +60,7 @@ python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
 
 ```bash
 # 分类训练
-python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
-
-# 检测训练
-python train.py --task detect --det-model yolo --dataset-dir path/to/dataset --det-save-dir runs/det
+python train.py --cfg configs/exp1.1_ResNet18.yaml
 
 # 两阶段推理
 python inference.py --task two_stage --two-stage-cfg example/two_stage/sample.json
@@ -248,31 +245,24 @@ test.inference(source='您的目标数据路径',
                save_path='您的目标保存路径')
 ```
 
-### 2.4 训练自定义无人机检测模型
+### 2.4 无人机检测推理
 
-我们提供用于无人机检测任务的自定义训练方法。目前支持的模型包括 [YOLOv5](https://github.com/ultralytics/yolov5)。
+我们提供优化后的检测**推理**,通过统一接口支持三种后端:
+- `yolov5` —— vendored YOLOv5(通过 `weight_path` 加载自训 `.pt`);
+- `fasterrcnn` —— 基于 `torchvision` 的 [Faster R-CNN](https://arxiv.org/abs/1506.01497)(默认 COCO 预训练);
+- `rtdetr` —— 基于 HuggingFace `transformers` 的 [RT-DETR](https://arxiv.org/abs/2304.08069)(首次使用会下载预训练权重)。
 
-**训练**
+检测训练不在本仓库内 —— 请用相应上游工具链训练检测器,再把权重加载到这里做推理。未提供 `weight_path` 时,`fasterrcnn`/`rtdetr` 默认使用公开预训练权重(COCO 类别)。
 
-您可以使用以下代码训练YOLOv5模型进行无人机检测：
-
-```python
-from utils.trainer import DetTrainer
-
-model = DetTrainer(model_name='yolo', dataset_dir='您的数据集文件路径')
-model.train(save_dir='您的保存路径')
-```
-
-**推理**
-
-推理流水线允许您在频谱图图像或二进制原始频率数据上运行模型。处理二进制原始频率数据时，结果会自动打包成视频，并在频谱图上显示检测结果。**注意：** 在二进制原始频率数据上进行推理时，必须使用在频谱图数据集上训练的模型权重。
+推理支持频谱图图像或二进制原始频率数据;原始数据会把标注帧打包成视频。帧以**批处理**方式推理以提速。**注意:** 处理二进制原始频率数据时,请使用在频谱图数据集上训练的检测器权重。
 
 ```python
 from utils.benchmark import DetectionModel
 
-test = DetectionModel(model_name='yolov5', weight_path='您的权重路径')
-test.yolov5_detect(source='您的目标数据路径',
-                   save_dir='您的目标保存路径')
+# 后端可选:'yolov5' | 'fasterrcnn' | 'rtdetr'
+det = DetectionModel(model_name='fasterrcnn')             # 或 yolov5 并给 weight_path='...'
+annotated = det.detect(source='path/to/spectrogram.jpg')   # 返回带框的 BGR 图
+annotated_frames = det.detect_batch(list_of_bgr_frames)    # 批处理
 ```
 
 ### 2.5 两阶段检测和分类

@@ -59,10 +59,7 @@ python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
 
 ```bash
 # Classification training
-python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
-
-# Detection training
-python train.py --task detect --det-model yolo --dataset-dir path/to/dataset --det-save-dir runs/det
+python train.py --cfg configs/exp1.1_ResNet18.yaml
 
 # Two-stage inference
 python inference.py --task two_stage --two-stage-cfg example/two_stage/sample.json
@@ -248,31 +245,24 @@ test.inference(source='Your target data path',
                save_path='Your target save path')
 ```
 
-### 2.4 Training Custom Drone Detection Models
+### 2.4 Drone Detection Inference
 
-We provide custom training methods for drone detection tasks. Currently supported models include [YOLOv5](https://github.com/ultralytics/yolov5). 
+We provide optimized detection **inference** with a unified interface over three backends:
+- `yolov5` — the vendored YOLOv5 (load a custom `.pt` via `weight_path`),
+- `fasterrcnn` — [Faster R-CNN](https://arxiv.org/abs/1506.01497) via `torchvision` (COCO-pretrained by default),
+- `rtdetr` — [RT-DETR](https://arxiv.org/abs/2304.08069) via HuggingFace `transformers` (downloads a pretrained checkpoint on first use).
 
-**Training**
+Detection training is not part of this repo — train a detector with its upstream toolchain, then load the weights here for inference. `fasterrcnn`/`rtdetr` default to public pretrained weights (COCO classes) when no `weight_path` is given.
 
-You can train the YOLOv5 model for drone detection using the following code:
-
-```python
-from utils.trainer import DetTrainer
-
-model = DetTrainer(model_name='yolo', dataset_dir='Your dataset file path')
-model.train(save_dir='Your save path')
-```
-
-**Inference**
-
-The inference pipeline allows you to run your model on either spectrogram images or binary raw frequency data. When processing binary raw frequency data, the results are automatically packaged into a video with detection results displayed on the spectrogram. **Note:** When inferring on binary raw frequency data, you must use a model weight trained on the spectrogram dataset.
+The pipeline runs on spectrogram images or binary raw frequency data; for raw data the annotated frames are packaged into a video. Frames are inferred in **batches** for speed. **Note:** for raw frequency data, use a detector weight trained on the spectrogram dataset.
 
 ```python
 from utils.benchmark import DetectionModel
 
-test = DetectionModel(model_name='yolov5', weight_path='Your weights path')
-test.yolov5_detect(source='Your target data path',
-                   save_dir='Your target save path')
+# pick any backend: 'yolov5' | 'fasterrcnn' | 'rtdetr'
+det = DetectionModel(model_name='fasterrcnn')            # or yolov5 with weight_path='...'
+annotated = det.detect(source='path/to/spectrogram.jpg')  # BGR image with boxes
+annotated_frames = det.detect_batch(list_of_bgr_frames)   # batched
 ```
 
 ### 2.5 Two-Stage Detection and Classification
