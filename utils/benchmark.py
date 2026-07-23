@@ -1,5 +1,4 @@
 import glob
-import json
 import os
 import time
 
@@ -7,7 +6,6 @@ import cv2
 import imageio
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-from scipy.optimize import linear_sum_assignment
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -75,13 +73,26 @@ class ClassifyModel(nn.Module):
             self.logger.log_with_color(f"Using config file: {cfg}")
             self.cfg = build_from_cfg(cfg)
 
-        if self.cfg['device'] == 'cuda':
-            if torch.cuda.is_available():
-                self.logger.log_with_color("Using GPU for inference")
-                self.device = self.cfg['device']
+        if self.cfg['device'] == 'cuda' and torch.cuda.is_available():
+            self.logger.log_with_color("Using GPU for inference")
+            self.device = 'cuda'
         else:
             self.logger.log_with_color("Using CPU for inference")
             self.device = "cpu"
+
+        # Normalize class_names into ordered index<->name maps that work for
+        # both a list (list order == class index) and a dict (name -> index).
+        _class_names = self.cfg['class_names']
+        if isinstance(_class_names, dict):
+            self._idx_to_name = {int(idx): name for name, idx in _class_names.items()}
+            self._name_to_idx = {name: int(idx) for name, idx in _class_names.items()}
+        else:
+            self._idx_to_name = {i: name for i, name in enumerate(_class_names)}
+            self._name_to_idx = {name: i for i, name in enumerate(_class_names)}
+        # Ordered class-name tuple in class-index (training) order.
+        self._ordered_class_names = tuple(
+            self._idx_to_name[i] for i in range(len(self._idx_to_name))
+        )
 
         if os.path.exists(weight_path):
             self.logger.log_with_color(f"Using weight file: {weight_path}")
@@ -152,7 +163,7 @@ class ClassifyModel(nn.Module):
         temp = self.model(img)
         probabilities = torch.softmax(temp, dim=1)
         predicted_class_index = torch.argmax(probabilities, dim=1).item()
-        predicted_class_name = get_key_from_value(self.cfg['class_names'], predicted_class_index)
+        predicted_class_name = self._idx_to_name[predicted_class_index]
         probability = probabilities[0][predicted_class_index].item() * 100
         return probability, predicted_class_name
 
@@ -201,7 +212,7 @@ class ClassifyModel(nn.Module):
         probabilities = torch.softmax(temp, dim=1)
 
         predicted_class_index = torch.argmax(probabilities, dim=1).item()
-        predicted_class_name = get_key_from_value(self.cfg['class_names'], predicted_class_index)
+        predicted_class_name = self._idx_to_name[predicted_class_index]
 
         end_time = time.time()
         self.logger.log_with_color(f"Inference time: {(end_time - start_time):.8f} sec")
@@ -234,7 +245,7 @@ class ClassifyModel(nn.Module):
             probabilities = torch.softmax(temp, dim=1)
 
             predicted_class_index = torch.argmax(probabilities, dim=1).item()
-            predicted_class_name = get_key_from_value(self.cfg['class_names'], predicted_class_index)
+            predicted_class_name = self._idx_to_name[predicted_class_index]
 
             _ = self.add_result(res=predicted_class_name,
                                 probability=probabilities[0][predicted_class_index].item() * 100,
@@ -291,7 +302,7 @@ class ClassifyModel(nn.Module):
             transforms.ToTensor(),
         ])
 
-        image = Image.open(img).convert('RGB')
+        image = (img if isinstance(img, Image.Image) else Image.open(img)).convert('RGB')
         preprocessed_image = transform(image)
 
         preprocessed_image = preprocessed_image.to(self.device)
@@ -339,12 +350,19 @@ class ClassifyModel(nn.Module):
                     total = 0
                     probabilities = []
                     total_labels = []
-                    classes_name = tuple(self.cfg['class_names'].keys())
+                    classes_name = self._ordered_class_names
+                    # ImageFolder assigns labels 0..k-1 in this folder's own
+                    # alphabetical order, which need not match the model's
+                    # training class order. Remap folder-local labels to the
+                    # global/training indices the predictions live in.
+                    remap = torch.full((len(_dataset.classes),), -1, dtype=torch.long)
+                    for _name, _local_idx in _dataset.class_to_idx.items():
+                        remap[_local_idx] = self._name_to_idx[_name]
+                    remap = remap.to(self.device)
                     for images, labels in dataset:
-                        images, labels = images.to(self.cfg['device']), labels.to(self.cfg['device'])
+                        images, labels = images.to(self.device), labels.to(self.device)
+                        labels = remap[labels]  # folder-local -> global/training indices
                         outputs = self.model(images)
-                        #outputs=outputs[:,INV_MAP]
-                        #probs =torch.softmax(outputs,dim=1)
                         for output in outputs:
                             probabilities.append(list(torch.softmax(output, dim=0)))
                         _, predicted = outputs.max(1)
@@ -361,7 +379,7 @@ class ClassifyModel(nn.Module):
                     _total_labels = torch.concat(total_labels, dim=0)
                     _probabilities = torch.tensor(probabilities)
 
-                    metrics = EVAMetric(preds=_probabilities.to(self.cfg['device']),
+                    metrics = EVAMetric(preds=_probabilities.to(self.device),
                                         labels=_total_labels,
                                         num_classes=self.cfg['num_classes'],
                                         tasks=('f1', 'precision', 'CM'),
@@ -383,13 +401,6 @@ class ClassifyModel(nn.Module):
 
                 self.logger.log_with_color(f'{CM} Done!')
             self.logger.log_with_color(f'{snr} Done!')
-        row_ind, col_ind = linear_sum_assignment(-cm_raw)
-        mapping_pred2gt = {int(r): int(c) for r, c in zip(row_ind, col_ind)}
-        self.logger.log_with_color(f"\n★ pred → gt: {mapping_pred2gt}")
-
-        with open(os.path.join(save_path, 'class_to_idx_pred2gt.json'), 'w') as f:
-            json.dump(mapping_pred2gt, f)
-        self.logger.log_with_color("saved to class_to_idx_pred2gt.json")
 
 class DetectionModel:
 
@@ -421,10 +432,6 @@ class DetectionModel:
         - line_thickness: Thickness of the bounding box lines.
         - hide_labels: Whether to hide class labels in the output.
         - hide_conf: Whether to hide confidence scores in the output.
-
-    - faster_rcnn_detect(self, source='../example/source/', save_dir='../res', weight_path='../example/detect/', imgsz=(640, 640), conf_thres=0.25, iou_thres=0.45, max_det=1000, line_thickness=3, hide_labels=False, hide_conf=False):
-        Placeholder method for running Faster R-CNN object detection.
-        This method is currently not implemented and should be replaced with the actual implementation.
     """
 
     def __init__(self, cfg=None, model_name=None, weight_path=None):
@@ -433,23 +440,9 @@ class DetectionModel:
             model_name = cfg['model_name']
             weight_path = cfg['weight_path']
 
-            if model_name == 'yolov5':
-                self.S1model = YOLOV5S(weights=weight_path)
-                self.S1model.inference = self.yolov5_detect
-
-            # ToDo
-            elif model_name == 'faster_rcnn':
-                self.S1model = YOLOV5S(weights=weight_path)
-                self.S1model.inference = self.yolov5_detect
-        else:
-            if model_name == 'yolov5':
-                self.S1model = YOLOV5S(weights=weight_path)
-                self.S1model.inference = self.yolov5_detect
-
-            # ToDo
-            elif model_name == 'faster_rcnn':
-                self.S1model = YOLOV5S(weights=weight_path)
-                self.S1model.inference = self.yolov5_detect
+        if model_name == 'yolov5':
+            self.S1model = YOLOV5S(weights=weight_path)
+            self.S1model.inference = self.yolov5_detect
 
     @torch.no_grad()
     def yolov5_detect(self,
@@ -489,10 +482,6 @@ class DetectionModel:
                 if len(det):
                     # Rescale boxes from img_size to im0 size
                     det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], source.shape).round()
-
-                    # Print results
-                    for c in det[:, 5].unique():
-                        n = (det[:, 5] == c).sum()  # detections per class
 
                     for *xyxy, conf, cls in reversed(det):
                         c = int(cls)  # integer class
@@ -557,21 +546,6 @@ class DetectionModel:
             # Print results
             self.logger.log_with_color(f"Results saved to {colorstr('bold', save_dir)}")
 
-    #ToDo
-    def faster_rcnn_detect(self,
-                           source='../example/source/',
-                           save_dir='../res',
-                           weight_path='../example/detect/',
-                           imgsz=(640, 640),
-                           conf_thres=0.25,
-                           iou_thres=0.45,
-                           max_det=1000,
-                           line_thickness=3,
-                           hide_labels=False,
-                           hide_conf=False,
-    ):
-        pass
-
 
 def is_valid_file(path, total_ext):
     """
@@ -607,68 +581,3 @@ def get_key_from_value(d, value):
             return key
     return None
 
-
-def preprocess_image_yolo(im0, imgsz, stride, detmodel):
-    im = letterbox(im0, imgsz, stride=stride, auto=True)[0]  # padded resize
-    im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-    im = np.ascontiguousarray(im)  # contiguous
-    im = torch.from_numpy(im).to(detmodel.device)
-    im = im.float()  # uint8 to fp16/32
-    im /= 255  # 0 - 255 to 0.0 - 1.0
-    if len(im.shape) == 3:
-        im = im[None]  # expand for batch dim
-    return im
-
-
-def process_predictions_yolo(det, im, im0, names, line_thickness, hide_labels, hide_conf, color):
-    annotator = Annotator(im0, line_width=line_thickness, example=str(names))
-    if len(det):
-        # Rescale boxes from img_size to im0 size
-        det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
-
-        # Print results
-        for c in det[:, 5].unique():
-            n = (det[:, 5] == c).sum()  # detections per class
-
-        for *xyxy, conf, cls in reversed(det):
-            c = int(cls)  # integer class
-            label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
-
-            annotator.box_label(xyxy, label, color=color(c + 2, True))
-
-    # Stream results
-    im0 = annotator.result()
-    return im0
-
-
-# Usage-----------------------------------------------------------------------------------------------------------------
-def main():
-
-    """
-    cfg = ''
-    weight_path = ''
-
-    source = ''
-    save_path = ''
-    test = ClassifyModel(cfg=cfg, weight_path=weight_path)
-
-    test.inference(source=source, save_path=save_path)
-    # test.benchmark()
-    """
-
-    """
-    source = ''
-    weight_path = ''
-    save_dir = ''
-    test = DetectionModel(model_name='yolov5', weight_path=weight_path)
-    test.yolov5_detect(source=source, save_dir=save_dir,)
-    """
-
-
-# Backward-compatible aliases
-Classify_Model = ClassifyModel
-Detection_Model = DetectionModel
-
-
-if __name__ == '__main__':
-    main()

@@ -1,4 +1,3 @@
-import logging
 from pathlib import Path
 import warnings
 
@@ -97,7 +96,7 @@ def main():
 
     save_dir = ''
 
-    test = ConfusionMatrix(nc=5)
+    test = ConfusionMatrix(nc=5, pic_name='demo')
     test.process_cls_preds(pred, targets)
     names = ('A', 'B', 'C', 'D', 'E')
     for _ in True, False:

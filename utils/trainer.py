@@ -1,7 +1,6 @@
 """
 The base trainer class `Basetrainer` and a custom trainer class `CustomTrainer` for training and validating image classification models.
 """
-from abc import abstractmethod
 from copy import deepcopy
 from datetime import datetime
 import math
@@ -173,7 +172,7 @@ class Basetrainer:
 
         self.model = model_init_(model_name=model, num_class=self.num_class, pretrained=pretrained)
 
-        if os.path.exists(weight_path):
+        if weight_path and os.path.exists(weight_path):
             self.load_pretrained_weights(weight_path)
             self.logger.log_with_color(f"Loading pretrained weights from: {weight_path}")
 
@@ -220,7 +219,6 @@ class Basetrainer:
         if self.ema_decay > 0:
             self.ema = ModelEMA(self.model, decay=self.ema_decay)
 
-    @abstractmethod
     def train(self, num_epochs):
         for epoch in range(num_epochs):
             self.logger.log_with_color(f"Epoch [{epoch + 1}/{num_epochs}] started.")
@@ -284,9 +282,14 @@ class Basetrainer:
                 f'Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.2f}%')
             if (epoch + 1) % self.val_interval == 0:
                 metrics = self.val
-                self.logger.log_with_color(
-                    f'Validation Loss: {metrics["total_loss"]:.4f}, Validation Accuracy: {metrics["acc"]:.2f}%')
-                if (epoch + 1) % self.metrics_interval != 0:
+                self.logger.log_with_color(f' Validation Loss: {metrics["total_loss"]:.4f},')
+                self.logger.log_with_color(f' Validation Accuracy: {metrics["acc"]:.2f}%,')
+                if (epoch + 1) % self.metrics_interval == 0:
+                    self.logger.log_with_color(f' Validation macro_F1: {metrics["f1"]["macro_f1"]}')
+                    self.logger.log_with_color(f' Validation micro_F1: {metrics["f1"]["micro_f1"]}')
+                    self.logger.log_with_color(f' Validation mAP: {metrics["mAP"]["mAP"]}')
+                    self.logger.log_with_color(f' Validation Top-k Accuracy: {metrics["Top-k"]}')
+                else:
                     metrics = {"acc": metrics["acc"], "total_loss": metrics["total_loss"]}
                 self.save_model(metrics, epoch)
 
@@ -333,15 +336,22 @@ class Basetrainer:
         Save the model after each epoch and track the best model based on validation accuracy.
         """
 
-        checkpoint_path = os.path.join(self.save_path, f'{self.model._get_name()}_epoch_{epoch + 1}.pth')
+        # Save the same weights `val` scores: the EMA shadow if EMA is active,
+        # else the live model. Unwrap torch.compile so the state_dict has plain
+        # keys (no `_orig_mod.` prefix) and reloads into a fresh model.
+        save_target = self.ema.ema if getattr(self, 'ema', None) is not None else self.model
+        save_target = getattr(save_target, '_orig_mod', save_target)
+        state_dict = save_target.state_dict()
+
+        checkpoint_path = os.path.join(self.save_path, f'{save_target._get_name()}_epoch_{epoch + 1}.pth')
         self.logger.log_with_color(
             f'Model saved at {checkpoint_path} (Validation Accuracy: {metrics["acc"]:.2f}%)')
-        torch.save(self.model.state_dict(), checkpoint_path)
+        torch.save(state_dict, checkpoint_path)
 
         # Save the best model if current validation accuracy is higher than the best recorded one
         if metrics["acc"] > self.best_acc:
             self.best_acc = metrics["acc"]
-            self.best_model = self.model.state_dict()
+            self.best_model = state_dict
             best_model_path = os.path.join(self.save_path, 'best_model.pth')
             torch.save(self.best_model, best_model_path)
             self.logger.log_with_color(f'New best model saved with Accuracy: {metrics["acc"]:.2f}%')
@@ -762,6 +772,7 @@ class CustomTrainer(Basetrainer):
                 num_class=self.parameters['num_classes'],
                 save_path=self.parameters['save_path'],
                 weight_path=self.parameters['weights'],
+                pretrained=self.parameters.get('pretrained', True),
                 device=self.parameters['device'],
                 batch_size=self.parameters['batch_size'],
                 shuffle=self.parameters['shuffle'],
@@ -795,55 +806,11 @@ class CustomTrainer(Basetrainer):
         return True
 
     def train(self):
-        num_epochs = self.parameters['num_epochs']
-
-        for epoch in range(num_epochs):
-            self.logger.log_with_color(f"Epoch [{epoch + 1}/{num_epochs}] started.")
-            self.model.train()
-            running_loss = 0.0
-            correct = 0
-            total = 0
-            self.optimizer.zero_grad(set_to_none=True)
-            for images, labels in self.train_set:
-                images = images.to(self.device, non_blocking=True)
-                labels = labels.to(self.device, non_blocking=True)
-
-                # forward propagation
-                with torch.amp.autocast(self.device.type, enabled=self.amp):
-                    outputs = self.model(images)
-                    loss = self.criterion(outputs, labels)
-
-                # backward propagation
-                if self.amp:
-                    self.grad_scaler.scale(loss).backward()
-                    self.grad_scaler.step(self.optimizer)
-                    self.grad_scaler.update()
-                else:
-                    loss.backward()
-                    self.optimizer.step()
-
-                # acc & loss
-                running_loss += loss.item()
-                _, predicted = outputs.max(1)
-                total += labels.size(0)
-                correct += predicted.eq(labels).sum().item()
-            train_loss = running_loss / len(self.train_set)
-            train_acc = 100 * correct / total
-            self.logger.log_with_color(
-                f'Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.2f}%')
-            if (epoch + 1) % self.val_interval == 0:
-                metrics = self.val
-                self.logger.log_with_color(f' Validation Loss: {metrics["total_loss"]:.4f},')
-                self.logger.log_with_color(f' Validation Accuracy: {metrics["acc"]:.2f}%,')
-                if (epoch + 1) % self.metrics_interval == 0:
-                    self.logger.log_with_color(f' Validation macro_F1: {metrics["f1"]["macro_f1"]}')
-                    self.logger.log_with_color(f' Validation micro_F1: {metrics["f1"]["micro_f1"]}')
-                    self.logger.log_with_color(f' Validation mAP: {metrics["mAP"]["mAP"]}')
-                    self.logger.log_with_color(f' Validation Top-k Accuracy: {metrics["Top-k"]}')
-                else:
-                    metrics = {"acc": metrics["acc"], "total_loss": metrics["total_loss"]}
-
-                self.save_model(metrics, epoch)
+        # Delegate to Basetrainer.train, which does the correct per-step
+        # zero_grad, gradient accumulation/clipping and EMA update. (The old
+        # inline loop here skipped per-step zero_grad — gradients accumulated
+        # across the whole epoch — and never updated the EMA used by `val`.)
+        super().train(self.parameters['num_epochs'])
 
 
 class DetTrainer:
@@ -857,6 +824,8 @@ class DetTrainer:
     def yolo_train(self, save_dir):
         logger = colorful_logger('Train')
         opt = yolo_init(known=True)  # modify the args in yolo_init if you need to train a custom model
+        if self.dataset_dir:
+            opt.data = self.dataset_dir  # honor the --dataset-dir CLI arg
         hyp = opt.hyp
         callbacks = Callbacks()
         device = select_device(opt.device, batch_size=opt.batch_size)

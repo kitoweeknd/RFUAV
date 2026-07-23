@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 from collections import OrderedDict
 
-from graphic.io_utils import _is_complex_dtype, _count_complex_samples, _complex_from_file, _complex_memmap
+from graphic.io_utils import _count_complex_samples, _complex_from_file
 
 
 # ----------------------------------------------------------------------
@@ -627,8 +627,11 @@ def waterfall_spectrogram_optimized(datapack,
         spectrogram_lock = Lock()
 
         def process_fft_for_target_frame(local_idx, global_idx):
-            start_frame = max(0, global_idx - time_scale)
-            end_frame = global_idx + 1
+            # `data` is the chunk-LOCAL buffer, so index it with chunk-local frame
+            # indices. Clamp the window start to 0 (the chunk boundary) rather than
+            # reaching into a previous chunk that is no longer resident in RAM.
+            start_frame = max(0, local_idx - time_scale)
+            end_frame = local_idx + 1
             frame_ffts = []
             for sf_idx in range(start_frame, end_frame):
                 data_seg = data[sf_idx * fft_size: (sf_idx + 1) * fft_size]

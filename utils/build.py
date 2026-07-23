@@ -31,19 +31,20 @@ def check_cfg(cfg: str):
     if not isinstance(opt['num_classes'], int):
         raise ValueError("The number of classes must be an integer")
     if opt['weights'] is None or not os.path.exists(opt['weights']):
-        logging.info("No pretrained weights specified, training from scratch")
-        opt['pretrained'] = False
+        logging.info("No fine-tune checkpoint specified; backbone init follows the `pretrained` flag")
     if opt['device'] != 'cpu' and not torch.cuda.is_available():
         logging.info("CUDA is not available, using CPU instead")
         opt['device'] = "cpu"
-    return True
+    return opt
 
 
 def build_from_cfg(cfg: str = DefaultConfig):
     if cfg != DefaultConfig:
-        if not check_cfg(cfg):
-            raise ValueError("Invalid config file: {}".format(cfg))
+        # check_cfg validates AND normalises (e.g. device->cpu fallback) and
+        # returns the resulting opt; reloading a fresh copy here would silently
+        # discard those normalisations.
+        opt = check_cfg(cfg)
         logging.info("Using custom config: {}".format(cfg))
-    opt = yaml.load(open(cfg, 'r', encoding='utf-8'), Loader=yaml.FullLoader)
+        return opt
 
-    return opt
+    return yaml.load(open(cfg, 'r', encoding='utf-8'), Loader=yaml.FullLoader)

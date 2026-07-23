@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.fft import fft
 
-from graphic.io_utils import _is_complex_dtype, _count_complex_samples, _complex_from_file
+from graphic.io_utils import _count_complex_samples, _complex_from_file
 
 
 def plot_waterfall_spectrogram(iq_data=None,
@@ -97,8 +97,6 @@ def plot_waterfall_spectrogram(iq_data=None,
                 if global_i > plot_size:
                     spectrogram = spectrogram[1:]
                     spectrogram = np.concatenate((spectrogram, magnitude.reshape(1, frame_size)), axis=0)
-                elif global_i == plot_size:
-                    spectrogram.append(magnitude)
                 else:
                     spectrogram.append(magnitude)
 
@@ -125,8 +123,6 @@ def plot_waterfall_spectrogram(iq_data=None,
         if i > plot_size:
             spectrogram = spectrogram[1:]
             spectrogram = np.concatenate((spectrogram, magnitude.reshape(1, frame_size)), axis=0)
-        elif i == plot_size:
-            spectrogram.append(magnitude)
         else:
             spectrogram.append(magnitude)
 
