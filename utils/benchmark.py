@@ -132,7 +132,7 @@ class ClassifyModel(nn.Module):
             self.logger.log_with_color(f"Saving results to: {save_path}")
 
         if not os.path.exists(source):
-            self.logger.log_with_color(f"Source {source} dose not exit")
+            self.logger.warning(f"Source does not exist: {source}")
 
         # dir detect
         if os.path.isdir(source):
@@ -197,9 +197,9 @@ class ClassifyModel(nn.Module):
             self.logger.log_with_color(f"Loading init weights from: {self.weight_path}")
             state_dict = torch.load(self.weight_path, map_location=self.device, weights_only=True)
             model.load_state_dict(state_dict)
-            self.logger.log_with_color(f"Successfully loaded pretrained weights from: {self.weight_path}")
+            self.logger.success(f"Successfully loaded pretrained weights from: {self.weight_path}")
         else:
-            self.logger.log_with_color(f"init weights file not found at: {self.weight_path}. Skipping weight loading.")
+            self.logger.warning(f"init weights file not found at: {self.weight_path}. Skipping weight loading.")
 
         return model
 
@@ -251,7 +251,7 @@ class ClassifyModel(nn.Module):
         images = generate_images(source)
         name = os.path.splitext(os.path.basename(source))[0]
         if not images:
-            self.logger.log_with_color(f"No frames generated from: {source}")
+            self.logger.warning(f"No frames generated from: {source}")
             return
 
         batch_size = int(self.cfg.get('batch_size') or 8)

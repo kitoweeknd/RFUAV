@@ -155,7 +155,7 @@ class TwoStagesDetector:
         )
 
         if not images_list:
-            self.logger.log_with_color("Warning: No spectrograms generated")
+            self.logger.warning("No spectrograms generated")
             return
 
         n = len(images_list)
@@ -214,7 +214,7 @@ class TwoStagesDetector:
 
         if video is not None:
             video.release()
-            self.logger.log_with_color(f"Video saved: {video_path}")
+            self.logger.success(f"Video saved: {video_path}")
 
         self.logger.log_with_color(f"Completed processing {name}, processed {n} frames")
 
