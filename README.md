@@ -48,7 +48,7 @@ python inference.py --task classify --cfg configs/exp1.1_ResNet18.yaml --weight-
 <summary>Quick training using ResNet50 on a small dataset</summary>
 
 ```bash
-python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
+python train.py --cfg configs/exp1.1_ResNet18.yaml
 ```
 
 </details>
@@ -276,7 +276,7 @@ cfg_path = '../example/two_stage/sample.json'
 TwoStagesDetector(cfg=cfg_path)
 ```
 
-**Note:** You should specify the configuration file in `.json` format. In the configuration file, you can customize the models used in both the detection and classification stages to achieve better performance. The pipeline supports optimized parallel processing with data reuse for efficient raw data processing.
+**Note:** You should specify the configuration file in `.json` format. In it you can choose the stage-1 detector backend (`yolov5` / `fasterrcnn` / `rtdetr`, see Section 2.4) and the stage-2 classifier (any timm model, see Section 2.3). The raw-data pipeline decodes each frame once, runs both stages in **batches**, and writes a video with combined detection + classification annotations.
 
 ### 2.6 Model Evaluation on Benchmark
 
@@ -313,6 +313,10 @@ data_augmentation(dataset_path=data_path,
                   output_path=output_path,
                   methods=method)
 ```
+
+**Dataset split, labels & mixing**
+
+Standalone command-line tools (run each with `-h` for options): `tools/RandomSeg.py` (seeded random train/valid split of a per-drone image set), `tools/LabelGenerator.py` (`label` / `split` subcommands to write YOLO `.txt` labels or split a dataset), and `tools/DroneMixing.py` (mix two IQ recordings into augmented spectrogram frames).
 
 ### 2.8 Wireless Channel Simulation (ChannelSimulation)
 

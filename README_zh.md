@@ -49,7 +49,7 @@ python inference.py --task classify --cfg configs/exp1.1_ResNet18.yaml --weight-
 <summary>使用ResNet50在小数据集上进行快速训练</summary>
 
 ```bash
-python train.py --task classify --cfg configs/exp1.1_ResNet18.yaml
+python train.py --cfg configs/exp1.1_ResNet18.yaml
 ```
 
 </details>
@@ -276,7 +276,7 @@ cfg_path = '../example/two_stage/sample.json'
 TwoStagesDetector(cfg=cfg_path)
 ```
 
-**注意：** 您应该以 `.json` 格式指定配置文件。在配置文件中，您可以自定义检测和分类阶段使用的模型以获得更好的性能。该流水线支持优化的并行处理和数据复用，以实现高效的原始数据处理。
+**注意：** 您应以 `.json` 格式指定配置文件。其中可选择第一阶段检测后端(`yolov5` / `fasterrcnn` / `rtdetr`,见 2.4 节)以及第二阶段分类模型(任意 timm 模型,见 2.3 节)。原始数据流水线对每帧只解码一次、两阶段均**批处理**运行,并输出带检测+分类标注的视频。
 
 ### 2.6 在基准测试上评估模型
 
@@ -313,6 +313,10 @@ data_augmentation(dataset_path=data_path,
                   output_path=output_path,
                   methods=method)
 ```
+
+**数据集切分、标签与混合**
+
+以下为独立命令行工具(各自 `-h` 查看参数):`tools/RandomSeg.py`(按类别对图像集做可复现的随机 train/valid 切分)、`tools/LabelGenerator.py`(`label` / `split` 子命令,生成 YOLO `.txt` 标签或切分数据集)、`tools/DroneMixing.py`(将两段 IQ 录音混合为增广频谱图帧)。
 
 ### 2.8 无线信道仿真（ChannelSimulation）
 
