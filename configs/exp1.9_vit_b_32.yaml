@@ -1,7 +1,7 @@
 train:
 val:
 save_path:
-model : vit_b_32
+model : vit_base_patch32_224
 weights: None
 batch_size: 8
 image_size: 224

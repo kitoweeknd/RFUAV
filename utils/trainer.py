@@ -16,7 +16,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
-from torchvision import datasets, models, transforms
+import timm
+from torchvision import datasets, transforms
 from tqdm import tqdm
 import yaml
 
@@ -73,9 +74,9 @@ class Basetrainer:
     Base trainer class for initializing the model, dataset, optimizer, and performing training and validation.
 
     Parameters:
-    - model (str): Model name, supported models include "resnet18", "resnet34", "resnet50", "resnet101", "resnet152",
-                  "vit_b_16", "vit_b_32", "vit_l_16", "vit_l_32", "vit_h_14",
-                  "swin_v2_t", "swin_v2_s", "swin_v2_b", "mobilenet_v3_small", "mobilenet_v3_large"
+    - model (str): any timm model name (see ``timm.list_models()``), e.g.
+                  "resnet50", "vit_base_patch16_224", "convnext_tiny",
+                  "swinv2_tiny_window8_256", "efficientnetv2_rw_s"
     - train_path (str): Path to the training dataset
     - val_path (str): Path to the validation dataset
     - num_class (int): Number of classes
@@ -170,7 +171,8 @@ class Basetrainer:
 
         torch.backends.cudnn.benchmark = self.cudnn_benchmark
 
-        self.model = model_init_(model_name=model, num_class=self.num_class, pretrained=pretrained)
+        self.model = model_init_(model_name=model, num_class=self.num_class,
+                                 pretrained=pretrained, image_size=self.image_size)
 
         if weight_path and os.path.exists(weight_path):
             self.load_pretrained_weights(weight_path)
@@ -382,372 +384,32 @@ class Basetrainer:
             self.logger.log_with_color(f"Pretrained weights file not found at: {weight_path}. Skipping weight loading.")
 
 
-def model_init_(model_name, num_class, pretrained=True):
+def model_init_(model_name, num_class, pretrained=True, image_size=None):
     """
-    Initialize the model.
+    Build a classification model via ``timm`` (1000+ architectures).
+
+    ``model_name`` is any name from ``timm.list_models()`` (e.g. ``resnet50``,
+    ``vit_base_patch16_224``, ``convnext_tiny``, ``swinv2_tiny_window8_256``).
+    timm swaps the classifier head to ``num_class`` automatically.
 
     Parameters:
-    - model_name (str): Model name
-    - num_class (int): Number of classes
-    - pretrained (bool, optional): Whether to use pre-trained model, default is `True`
+    - model_name (str): timm model name
+    - num_class (int): number of output classes
+    - pretrained (bool, optional): load pretrained backbone weights, default True
+    - image_size (int, optional): input size forwarded as ``img_size`` to models
+      that support a configurable input (ViT/Swin/...); ignored by fixed CNNs.
 
     Returns:
-    - model (torch.nn.Module): Initialized model
+    - model (torch.nn.Module)
     """
-
-    # resnet series model
-    if model_name == 'resnet18':
-        model = models.resnet18(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-    elif model_name == "resnet34":
-        model = models.resnet34(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-    elif model_name == 'resnet50':
-        model = models.resnet50(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-    elif model_name == 'resnet101':
-        model = models.resnet101(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-    elif model_name == 'resnet152':
-        model = models.resnet152(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-
-    # ViT series model
-    elif model_name == "vit_b_16":
-        model = models.vit_b_16(pretrained=pretrained)
-        model.heads.head = nn.Linear(model.heads.head.in_features, num_class)
-    elif model_name == "vit_b_32":
-        model = models.vit_b_32(pretrained=pretrained)
-        model.heads.head = nn.Linear(model.heads.head.in_features, num_class)
-    elif model_name == "vit_l_16":
-        model = models.vit_l_16(pretrained=pretrained)
-        model.heads.head = nn.Linear(model.heads.head.in_features, num_class)
-    elif model_name == "vit_l_32":
-        model = models.vit_l_32(pretrained=pretrained)
-        model.heads.head = nn.Linear(model.heads.head.in_features, num_class)
-    elif model_name == "vit_h_14":
-        model = models.vit_h_14(pretrained=pretrained)
-        model.heads.head = nn.Linear(model.heads.head.in_features, num_class)
-
-    # SiwnTrans series model
-    elif model_name == "swin_v2_t":
-        model = models.swin_v2_t(pretrained=pretrained)
-        model.head = nn.Linear(model.head.in_features, num_class)
-    elif model_name == "swin_v2_s":
-        model = models.swin_v2_s(pretrained=pretrained)
-        model.head = nn.Linear(model.head.in_features, num_class)
-    elif model_name == "swin_v2_b":
-        model = models.swin_v2_b(pretrained=pretrained)
-        model.head = nn.Linear(model.head.in_features, num_class)
-
-    # Mobilenet series model
-    elif model_name == "mobilenet_v3_large":
-        model = models.mobilenet_v3_large(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Linear(model.classifier[0].in_features, 512),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(512, num_class)
-        )
-    elif model_name == "mobilenet_v3_small":
-        model = models.mobilenet_v3_small(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Linear(model.classifier[0].in_features, 512),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(512, num_class)
-        )
-    elif model_name == "mobilenet_v2":
-        model = models.mobilenet_v2(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(0.2),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-
-    # EfficientNet series model
-    elif model_name == "efficientnet_b0":
-        model = models.efficientnet_b0(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.2, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-    elif model_name == "efficientnet_b1":
-        model = models.efficientnet_b1(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.2, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-    elif model_name == "efficientnet_b2":
-        model = models.efficientnet_b2(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.3, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-    elif model_name == "efficientnet_b3":
-        model = models.efficientnet_b3(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.3, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-    elif model_name == "efficientnet_b4":
-        model = models.efficientnet_b4(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.4, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-    elif model_name == "efficientnet_b5":
-        model = models.efficientnet_b5(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.4, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-    elif model_name == "efficientnet_b6":
-        model = models.efficientnet_b6(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.5, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-    elif model_name == "efficientnet_b7":
-        model = models.efficientnet_b7(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.5, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-
-    # DenseNet series model
-    elif model_name == "densenet121":
-        model = models.densenet121(pretrained=pretrained)
-        model.classifier = nn.Linear(model.classifier.in_features, num_class)
-    elif model_name == "densenet169":
-        model = models.densenet169(pretrained=pretrained)
-        model.classifier = nn.Linear(model.classifier.in_features, num_class)
-    elif model_name == "densenet201":
-        model = models.densenet201(pretrained=pretrained)
-        model.classifier = nn.Linear(model.classifier.in_features, num_class)
-    elif model_name == "densenet161":
-        model = models.densenet161(pretrained=pretrained)
-        model.classifier = nn.Linear(model.classifier.in_features, num_class)
-
-    # VGG series model
-    elif model_name == "vgg11":
-        model = models.vgg11(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Linear(model.classifier[0].in_features, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_class)
-        )
-    elif model_name == "vgg11_bn":
-        model = models.vgg11_bn(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Linear(model.classifier[0].in_features, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_class)
-        )
-    elif model_name == "vgg13":
-        model = models.vgg13(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Linear(model.classifier[0].in_features, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_class)
-        )
-    elif model_name == "vgg13_bn":
-        model = models.vgg13_bn(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Linear(model.classifier[0].in_features, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_class)
-        )
-    elif model_name == "vgg16":
-        model = models.vgg16(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Linear(model.classifier[0].in_features, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_class)
-        )
-    elif model_name == "vgg16_bn":
-        model = models.vgg16_bn(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Linear(model.classifier[0].in_features, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_class)
-        )
-    elif model_name == "vgg19":
-        model = models.vgg19(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Linear(model.classifier[0].in_features, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_class)
-        )
-    elif model_name == "vgg19_bn":
-        model = models.vgg19_bn(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Linear(model.classifier[0].in_features, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_class)
-        )
-
-    # Inception and GoogLeNet
-    elif model_name == "inception_v3":
-        model = models.inception_v3(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-        model.AuxLogits.fc = nn.Linear(model.AuxLogits.fc.in_features, num_class)
-    elif model_name == "googlenet":
-        model = models.googlenet(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-
-    # ShuffleNet v2 series model
-    elif model_name == "shufflenet_v2_x0_5":
-        model = models.shufflenet_v2_x0_5(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-    elif model_name == "shufflenet_v2_x1_0":
-        model = models.shufflenet_v2_x1_0(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-    elif model_name == "shufflenet_v2_x1_5":
-        model = models.shufflenet_v2_x1_5(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-    elif model_name == "shufflenet_v2_x2_0":
-        model = models.shufflenet_v2_x2_0(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-
-    # ResNeXt series model
-    elif model_name == "resnext50_32x4d":
-        model = models.resnext50_32x4d(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-    elif model_name == "resnext101_32x8d":
-        model = models.resnext101_32x8d(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-
-    # Wide ResNet series model
-    elif model_name == "wide_resnet50_2":
-        model = models.wide_resnet50_2(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-    elif model_name == "wide_resnet101_2":
-        model = models.wide_resnet101_2(pretrained=pretrained)
-        model.fc = nn.Linear(model.fc.in_features, num_class)
-
-    # MNASNet series model
-    elif model_name == "mnasnet0_5":
-        model = models.mnasnet0_5(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.2, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-    elif model_name == "mnasnet0_75":
-        model = models.mnasnet0_75(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.2, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-    elif model_name == "mnasnet1_0":
-        model = models.mnasnet1_0(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.2, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-    elif model_name == "mnasnet1_3":
-        model = models.mnasnet1_3(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.2, inplace=True),
-            nn.Linear(model.classifier[1].in_features, num_class)
-        )
-
-    # ConvNeXt series model
-    elif model_name == "convnext_tiny":
-        model = models.convnext_tiny(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.LayerNorm((768,), eps=1e-6, elementwise_affine=True),
-            nn.Flatten(start_dim=1),
-            nn.Linear(768, num_class)
-        )
-    elif model_name == "convnext_small":
-        model = models.convnext_small(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.LayerNorm((768,), eps=1e-6, elementwise_affine=True),
-            nn.Flatten(start_dim=1),
-            nn.Linear(768, num_class)
-        )
-    elif model_name == "convnext_base":
-        model = models.convnext_base(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.LayerNorm((1024,), eps=1e-6, elementwise_affine=True),
-            nn.Flatten(start_dim=1),
-            nn.Linear(1024, num_class)
-        )
-    elif model_name == "convnext_large":
-        model = models.convnext_large(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.LayerNorm((1536,), eps=1e-6, elementwise_affine=True),
-            nn.Flatten(start_dim=1),
-            nn.Linear(1536, num_class)
-        )
-
-    # AlexNet
-    elif model_name == "alexnet":
-        model = models.alexnet(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(),
-            nn.Linear(model.classifier[1].in_features, 4096),
-            nn.ReLU(inplace=True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(inplace=True),
-            nn.Linear(4096, num_class)
-        )
-
-    # SqueezeNet series model
-    elif model_name == "squeezenet1_0":
-        model = models.squeezenet1_0(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.5),
-            nn.Conv2d(512, num_class, kernel_size=1),
-            nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d((1, 1))
-        )
-    elif model_name == "squeezenet1_1":
-        model = models.squeezenet1_1(pretrained=pretrained)
-        model.classifier = nn.Sequential(
-            nn.Dropout(p=0.5),
-            nn.Conv2d(512, num_class, kernel_size=1),
-            nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d((1, 1))
-        )
-
-    else:
-        raise ValueError("model not supported")
-
-    return model
+    name = str(model_name).strip()
+    kwargs = dict(pretrained=pretrained, num_classes=num_class)
+    if image_size:
+        try:
+            return timm.create_model(name, img_size=int(image_size), **kwargs)
+        except TypeError:
+            pass  # this architecture has no configurable img_size (e.g. CNNs)
+    return timm.create_model(name, **kwargs)
 
 
 class CustomTrainer(Basetrainer):

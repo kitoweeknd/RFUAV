@@ -180,7 +180,8 @@ class ClassifyModel(nn.Module):
         # The checkpoint below is loaded right after, so there is no need to also
         # download ImageNet-pretrained weights (which would fail in offline setups).
         has_weights = os.path.exists(self.weight_path)
-        model = model_init_(self.cfg['model'], self.cfg['num_classes'], pretrained=not has_weights)
+        model = model_init_(self.cfg['model'], self.cfg['num_classes'],
+                            pretrained=not has_weights, image_size=self.cfg.get('image_size'))
 
         if has_weights:
             self.logger.log_with_color(f"Loading init weights from: {self.weight_path}")

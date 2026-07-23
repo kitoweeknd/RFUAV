@@ -1,10 +1,10 @@
 train:
 val:
 save_path:
-model : swin_v2_s
+model : swinv2_small_window8_256
 weights: None
 batch_size: 8
-image_size: 640
+image_size: 256
 num_classes: 5
 class_names: [
         'DJIAVATA2',

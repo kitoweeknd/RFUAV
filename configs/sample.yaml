@@ -1,10 +1,13 @@
 train:  # train set path
 val:  # valid set path
 save_path:  # save model path
-model : resnet152  # Model Type
-weights:  # Pretrain Model Path
+model: resnet152  # any timm.list_models() name (resnet50 / vit_base_patch16_224 / convnext_tiny / ...)
+weights:  # fine-tune checkpoint path (leave empty to init from `pretrained`)
+pretrained: True  # load ImageNet-pretrained backbone weights
 batch_size: 8
-image_size: (224, 224)
+image_size: 224  # single int (transforms.Resize uses (image_size, image_size)); ViT/Swin need a size the arch supports
+lr: 0.0001
+shuffle: True
 num_classes: 23  # number of classes
 class_names: [
     'yunzhuoT12',
@@ -32,4 +35,4 @@ class_names: [
     'Air2S'
 ]  # class names
 device: 'cuda' # device
-epochs: 100
+num_epochs: 100
