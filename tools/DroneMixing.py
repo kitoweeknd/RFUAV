@@ -67,8 +67,7 @@ def MergeData(UAV1: str,
                          onside=False)
         f = np.fft.fftshift(f)
         Zxx = np.fft.fftshift(Zxx, axes=0)
-        # Floor the magnitude before log10 (log10(0) = -inf otherwise).
-        aug = 10 * np.log10(np.clip(np.abs(Zxx), 1e-10, None))
+        aug = 10 * np.log10(np.abs(Zxx))
         extent = [t.min(), t.max(), f.min(), f.max()]
 
         plt.figure()

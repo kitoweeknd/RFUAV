@@ -182,7 +182,8 @@ def generate_images(datapack: str = None,
                          duration_time=duration_time, onside=False)
         f = np.fft.fftshift(f)
         Zxx = np.fft.fftshift(Zxx, axes=0)
-        aug = 10 * np.log10(np.clip(np.abs(Zxx), 1e-10, None))
+        aug = 10 * np.log10(np.abs(Zxx))
+        aug = np.clip(aug, a_min=1e-10, a_max=None)
         extent = [t.min(), t.max(), f.min(), f.max()]
 
         plt.figure()
@@ -251,7 +252,8 @@ def save_as_video(datapack: str,
                              duration_time=duration_time, onside=False)
             f = np.fft.fftshift(f)
             Zxx = np.fft.fftshift(Zxx, axes=0)
-            aug = 10 * np.log10(np.clip(np.abs(Zxx), 1e-10, None))
+            aug = 10 * np.log10(np.abs(Zxx))
+            aug = np.clip(aug, a_min=1e-10, a_max=None)
             extent = [t.min(), t.max(), f.min(), f.max()]
 
             plt.figure()
@@ -342,7 +344,8 @@ def show_spectrum(datapack: str = '',
     Zxx = np.fft.fftshift(Zxx, axes=0)
 
     fig = plt.figure()
-    aug = 10 * np.log10(np.clip(np.abs(Zxx), 1e-10, None))
+    aug = 10 * np.log10(np.abs(Zxx))
+    aug = np.clip(aug, a_min=1e-10, a_max=None)
     extent = [t.min(), t.max(), f.min(), f.max()]
     plt.imshow(aug, extent=extent, aspect='auto', origin='lower')
     plt.colorbar()
@@ -398,7 +401,8 @@ def show_half_only(datapack: str = '',
 
     # I component
     fig_I = plt.figure()
-    aug_I = 10 * np.log10(np.clip(np.abs(Zxx_I), 1e-10, None))
+    aug_I = 10 * np.log10(np.abs(Zxx_I))
+    aug_I = np.clip(aug_I, a_min=1e-10, a_max=None)
     plt.pcolormesh(t_I, f_I, aug_I, cmap='jet')
     plt.title(drone_name + " I")
     plt.xlabel('Time (s)')
@@ -419,7 +423,8 @@ def show_half_only(datapack: str = '',
 
     # Q component
     fig_Q = plt.figure()
-    aug_Q = 10 * np.log10(np.clip(np.abs(Zxx_Q), 1e-10, None))
+    aug_Q = 10 * np.log10(np.abs(Zxx_Q))
+    aug_Q = np.clip(aug_Q, a_min=1e-10, a_max=None)
     plt.pcolormesh(t_Q, f_Q, aug_Q, cmap='jet')
     plt.title(drone_name + " Q")
     plt.xlabel('Time (s)')
@@ -503,8 +508,7 @@ def _generate_spectrogram_image(spectrogram_data, fs, fft_size, num_frames, fram
     FigureCanvasAgg(fig)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.axis('off')
-    # Floor the magnitude before log10 to avoid log10(0) = -inf.
-    ax.imshow(np.log10(np.clip(spectrogram_data.T, 1e-10, None)),
+    ax.imshow(np.log10(spectrogram_data.T),
               aspect='auto', cmap='jet', origin='lower',
               extent=[0, num_frames * fft_size / fs, -fs / 2, fs / 2])
 
