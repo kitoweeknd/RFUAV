@@ -1,7 +1,7 @@
-train: E:\Drone_dataset\RFUAV\augmentation_exp2_allDrone\dataset_aug\train  # 数据集路径
-val: E:\Drone_dataset\RFUAV\augmentation_exp2_allDrone\dataset_aug\valid  # 数据集路径
-save_path: E:\Drone_dataset\RFUAV\augmentation_exp2_allDrone\exp\6.MobileNet_s
-model : mobilenet_v3_small
+train:
+val:
+save_path:
+model : mobilenetv3_small_100
 weights: None
 batch_size: 64
 image_size: 640

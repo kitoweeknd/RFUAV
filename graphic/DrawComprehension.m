@@ -4,9 +4,9 @@ clc;clear;close all;
 % args
 fs = 100e6;                     % sample rate  
 fftpoint = [128,256,512,1024];
-time_sec = 0.1;                 
-dataform = 'float32';           
-byte_per = 4;                   
+time_sec = 0.1;
+dataform = 'float32';
+byte_per = 4;
 datalength = time_sec*fs*byte_per*2;
 file_in ="";
 filepathOut = "";

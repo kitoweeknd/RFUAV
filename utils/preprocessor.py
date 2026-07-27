@@ -181,28 +181,28 @@ def crop_and_save_image(image,
                         width,
                         height):
     """
-    截取图像中固定位置的一个矩形窗，并将截取的内容保存到指定位置。
+        Crops a rectangular window from a fixed position in the image and saves the cropped content to the specified location.
 
-    Args:
-        image (str): 输入图像的路径。
-        output_path (str): 输出图像的路径。
-        x (int): 矩形窗左上角的 x 坐标。
-        y (int): 矩形窗左上角的 y 坐标。
-        width (int): 矩形窗的宽度。
-        height (int): 矩形窗的高度。
+        Args:
+            image (str): Path to the input image.
+            output_path (str): Path to save the output image.
+            x (int): x-coordinate of the top-left corner of the rectangular window.
+            y (int): y-coordinate of the top-left corner of the rectangular window.
+            width (int): Width of the rectangular window.
+            height (int): Height of the rectangular window.
 
-    Returns:
-        None
+        Returns:
+            None
     """
-    # 截取矩形窗
+    # Crop rectangular window
     cropped_image = image[y:y+height, x:x+width]
 
-    # 创建输出目录（如果不存在）
+    # Create output directory (if not exists)
     output_dir = os.path.dirname(output_path)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # 保存截取的图像
+    # Save cropped image
     cv2.imwrite(output_path, cropped_image)
     print(f"Cropped image saved to {output_path}")
 
@@ -250,9 +250,9 @@ def check_folder(folder_path):
     """
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
-        print(f"folder '{folder_path}' created。")
+        print(f"folder '{folder_path}' created.")
     else:
-        print(f"folder '{folder_path}' existed。")
+        print(f"folder '{folder_path}' existed.")
 
 
 # Usage---------------------------------------------------------------------------------------------------------------
@@ -262,8 +262,8 @@ def main():
     split_images(input_path='', output_path='')
     """
 
-    data_path = "E:/Drone_dataset/RFUAV/augmentation_exp2_allDrone/dataset/"
-    output_path = "E:/Drone_dataset/RFUAV/augmentation_exp2_allDrone/dataset_aug/"
+    data_path = ""
+    output_path = ""
     methods = [A.AdvancedBlur(
                     blur_limit=(7, 13),
                     sigma_x_limit=(7, 13),

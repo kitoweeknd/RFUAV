@@ -531,10 +531,10 @@ class SwinStage(nn.Module):
 
     def create_mask(self, x, H, W):
         # calculate attention mask for SW-MSA
-        # 保证Hp和Wp是window_size的整数倍
+        # Ensure Hp and Wp are integer multiples of window_size
         Hp = int(np.ceil(H / self.window_size)) * self.window_size
         Wp = int(np.ceil(W / self.window_size)) * self.window_size
-        # 拥有和feature map一样的通道排列顺序，方便后续window_partition
+        # Have the same channel arrangement as feature map for convenient window_partition
         img_mask = torch.zeros((1, Hp, Wp, 1), device=x.device)  # [1, Hp, Wp, 1]
         h_slices = (slice(0, -self.window_size),
                     slice(-self.window_size, -self.shift_size),
@@ -590,7 +590,6 @@ class PatchEmbed(nn.Module):
         _, _, H, W = x.shape
 
         # padding
-        # 如果输入图片的H，W不是patch_size的整数倍，需要进行padding
         pad_input = (H % self.patch_size[0] != 0) or (W % self.patch_size[1] != 0)
         if pad_input:
             # to pad the last 3 dimensions,
@@ -599,7 +598,6 @@ class PatchEmbed(nn.Module):
                           0, self.patch_size[0] - H % self.patch_size[0],
                           0, 0))
 
-        # 下采样patch_size倍
         x = self.proj(x)
         B, C, H, W = x.shape
         # flatten: [B, C, H, W] -> [B, C, HW]
@@ -637,12 +635,10 @@ class PatchMerging(nn.Module):
         # x = x.view(B, H*W, C)
 
         # padding
-        # 如果输入feature map的H，W不是2的整数倍，需要进行padding
         pad_input = (H % 2 == 1) or (W % 2 == 1)
         if pad_input:
             # to pad the last 3 dimensions, starting from the last dimension and moving forward.
             # (C_front, C_back, W_left, W_right, H_top, H_bottom)
-            # 注意这里的Tensor通道是[B, H, W, C]，所以会和官方文档有些不同
             x = F.pad(x, (0, 0, 0, W % 2, 0, H % 2))
 
         x0 = x[:, 0::2, 0::2, :]  # [B, H/2, W/2, C]
@@ -706,7 +702,6 @@ class SwinTransformerBlock(nn.Module):
         x = x.view(B, H, W, C)
 
         # pad feature maps to multiples of window size
-        # 把feature map给pad到window size的整数倍
         pad_l = pad_t = 0
         pad_r = (self.window_size - W % self.window_size) % self.window_size
         pad_b = (self.window_size - H % self.window_size) % self.window_size
@@ -738,7 +733,6 @@ class SwinTransformerBlock(nn.Module):
             x = shifted_x
 
         if pad_r > 0 or pad_b > 0:
-            # 把前面pad的数据移除掉
             x = x[:, :H, :W, :].contiguous()
 
         x = x.view(B, H * W, C)
@@ -752,7 +746,7 @@ class SwinTransformerBlock(nn.Module):
 
 def window_partition(x, window_size: int):
     """
-    将feature map按照window_size划分成一个个没有重叠的window
+    Partition feature map into non-overlapping windows by window_size
     Args:
         x: (B, H, W, C)
         window_size (int): window size(M)
@@ -918,7 +912,7 @@ class Mlp(nn.Module):
 
 def window_reverse(windows, window_size: int, H: int, W: int):
     """
-    将一个个window还原成一个feature map
+    Restore windows back to feature map
     Args:
         windows: (num_windows*B, window_size, window_size, C)
         window_size (int): Window size(M)

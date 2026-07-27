@@ -1,12 +1,11 @@
-# 主要是给inference用，inference使用build获取模型训练过程中使用meta info，训练时又可以手动设参又可以用CFG
-train: E:\Dataset_log\drone_thesis_classification_v3\train  # 数据集路径
-val: E:\Dataset_log\drone_thesis_classification_v3\valid  # 数据集路径
-save_path: E:\Train_log\RFUAV\exp1_test
-model : resnet152  # 模型种类
-weights: E:/Train_log/RFUAV/exp1_test/ResNet_epoch_13.pth  # 预训练模型路径
+train:
+val:
+save_path:
+model : resnet152
+weights:
 batch_size: 8
 image_size: 640
-num_classes: 23  # 种类数量
+num_classes: 23
 class_names: [
     'yunzhuoT12',
     'Vbar',
@@ -31,8 +30,8 @@ class_names: [
     'DJi',
     'AVATA',
     'Air2S'
-]  # 类别
-device: 'cuda' # 使用的训练设备
+]
+device: 'cuda'
 num_epochs: 50
 shuffle: True
 lr: 0.0001

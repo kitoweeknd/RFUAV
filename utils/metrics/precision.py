@@ -1,8 +1,10 @@
 # origin: https://github.com/open-mmlab/mmeval
-from typing import (Dict, List, Optional, Sequence, Union)
-from base_metric import BaseMetric
 import warnings
+from typing import Dict, List, Optional, Sequence, Union
+
 import torch
+
+from utils.metrics.base_metric import BaseMetric
 
 
 class MultiLabelMixin:
@@ -295,7 +297,7 @@ def label_to_onehot(label: Union['torch.Tensor'], num_classes: int) -> Union['to
         onehot = label.new_zeros((num_classes, ))
 
     assert label.max().item() < num_classes, \
-        'Max index is out of `num_classes` {num_classes}'
+        f'Max index is out of `num_classes` {num_classes}'
     assert label.min().item() >= 0
     onehot[label] = 1
     return onehot

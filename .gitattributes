@@ -1,0 +1,41 @@
+# Normalize line endings: store text as LF in the repo and check out LF.
+# Prevents CRLF/LF churn from files authored on Windows / MATLAB.
+* text=auto eol=lf
+
+# Explicit text types (documents intent; all LF)
+*.py    text eol=lf
+*.pyi   text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.m     text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.toml  text eol=lf
+*.json  text eol=lf
+*.cfg   text eol=lf
+*.ini   text eol=lf
+*.sh    text eol=lf
+
+# Windows-only scripts must keep CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Binary assets — never normalize
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.bmp   binary
+*.ico   binary
+*.pt    binary
+*.pth   binary
+*.onnx  binary
+*.mat   binary
+*.npy   binary
+*.npz   binary
+*.iq    binary
+*.dat   binary
+*.zip   binary
+*.gz    binary
+*.pdf   binary

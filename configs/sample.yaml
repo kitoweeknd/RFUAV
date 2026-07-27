@@ -1,12 +1,14 @@
-# 主要是给inference用，inference使用build获取模型训练过程中使用meta info，训练时又可以手动设参又可以用CFG
-train: E:\Dataset_log\drone_thesis_classification_v2\train  # 数据集路径
-val: E:\Dataset_log\drone_thesis_classification_v2\valid  # 数据集路径
-save_path: E:\Train_log\Drone_thesis\Classification\ResNet152\exp5_classtest
-model : resnet152  # 模型种类
-weights: E:\Train_log\Drone_thesis\Classification\ResNet152\exp4_codecheck\best_model.pth  # 预训练模型路径
+train:  # train set path
+val:  # valid set path
+save_path:  # save model path
+model: resnet152  # any timm.list_models() name (resnet50 / vit_base_patch16_224 / convnext_tiny / ...)
+weights:  # fine-tune checkpoint path (leave empty to init from `pretrained`)
+pretrained: True  # load ImageNet-pretrained backbone weights
 batch_size: 8
-image_size: (224, 224)
-num_classes: 23  # 种类数量
+image_size: 224  # single int (transforms.Resize uses (image_size, image_size)); ViT/Swin need a size the arch supports
+lr: 0.0001
+shuffle: True
+num_classes: 23  # number of classes
 class_names: [
     'yunzhuoT12',
     'Vbar',
@@ -31,6 +33,6 @@ class_names: [
     'DJi',
     'AVATA',
     'Air2S'
-]  # 类别
-device: 'cuda' # 使用的训练设备
-epochs: 100
+]  # class names
+device: 'cuda' # device
+num_epochs: 100

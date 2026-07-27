@@ -1,11 +1,11 @@
-train: E:\Drone_dataset\RFUAV\augmentation_exp1_MethodSelect\3.dataset-origin+20dB_defaultcolor_usingAG\dataset_aug\train  # 数据集路径
-val: E:\Drone_dataset\RFUAV\augmentation_exp1_MethodSelect\3.dataset-origin+20dB_defaultcolor_usingAG\dataset_aug\valid  # 数据集路径
-save_path: E:\Drone_dataset\RFUAV\augmentation_exp1_MethodSelect\3.dataset-origin+20dB_defaultcolor_usingAG\exp\3.ResNet50
-model : resnet50  # 模型种类
-weights: None  # 预训练模型路径
+train:
+val:
+save_path:
+model : resnet50
+weights: None
 batch_size: 8
 image_size: 640
-num_classes: 5  # 种类数量
+num_classes: 5
 class_names: [
         'DJIAVATA2',
         'DJIFPVCOMBO',
@@ -13,7 +13,7 @@ class_names: [
         'DJIMINI3',
         'DJIMINI4PRO',
 ]
-device: 'cuda' # 使用的训练设备
+device: 'cuda'
 num_epochs: 150
 shuffle: True
 lr: 0.00001

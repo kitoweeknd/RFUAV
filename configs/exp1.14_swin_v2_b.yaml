@@ -1,10 +1,10 @@
-train: E:\Drone_dataset\RFUAV\augmentation_exp1_MethodSelect\3.dataset-origin+20dB_defaultcolor_usingAG\dataset_aug\train  # 数据集路径
-val: E:\Drone_dataset\RFUAV\augmentation_exp1_MethodSelect\3.dataset-origin+20dB_defaultcolor_usingAG\dataset_aug\valid  # 数据集路径
-save_path: E:\Drone_dataset\RFUAV\augmentation_exp1_MethodSelect\3.dataset-origin+20dB_defaultcolor_usingAG\exp\14.swin_v2_b
-model : swin_v2_b
+train:
+val:
+save_path:
+model : swinv2_base_window8_256
 weights: None
 batch_size: 8
-image_size: 640
+image_size: 256
 num_classes: 5
 class_names: [
         'DJIAVATA2',

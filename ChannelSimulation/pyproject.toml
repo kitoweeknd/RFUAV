@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "RFUAV-ChannelSimulation"
+version = "1.3.0"
+description = "Wireless channel impairment simulation pipeline for UAV RF signal analysis"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "RFUAV Team"}
+]
+keywords = ["wireless", "channel-simulation", "UAV", "RF", " SDR", "signal-processing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Signal Processing",
+]
+dependencies = [
+    "numpy>=1.20",
+    "scipy>=1.7",
+    "matplotlib>=3.5",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+gui = [
+    "PySide6>=6.5,<6.9",
+    "pyqtgraph>=0.13",
+]
+# Optional compute accelerator: numexpr multithreads the spectrum dB elementwise
+# step (log10/|·|²). The viewer falls back to numpy automatically if it is absent.
+accel = [
+    "numexpr>=2.8",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "isort>=5.12",
+    "flake8>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-repo/RFUAV-ChannelSimulation"
+Documentation = "https://github.com/your-repo/RFUAV-ChannelSimulation#readme"
+Repository = "https://github.com/your-repo/RFUAV-ChannelSimulation"
+Issues = "https://github.com/your-repo/RFUAV-ChannelSimulation/issues"
+
+[project.scripts]
+channel-sim = "ChannelSimulation.channel_pipeline:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ChannelSimulation*"]
+
+[tool.setuptools.package-data]
+ChannelSimulation = ["py.typed", "*.yaml", "*.yml"]
+
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311", "py312"]
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["ChannelSimulation"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"

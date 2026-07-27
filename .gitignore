@@ -1,0 +1,124 @@
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments (uv / venv)
+venv/
+ENV/
+env/
+.venv/
+
+# Testing / linting / type-checking caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Model weights & training artifacts
+*.pth
+*.pt
+*.ckpt
+checkpoints/
+runs/
+logs/
+*.log
+tensorboard/
+*.tensorboard
+
+# Datasets & raw RF/IQ data (keep local, don't commit)
+data/
+datasets/
+*.iq
+*.dat
+*.cf32
+*.cfile
+
+# Run outputs (train / inference / benchmark / channel simulation)
+exp/
+output/
+outputs/
+res/
+results/
+benchmark_res/
+benchmark result/
+class_to_idx_pred2gt.json
+run_meta.json
+
+# Generated media: spectrograms / videos produced when running the pipelines.
+# Committed documentation images under abstract/ (and the two example images)
+# are re-included via the negations below.
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.pdf
+*.eps
+*.svg
+*.fig
+*.avi
+*.mp4
+*.mkv
+!abstract/
+!abstract/**
+!example/example.png
+!graphic/example.png
+
+# NumPy / SciPy / MATLAB data blobs
+*.npy
+*.npz
+*.mat
+*.h5
+*.hdf5
+
+# Config: ignore stray/run-time YAML, but keep the sample configs.
+# NOTE: the committed configs/*.yaml and example/**/*.yaml are already tracked
+# and stay tracked; this rule only blocks NEW untracked YAML from sneaking in.
+*.yaml
+*.yml
+!configs/sample.yaml
+!ChannelSimulation/channel_pipeline.sample.yaml
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Misc
+*.tmp
+*.temp
+*.bak
+*.orig

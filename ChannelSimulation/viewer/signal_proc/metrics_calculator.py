@@ -1,0 +1,271 @@
+"""
+Signal Quality Metrics Calculator
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Calculates signal quality metrics such as EVM, ACLR, and crest factor.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+from . import fft_backend as fb
+
+
+class MetricsCalculator:
+    """Signal quality metrics calculator"""
+
+    def __init__(self):
+        self._eps = 1e-12
+
+    # Bounded windows (samples) that keep metrics O(window) instead of O(N) on large
+    # signals. The time-shift lag is global and ACLR is a band-power ratio, so a
+    # representative window gives statistically equivalent results.
+    _ALIGN_WINDOW = 1 << 20  # ~1.05M samples — lag estimation only (max_shift ≈ 300 ≪ this)
+    _ACLR_WINDOW = 1 << 20   # ~1.05M samples — adjacent-channel power ratio
+
+    def _align_signals(
+        self,
+        reference: np.ndarray,
+        degraded: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Align ``degraded`` to ``reference`` by their best cross-correlation lag.
+
+        Stages such as ``crop_time_shift`` translate the signal in time, so a
+        sample-wise ``degraded - reference`` would measure the shift instead of
+        the channel degradation. The integer lag is estimated from a bounded
+        prefix window (cheap) and then applied to the FULL arrays, so EVM/SNR
+        stay exact. When the signals are aligned the lag is 0 and this is a no-op.
+        """
+        n = min(len(reference), len(degraded))
+        if n == 0:
+            return reference[:0], degraded[:0]
+        a = reference[:n]
+        b = degraded[:n]
+
+        # Estimate the lag from a bounded window (O(window), not O(N)).
+        w = min(n, self._ALIGN_WINDOW)
+        aw, bw = a[:w], b[:w]
+        size = 1 << int(np.ceil(np.log2(2 * w)))
+        fa = np.fft.fft(aw, size)
+        fb = np.fft.fft(bw, size)
+        xcorr = np.abs(np.fft.ifft(fb * np.conj(fa)))
+        peak = int(np.argmax(xcorr))
+        lag = peak if peak < w else peak - size  # +ve: b delayed; -ve: b advanced
+
+        # Apply the lag to the FULL-length arrays (EVM/SNR difference stays exact).
+        if lag > 0:
+            a = a[: n - lag]
+            b = b[lag:]
+        elif lag < 0:
+            a = a[-lag:]
+            b = b[: n + lag]
+        return a, b
+
+    def calculate_all(
+        self,
+        reference: np.ndarray,
+        degraded: np.ndarray,
+        fs: float,
+    ) -> dict[str, float]:
+        """Calculate all metrics
+
+        Args:
+            reference: Original reference signal
+            degraded: Processed signal
+            fs: Sampling rate
+
+        Returns:
+            Dictionary containing various metrics
+        """
+        metrics = {}
+
+        # Align once and share between EVM and SNR (both difference the signals);
+        # avoids running the FFT cross-correlation twice per call.
+        ref_aligned, deg_aligned = self._align_signals(reference, degraded)
+
+        metrics["evm"] = self._evm_from_aligned(ref_aligned, deg_aligned)
+        metrics["crest_factor"] = self.calculate_crest_factor(degraded)
+        metrics["aclr_main"] = self.calculate_acl_main(degraded, fs)
+        metrics["aclr_lower"] = self.calculate_acl_lower(degraded, fs)
+        metrics["aclr_upper"] = self.calculate_acl_upper(degraded, fs)
+        metrics["power_dbfs"] = self.calculate_power_dbfs(degraded)
+        metrics["snr"] = self._snr_from_aligned(ref_aligned, deg_aligned)
+
+        return metrics
+
+    def _evm_from_aligned(self, reference: np.ndarray, degraded: np.ndarray) -> float:
+        """EVM for already time-aligned, equal-length signals."""
+        if len(reference) == 0:
+            return 100.0
+
+        error = degraded - reference
+        # |z|^2 via real^2+imag^2 avoids the sqrt inside np.abs on full-length arrays.
+        p_error = float(np.mean(error.real ** 2 + error.imag ** 2))
+        p_reference = float(np.mean(reference.real ** 2 + reference.imag ** 2))
+
+        if p_reference < self._eps:
+            return 100.0
+
+        evm = np.sqrt(p_error / p_reference) * 100
+        return float(evm)
+
+    def calculate_crest_factor(self, signal: np.ndarray) -> float:
+        """Calculate Crest Factor
+
+        Crest Factor = 10 * log10(P_peak / P_avg)
+
+        Args:
+            signal: Input signal
+
+        Returns:
+            Crest factor (dB)
+        """
+        if len(signal) == 0:
+            return 0.0
+
+        # Compute instantaneous power once (no sqrt), then reuse for peak & average.
+        power = signal.real ** 2 + signal.imag ** 2
+        p_peak = float(power.max())
+        p_avg = float(power.mean())
+
+        if p_avg < self._eps:
+            return 0.0
+
+        crest_factor = 10 * np.log10(p_peak / p_avg)
+        return float(crest_factor)
+
+    def calculate_acl_main(self, signal: np.ndarray, fs: float) -> float:
+        """Calculate ACLR main channel power ratio
+
+        Args:
+            signal: Input signal
+            fs: Sampling rate
+
+        Returns:
+            Main channel power (dBc)
+        """
+        return self._calculate_channel_power(signal, fs, center_ratio=0.0, width_ratio=0.1)
+
+    def calculate_acl_lower(self, signal: np.ndarray, fs: float) -> float:
+        """Calculate ACLR lower adjacent channel power
+
+        Args:
+            signal: Input signal
+            fs: Sampling rate
+
+        Returns:
+            Lower adjacent channel power (dBc)
+        """
+        return self._calculate_channel_power(signal, fs, center_ratio=-0.15, width_ratio=0.05)
+
+    def calculate_acl_upper(self, signal: np.ndarray, fs: float) -> float:
+        """Calculate ACLR upper adjacent channel power
+
+        Args:
+            signal: Input signal
+            fs: Sampling rate
+
+        Returns:
+            Upper adjacent channel power (dBc)
+        """
+        return self._calculate_channel_power(signal, fs, center_ratio=0.15, width_ratio=0.05)
+
+    def _calculate_channel_power(
+        self,
+        signal: np.ndarray,
+        fs: float,
+        center_ratio: float,
+        width_ratio: float,
+    ) -> float:
+        """Calculate power in specified frequency band
+
+        Args:
+            signal: Input signal
+            fs: Sampling rate
+            center_ratio: Center frequency ratio relative to fs/2
+            width_ratio: Bandwidth ratio relative to fs/2
+
+        Returns:
+            Power (dBc)
+        """
+        if len(signal) == 0:
+            return -np.inf
+
+        # ACLR is a band-power *ratio* (adjacent / total), so a bounded window of a
+        # stationary signal gives the same result — cap the FFT to keep it O(window)
+        # instead of a full-length O(N) FFT (and this ran once per channel = 3×).
+        if len(signal) > self._ACLR_WINDOW:
+            signal = signal[: self._ACLR_WINDOW]
+
+        # FFT — keep the full two-sided spectrum. For complex IQ signals the
+        # negative frequencies are physically meaningful (they carry the lower
+        # adjacent channel), so truncating to the positive half would make any
+        # negative center_ratio band never match a bin.
+        n = len(signal)
+        spectrum = fb.fft(signal)
+        freqs = np.fft.fftfreq(n, 1 / fs)
+
+        # Power directly from real/imag (no sqrt) over the full spectrum.
+        psd = spectrum.real ** 2 + spectrum.imag ** 2
+
+        # Determine frequency range
+        max_freq = fs / 2
+        center = center_ratio * max_freq
+        width = width_ratio * max_freq
+        freq_min = center - width / 2
+        freq_max = center + width / 2
+
+        # Integrate power in the frequency band
+        mask = (freqs >= freq_min) & (freqs < freq_max)
+        power = np.sum(psd[mask])
+
+        # Normalize
+        total_power = np.sum(psd)
+        if total_power < self._eps:
+            return -np.inf
+
+        power_ratio = power / total_power
+        if power_ratio < self._eps:
+            return -100.0
+
+        return float(10 * np.log10(power_ratio))
+
+    def calculate_power_dbfs(self, signal: np.ndarray) -> float:
+        """Calculate signal power (dBFS, Full Scale)
+
+        Args:
+            signal: Input signal
+
+        Returns:
+            Power (dBFS)
+        """
+        if len(signal) == 0:
+            return -np.inf
+
+        # Assume full scale is 1.0 (normalized signal)
+        p_signal = float(np.mean(signal.real ** 2 + signal.imag ** 2))
+        p_fullscale = 1.0
+
+        if p_signal < self._eps:
+            return -np.inf
+
+        return float(10 * np.log10(p_signal / p_fullscale))
+
+    def _snr_from_aligned(self, reference: np.ndarray, degraded: np.ndarray) -> float:
+        """SNR for already time-aligned, equal-length signals."""
+        if len(reference) == 0:
+            return 100.0
+
+        # Signal power (no sqrt).
+        p_signal = float(np.mean(reference.real ** 2 + reference.imag ** 2))
+
+        # Noise power (difference between before and after processing).
+        error = degraded - reference
+        p_noise = float(np.mean(error.real ** 2 + error.imag ** 2))
+
+        if p_noise < self._eps:
+            return 100.0
+
+        snr = p_signal / p_noise
+        return float(10 * np.log10(snr))

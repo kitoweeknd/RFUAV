@@ -1,11 +1,12 @@
-import warnings
 from pathlib import Path
+import warnings
+
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
-import logging
-from utils.metrics import plt_settings
 import seaborn as sn
+import torch
+
+from utils.metrics import plt_settings
 
 
 class ConfusionMatrix:
@@ -95,7 +96,7 @@ def main():
 
     save_dir = ''
 
-    test = ConfusionMatrix(nc=5)
+    test = ConfusionMatrix(nc=5, pic_name='demo')
     test.process_cls_preds(pred, targets)
     names = ('A', 'B', 'C', 'D', 'E')
     for _ in True, False:
@@ -106,4 +107,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

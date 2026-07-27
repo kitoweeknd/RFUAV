@@ -1,7 +1,7 @@
-train: E:\Drone_dataset\RFUAV\augmentation_exp1_MethodSelect\3.dataset-origin+20dB_defaultcolor_usingAG\dataset_aug\train  # 数据集路径
-val: E:\Drone_dataset\RFUAV\augmentation_exp1_MethodSelect\3.dataset-origin+20dB_defaultcolor_usingAG\dataset_aug\valid  # 数据集路径
-save_path: E:\Drone_dataset\RFUAV\augmentation_exp1_MethodSelect\3.dataset-origin+20dB_defaultcolor_usingAG\exp\6.mobilenet_v3_small
-model : mobilenet_v3_small
+train:
+val:
+save_path:
+model : mobilenetv3_small_100
 weights: None
 batch_size: 8
 image_size: 640

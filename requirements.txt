@@ -1,3 +1,4 @@
+# Basic Function Dependency
 python >= 3.9
 opencv-python >= 4.9.0.80
 numpy >= 1.24.4
@@ -5,6 +6,7 @@ matplotlib >= 3.9.2
 opencv-python-headless >= 4.9.0.80
 pillow >= 10.4.0
 scipy >= 1.13.1
+numexpr >= 2.8      # optional: multithreads the spectrum dB step (numpy fallback if absent)
 imageio >= 2.36.0
 seaborn >= 0.13.2
 pandas >= 2.2.3
@@ -16,9 +18,21 @@ tqdm >= 4.67.1
 thop >= 0.1.1.post2209072238
 
 
-
 torch >= 2.0.1
 torchvision >= 0.15.2
 torchaudio >=2.0.2
 
 albumentations >= 1.4.20
+
+# Classification model zoo (1000+ architectures via a uniform create_model API)
+timm >= 1.0.0
+
+# Object detection inference: YOLOv5 (vendored) + Faster R-CNN (torchvision, above)
+# + RT-DETR (transformers; lazily imported, only needed for the rtdetr backend)
+transformers >= 4.45
+
+# RFUAV ChannelSim Viewer Dependency
+PySide6>=6.5,<6.9
+pyqtgraph>=0.13
+scipy>=1.10
+PyYAML>=6.0

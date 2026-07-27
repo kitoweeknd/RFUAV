@@ -1,8 +1,10 @@
 # origin: https://github.com/open-mmlab/mmeval
-import numpy as np
 from typing import Dict, Sequence, Tuple, Union
-from base_metric import BaseMetric
+
+import numpy as np
 import torch
+
+from utils.metrics.base_metric import BaseMetric
 
 
 class F1Score(BaseMetric):
