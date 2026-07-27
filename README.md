@@ -25,6 +25,34 @@ With RFUAV, you can achieve drone signal detection and identification directly o
         ![detect drone signals and drone identification on the raw IQ data directly](https://github.com/kitoweeknd/RFUAV/blob/dev/abstract/example.gif)
     </div>
 
+## Framework Overview
+
+RFUAV is an end-to-end toolkit for RF-based drone detection and identification that works directly on raw IQ recordings:
+
+```
+raw IQ  ─►  STFT spectrogram  ─►  ┌─ classification  (timm, 1000+ models)
+                                  ├─ detection       (YOLOv5 / Faster R-CNN / RT-DETR)
+                                  └─ two-stage: detect ─► classify  ─►  annotated video
+```
+
+Around the models it also ships signal-processing utilities (spectrogram rendering, SNR estimation) and a standalone **wireless channel simulator** for data augmentation and robustness testing.
+
+| Path | What it is |
+|------|-----------|
+| `train.py` · `inference.py` · `benchmark.py` | CLI entrypoints — training, inference (`classify` / `two_stage`), benchmark evaluation |
+| `graphic/` | Raw-IQ → spectrogram rendering (`RawDataProcessor`, `waterfall_spectrogram`) + MATLAB plotting helpers |
+| `SNREstimation/` | SNR estimation & adjustment — Python CLI (`SNREstimation.py`) + MATLAB toolbox (`func/`) |
+| `utils/trainer.py` | `timm`-based classification training (`CustomTrainer`, `Basetrainer`) |
+| `utils/benchmark.py` | Inference & evaluation facades — `ClassifyModel`, `DetectionModel` |
+| `utils/DetModels/` | Detection backends sharing `BaseDetector`: `YoloV5Detector`, `FasterRCNNDetector`, `RTDetrDetector` (+ `build_detector`) |
+| `utils/TwoStagesDetector.py` | Two-stage detect → classify pipeline |
+| `utils/preprocessor.py` | Albumentations-based data augmentation |
+| `configs/` | Training/experiment YAML configs (`model:` accepts any `timm` name) |
+| `tools/` | Dataset utilities — random split, YOLO labels, IQ clipping/mixing |
+| `ChannelSimulation/` | Standalone wireless-channel simulator — CLI + Python API + PySide6 GUI |
+| `example/` | Sample configs for classification and two-stage inference |
+| `abstract/` | Figures and demo GIFs used in this README |
+
 ## 1. Quick Start
 <details>
 <summary>Installation</summary>
@@ -168,11 +196,12 @@ We provide SNR estimation and adjustment tools using the MATLAB toolbox to help 
 
 **SNR Estimation**
 
-First, locate the signal position and estimate the SNR:
+First, add `SNREstimation/func/` to your MATLAB path, then locate the signal position and estimate the SNR. MATLAB resolves these functions by their **file names**, `locate_signal` and `SNREsti`:
 
 ```matlab
-[idx1, idx2, idx3, idx4, f1, f2] = positionFind(dataIQ, fs, bw, NFFT);
-snr_esti = snrEsti(dataIQ, fs, NFFT, f1, f2, idx1, idx2, idx3, idx4);
+addpath('SNREstimation/func');
+[idx1, idx2, idx3, idx4, f1, f2] = locate_signal(dataIQ, fs, bw, NFFT);
+snr_esti = SNREsti(dataIQ, fs, NFFT, f1, f2, idx1, idx2, idx3, idx4);
 ```
 
 **SNR Adjustment**
@@ -292,7 +321,18 @@ cfg_path = '../example/two_stage/sample.json'
 TwoStagesDetector(cfg=cfg_path)
 ```
 
-**Note:** You should specify the configuration file in `.json` format. In it you can choose the stage-1 detector backend (`yolov5` / `fasterrcnn` / `rtdetr`, see Section 2.4) and the stage-2 classifier (any timm model, see Section 2.3). The raw-data pipeline decodes each frame once, runs both stages in **batches**, and writes a video with combined detection + classification annotations.
+**Note:** You should specify the configuration file in `.json` format. It selects the stage-1 detector backend (`yolov5` / `fasterrcnn` / `rtdetr`, see Section 2.4) and points to the stage-2 classifier; the classifier architecture itself (any timm model, see Section 2.3) is read from the `model:` field of the YAML given in `classifier.cfg`:
+
+```json
+{
+  "detector":   { "model_name": "yolov5", "weight_path": "path/to/stage1.pt" },
+  "classifier": { "cfg": "path/to/stage2.yaml", "weight_path": "path/to/stage2.pth" },
+  "target_dir": "path/to/raw_data",
+  "save_dir":   "path/to/results"
+}
+```
+
+The raw-data pipeline decodes each frame once, runs both stages in **batches**, and writes a video with combined detection + classification annotations.
 
 ### 2.6 Model Evaluation on Benchmark
 
@@ -316,18 +356,21 @@ You can directly access our raw data for processing as needed. We provide a MATL
 
 **Data Augmentation**
 
-The benchmark includes drone images under various SNR levels, while the training set only contains drone image data at its original SNR. Using the training set directly may result in poor model performance on the benchmark. To address this, we provide a data augmentation tool (`utils.preprocessor.data_augmentation`) to enhance the model's accuracy and robustness:
+The benchmark includes drone images under various SNR levels, while the training set only contains drone image data at its original SNR. Using the training set directly may result in poor model performance on the benchmark. To address this, we provide a data augmentation tool (`utils.preprocessor.data_augmentation`) to enhance the model's accuracy and robustness. It expects the dataset organised as `train/` and `valid/` subfolders (see Section 3.2), and `methods` takes a list of [Albumentations](https://albumentations.ai/) transforms — or `None` to apply the built-in default set (`AdvancedBlur`, `CLAHE`, `ColorJitter`, `GaussNoise`, `ISONoise`, `Sharpen`):
 
 ```python
+import albumentations as A
 from utils.preprocessor import data_augmentation
 
-data_path = "Your dataset path"
-output_path = "Your output path"
-method = ['Aug_method1', 'Aug_method2', ...]
+# Option A — use the built-in default augmentation set
+data_augmentation(dataset_path="Your dataset path",
+                  output_path="Your output path",
+                  methods=None)
 
-data_augmentation(dataset_path=data_path,
-                  output_path=output_path,
-                  methods=method)
+# Option B — pass your own Albumentations transforms
+data_augmentation(dataset_path="Your dataset path",
+                  output_path="Your output path",
+                  methods=[A.GaussNoise(), A.CLAHE(), A.AdvancedBlur()])
 ```
 
 **Dataset split, labels & mixing**
@@ -405,7 +448,7 @@ Individual effects can also be called directly, e.g. `from ChannelSimulation imp
 
 **Configuration**
 
-Each stage is configured as `method` + `params`, plus an optional `save: true` that also writes that stage's intermediate IQ to `<out_dir>/<stage>.iq`. A fully documented template is provided at `ChannelSimulation/channel_pipeline.sample.yaml`. Every run is reproducible through the `seed` parameter.
+Each stage is configured as `method` + `params`, plus an optional `save: true` that also writes that stage's intermediate IQ to `<out_dir>/<stage>.iq`. A fully documented template is provided at `ChannelSimulation/channel_pipeline.sample.yaml`. Every run is reproducible through the `seed` parameter. To sweep one signal through several channel configs at once, `exp/run_multi_cfg.py` runs every `exp/cfg/channel_pipeline.*.yaml` and writes each result to `results/<cfg_name>/`.
 
 **GUI viewer**
 

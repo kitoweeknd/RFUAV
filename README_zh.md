@@ -1,7 +1,7 @@
 <h1 style="text-align:center;"> RFUAV Benchmark Dataset </h1>
 
 <div style="text-align: center; margin: 10px 0;">
-  <a href="readme.md" style="text-decoration: none; color: var(--link-color); font-size: 16px;">📖 English Version / 英文版</a>
+  <a href="README.md" style="text-decoration: none; color: var(--link-color); font-size: 16px;">📖 English Version / 英文版</a>
 </div>
 
 ## 摘要
@@ -24,6 +24,34 @@
     <div style="text-align:center;">
         ![在原始IQ数据上直接检测无人机信号和识别无人机](https://github.com/kitoweeknd/RFUAV/blob/dev/abstract/example.gif)
     </div>
+
+## 框架总览
+
+RFUAV 是一个端到端的射频无人机检测与识别工具集，直接作用于原始 IQ 录制数据：
+
+```
+原始 IQ  ─►  STFT 频谱图  ─►  ┌─ 分类       (timm，1000+ 模型)
+                             ├─ 检测       (YOLOv5 / Faster R-CNN / RT-DETR)
+                             └─ 两阶段：检测 ─► 分类  ─►  标注视频
+```
+
+在模型之外，它还提供信号处理工具（频谱图渲染、SNR 估计）以及一个独立的**无线信道仿真器**，用于数据增强和鲁棒性测试。
+
+| 路径 | 说明 |
+|------|------|
+| `train.py` · `inference.py` · `benchmark.py` | 命令行入口 —— 训练、推理（`classify` / `two_stage`）、基准评估 |
+| `graphic/` | 原始 IQ → 频谱图渲染（`RawDataProcessor`、`waterfall_spectrogram`）+ MATLAB 绘图辅助 |
+| `SNREstimation/` | SNR 估计与调整 —— Python 命令行（`SNREstimation.py`）+ MATLAB 工具箱（`func/`） |
+| `utils/trainer.py` | 基于 `timm` 的分类训练（`CustomTrainer`、`Basetrainer`） |
+| `utils/benchmark.py` | 推理与评估门面 —— `ClassifyModel`、`DetectionModel` |
+| `utils/DetModels/` | 共享 `BaseDetector` 的检测后端：`YoloV5Detector`、`FasterRCNNDetector`、`RTDetrDetector`（+ `build_detector`） |
+| `utils/TwoStagesDetector.py` | 两阶段"检测 → 分类"流水线 |
+| `utils/preprocessor.py` | 基于 Albumentations 的数据增强 |
+| `configs/` | 训练/实验 YAML 配置（`model:` 可填任意 `timm` 名称） |
+| `tools/` | 数据集工具 —— 随机切分、YOLO 标签、IQ 裁剪/混合 |
+| `ChannelSimulation/` | 独立的无线信道仿真器 —— 命令行 + Python API + PySide6 GUI |
+| `example/` | 分类与两阶段推理的示例配置 |
+| `abstract/` | 本 README 使用的图与演示 GIF |
 
 ## 1. 快速开始
 
@@ -170,11 +198,12 @@ check(data_path, nfft, fs, duration_time, datatype);
 
 **SNR 估计**
 
-首先，定位信号位置并估计SNR：
+首先，将 `SNREstimation/func/` 加入 MATLAB 路径，然后定位信号位置并估计 SNR。MATLAB 按**文件名** `locate_signal` 和 `SNREsti` 调用这两个函数：
 
 ```matlab
-[idx1, idx2, idx3, idx4, f1, f2] = positionFind(dataIQ, fs, bw, NFFT);
-snr_esti = snrEsti(dataIQ, fs, NFFT, f1, f2, idx1, idx2, idx3, idx4);
+addpath('SNREstimation/func');
+[idx1, idx2, idx3, idx4, f1, f2] = locate_signal(dataIQ, fs, bw, NFFT);
+snr_esti = SNREsti(dataIQ, fs, NFFT, f1, f2, idx1, idx2, idx3, idx4);
 ```
 
 **SNR 调整**
@@ -191,7 +220,9 @@ python SNREstimation/SNREstimation.py path/to/signal.iq --fs 100e6 --bw 20e6
 
 ### 2.3 训练自定义无人机分类模型
 
-我们提供基于PyTorch框架的无人机识别任务自定义训练代码。目前支持的模型包括 [ViT](https://arxiv.org/abs/2010.11929)、[ResNet](https://arxiv.org/abs/1512.03385)、[MobileNet](https://arxiv.org/abs/1704.04861)、[Swin Transformer](https://arxiv.org/abs/2103.14030)、[EfficientNet](https://arxiv.org/abs/1905.11946)、[DenseNet](https://arxiv.org/abs/1608.06993)、[VGG](https://arxiv.org/abs/1409.1556) 以及许多其他模型。您也可以使用 `utils.trainer.model_init_()` 中的代码自定义您自己的模型。
+我们提供基于 PyTorch 框架的无人机识别任务自定义训练代码。分类模型基于 [`timm`](https://github.com/huggingface/pytorch-image-models)（**1000+ 种架构**）构建，因此 `timm.list_models()` 中的任意名称都可以直接填入配置的 `model:` 字段 —— 例如 `resnet50`、`vit_base_patch16_224`（[ViT](https://arxiv.org/abs/2010.11929)）、`swinv2_tiny_window8_256`（[Swin](https://arxiv.org/abs/2103.14030)）、`convnext_tiny`、`efficientnetv2_rw_s`（[EfficientNet](https://arxiv.org/abs/1905.11946)）、`mobilenetv3_large_100`（[MobileNet](https://arxiv.org/abs/1704.04861)）、`densenet121`（[DenseNet](https://arxiv.org/abs/1608.06993)）、`eva02_base_patch14_224` 等等。`timm.create_model` 会自动把分类头调整到 `num_classes`；在配置中设置 `pretrained: true` 即可用 ImageNet 权重初始化骨干网络。
+
+> **注意：** 固定输入尺寸的架构（大多数 ViT/Swin 变体）需要该架构支持的 `image_size` —— 例如 `vit_base_patch16_224` 用 `224`、`swinv2_*_window8_256` 用 `256`；卷积骨干网络则接受任意尺寸。运行 `python -c "import timm; print(timm.list_models('*vit*'))"` 可浏览可用名称。
 
 **训练**
 
@@ -292,7 +323,18 @@ cfg_path = '../example/two_stage/sample.json'
 TwoStagesDetector(cfg=cfg_path)
 ```
 
-**注意：** 您应以 `.json` 格式指定配置文件。其中可选择第一阶段检测后端(`yolov5` / `fasterrcnn` / `rtdetr`,见 2.4 节)以及第二阶段分类模型(任意 timm 模型,见 2.3 节)。原始数据流水线对每帧只解码一次、两阶段均**批处理**运行,并输出带检测+分类标注的视频。
+**注意：** 您应以 `.json` 格式指定配置文件。它用于选择第一阶段检测后端(`yolov5` / `fasterrcnn` / `rtdetr`,见 2.4 节),并指向第二阶段分类器;分类器的架构本身(任意 timm 模型,见 2.3 节)则从 `classifier.cfg` 所指 YAML 的 `model:` 字段读取:
+
+```json
+{
+  "detector":   { "model_name": "yolov5", "weight_path": "path/to/stage1.pt" },
+  "classifier": { "cfg": "path/to/stage2.yaml", "weight_path": "path/to/stage2.pth" },
+  "target_dir": "path/to/raw_data",
+  "save_dir":   "path/to/results"
+}
+```
+
+原始数据流水线对每帧只解码一次、两阶段均**批处理**运行,并输出带检测+分类标注的视频。
 
 ### 2.6 在基准测试上评估模型
 
@@ -316,18 +358,21 @@ test.benchmark(data_path='您的基准数据路径',
 
 **数据增强**
 
-基准测试包括各种SNR级别下的无人机图像，而训练集仅包含原始SNR下的无人机图像数据。直接使用训练集可能会导致模型在基准测试上表现不佳。为了解决这个问题，我们提供了一个数据增强工具（`utils.preprocessor.data_augmentation`）来提高模型的准确性和鲁棒性：
+基准测试包括各种SNR级别下的无人机图像，而训练集仅包含原始SNR下的无人机图像数据。直接使用训练集可能会导致模型在基准测试上表现不佳。为了解决这个问题，我们提供了一个数据增强工具（`utils.preprocessor.data_augmentation`）来提高模型的准确性和鲁棒性。它要求数据集按 `train/` 和 `valid/` 两个子目录组织（见 3.2 节），`methods` 接收一个 [Albumentations](https://albumentations.ai/) 变换列表 —— 或传 `None` 以使用内置默认组合（`AdvancedBlur`、`CLAHE`、`ColorJitter`、`GaussNoise`、`ISONoise`、`Sharpen`）：
 
 ```python
+import albumentations as A
 from utils.preprocessor import data_augmentation
 
-data_path = "您的数据集路径"
-output_path = "您的输出路径"
-method = ['Aug_method1', 'Aug_method2', ...]
+# 方式 A —— 使用内置默认增强组合
+data_augmentation(dataset_path="您的数据集路径",
+                  output_path="您的输出路径",
+                  methods=None)
 
-data_augmentation(dataset_path=data_path,
-                  output_path=output_path,
-                  methods=method)
+# 方式 B —— 传入自定义的 Albumentations 变换
+data_augmentation(dataset_path="您的数据集路径",
+                  output_path="您的输出路径",
+                  methods=[A.GaussNoise(), A.CLAHE(), A.AdvancedBlur()])
 ```
 
 **数据集切分、标签与混合**
@@ -405,7 +450,7 @@ save_interleaved_iq("./results/processed.iq", out)
 
 **配置**
 
-每个阶段以 `method` + `params` 进行配置，并可选地设置 `save: true`，从而将该阶段的中间 IQ 结果额外写入 `<out_dir>/<stage>.iq`。完整注释的模板位于 `ChannelSimulation/channel_pipeline.sample.yaml`。每次运行都可通过 `seed` 参数复现。
+每个阶段以 `method` + `params` 进行配置，并可选地设置 `save: true`，从而将该阶段的中间 IQ 结果额外写入 `<out_dir>/<stage>.iq`。完整注释的模板位于 `ChannelSimulation/channel_pipeline.sample.yaml`。每次运行都可通过 `seed` 参数复现。若要用同一段信号一次性扫过多个信道配置，`exp/run_multi_cfg.py` 会逐一运行 `exp/cfg/channel_pipeline.*.yaml` 并把每个结果写入 `results/<cfg_name>/`。
 
 **GUI 查看器**
 
