@@ -55,12 +55,66 @@ RFUAV 是一个端到端的射频无人机检测与识别工具集，直接作�
 
 ## 1. 快速开始
 
-<details>
-<summary>安装</summary>
+本仓库使用 [**uv**](https://docs.astral.sh/uv/) 管理环境（`pyproject.toml` + `uv.lock`），
+对所有依赖（含 CUDA 13.0 的 PyTorch 轮子）做了精确锁定，保证环境完全可复现。uv 会自动
+安装 Python 3.12，无需单独的 conda/venv 步骤。
+
+<details open>
+<summary>安装（uv —— 推荐）</summary>
 
 ```bash
+# 1. 安装 uv（仅需一次，其他方式见 https://docs.astral.sh/uv/）。
+curl -LsSf https://astral.sh/uv/install.sh | sh              # Linux / macOS
+#   Windows PowerShell：powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 2. 创建环境并安装全部依赖。uv 会拉取 Python 3.12，并从 pyproject.toml 中
+#    配置的专用 index 解析 cu130 的 torch 轮子。
+uv sync --all-extras
+
+# 3. 通过托管环境运行任意命令 —— 无需手动 `activate`：
+uv run python train.py --cfg configs/exp1.1_ResNet18.yaml
+```
+
+> **按需安装** —— 可用具体 extra 替代 `--all-extras`：
+> `uv sync --extra detect`（RT-DETR / transformers）、`--extra gui`（PySide6
+> 信道仿真器 GUI）、`--extra accel`（numexpr）。`dev` 组（pytest）默认安装，
+> 传 `--no-dev` 可跳过。
+
+</details>
+
+<details>
+<summary>安装（pip —— 兜底）</summary>
+
+适用于没有 uv 的环境。目标解释器：**Python 3.12**。先从专用 index 安装 CUDA 13.0 的
+torch 轮子，再装其余依赖：
+
+```bash
+pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu130
 pip install -r requirements.txt
 ```
+
+</details>
+
+<details>
+<summary>安装（Docker —— GPU）</summary>
+
+仓库提供了 CUDA + Python 3.12 + uv 的镜像（[`Dockerfile`](Dockerfile) /
+[`docker-compose.yml`](docker-compose.yml)）。仓库以卷挂载，宿主机改动无需重建镜像即可
+生效；托管虚拟环境位于 `/opt/venv`。
+
+```bash
+docker compose build                          # 构建 rfuav:cu130
+docker compose run --rm rfuav                 # 默认：运行完整功能测试套件
+docker compose run --rm rfuav uv run --no-sync python train.py --cfg configs/exp1.1_ResNet18.yaml
+```
+
+镜像在 `/opt/venv` 中已烤入完整的 `--all-extras` 环境，因此覆盖命令用
+`uv run --no-sync ...` 直接在其上运行。默认的 `docker compose run --rm rfuav` 会先
+按 `uv.lock` 校准该环境（在全新构建的镜像上是快速空操作），再在 GPU 上跑完整 pytest 套件。
+
+GPU 直通与无头 Qt（`QT_QPA_PLATFORM=offscreen`）已在 compose 文件中配置。构建期与运行期
+默认经宿主代理 `host.docker.internal:7897`；如你的代理不同（或需直连），用
+`--build-arg HTTP_PROXY=...` 或 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量覆盖。
 
 </details>
 
@@ -68,7 +122,7 @@ pip install -r requirements.txt
 <summary>运行无人机分类推理</summary>
 
 ```bash
-python inference.py --task classify --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --source path/to/data --save-path ./res/
+uv run python inference.py --task classify --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --source path/to/data --save-path ./res/
 ```
 
 </details>
@@ -77,7 +131,7 @@ python inference.py --task classify --cfg configs/exp1.1_ResNet18.yaml --weight-
 <summary>使用ResNet50在小数据集上进行快速训练</summary>
 
 ```bash
-python train.py --cfg configs/exp1.1_ResNet18.yaml
+uv run python train.py --cfg configs/exp1.1_ResNet18.yaml
 ```
 
 </details>
@@ -86,15 +140,18 @@ python train.py --cfg configs/exp1.1_ResNet18.yaml
 
 ### 统一命令行入口（推荐）
 
+> 下列命令都带 `uv run` 前缀，表示在托管环境中执行。若用 pip 安装（或已执行
+> `source .venv/bin/activate`），去掉前缀直接用 `python ...` 即可。
+
 ```bash
 # 分类训练
-python train.py --cfg configs/exp1.1_ResNet18.yaml
+uv run python train.py --cfg configs/exp1.1_ResNet18.yaml
 
 # 两阶段推理
-python inference.py --task two_stage --two-stage-cfg example/two_stage/sample.json
+uv run python inference.py --task two_stage --two-stage-cfg example/two_stage/sample.json
 
 # 基准评估
-python benchmark.py --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --data-path path/to/benchmark --save-path ./benchmark_res
+uv run python benchmark.py --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --data-path path/to/benchmark --save-path ./benchmark_res
 ```
 
 
@@ -215,7 +272,7 @@ snr_esti = SNREsti(dataIQ, fs, NFFT, f1, f2, idx1, idx2, idx3, idx4);
 如需在原始 IQ 文件上快速得到命令行 SNR 读数（委托给 viewer 在用的估计器）：
 
 ```bash
-python SNREstimation/SNREstimation.py path/to/signal.iq --fs 100e6 --bw 20e6
+uv run python SNREstimation/SNREstimation.py path/to/signal.iq --fs 100e6 --bw 20e6
 ```
 
 ### 2.3 训练自定义无人机分类模型
@@ -398,7 +455,7 @@ data_augmentation(dataset_path="您的数据集路径",
 
 **安装**
 
-流水线依赖（numpy / scipy / matplotlib / pyyaml，GUI 另需 PySide6）已包含在[快速开始](#1-快速开始)的顶层 `pip install -r requirements.txt` 中，无需单独安装——在仓库根目录下运行即可，此时 `ChannelSimulation` 可作为包被导入。（若只想装 GUI 依赖：`pip install "PySide6>=6.5"`。）
+流水线依赖（numpy / scipy / matplotlib / pyyaml，GUI 另需 PySide6）已包含在[快速开始](#1-快速开始)的安装中（`uv sync --all-extras`，或 pip 兜底），无需单独安装——在仓库根目录下运行即可，此时 `ChannelSimulation` 可作为包被导入。（若只想装 GUI 依赖：`uv sync --extra gui`，或 `pip install "PySide6>=6.5"`。）
 
 **命令行用法**
 
@@ -469,7 +526,7 @@ python -m ChannelSimulation.viewer.app
 <details>
 <summary>如何截取这些效果图</summary>
 
-1. 安装 GUI 依赖：`pip install "PySide6>=6.5"`（已包含在顶层 `requirements.txt` 中）。
+1. 安装 GUI 依赖：`uv sync --extra gui`（或 `pip install "PySide6>=6.5"`；已包含在 `uv sync --all-extras` 中）。
 2. 启动查看器：`python -m ChannelSimulation.viewer.app`。
 3. 加载一个 `.iq` 文件，开启几种损伤（例如 `fading` + `awgn` + `doppler`），并在频谱图 / PSD / 指标视图之间切换。
 4. 对窗口截图，并将 PNG 保存到：
@@ -518,7 +575,7 @@ Dataset
 
 本研究中使用的原始数据、频谱图和模型权重现在在 [Hugging Face](https://huggingface.co/datasets/kitofrank/RFUAV) 上公开可用。
 
-对于对检测数据集感兴趣的研究人员，我们在 [Roboflow](https://app.roboflow.com/rui-shi/drone-signal-detect-few-shot/models) 上还提供了一个精选的子集，可以作为有用的参考。如果未指定数据路径，数据集可以在训练期间自动下载（参见第2.3节）。
+对于对检测数据集感兴趣的研究人员，我们在 [Roboflow](https://app.roboflow.com/rui-shi/drone-signal-detect-few-shot/models) 上还提供了一个精选的子集，可以作为有用的参考。请从 Roboflow 下载后，将配置中的数据路径指向本地副本——训练与检测只会从你显式指定的路径读取数据（不存在自动下载；参见第2.3节）。
 
 ## 引用
 

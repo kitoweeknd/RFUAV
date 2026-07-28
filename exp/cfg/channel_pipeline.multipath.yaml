@@ -1,0 +1,46 @@
+# ChannelSimulation Configuration Example (method + params multi-algorithm interface)
+# Usage:
+# python -m ChannelSimulation.channel_pipeline --config ChannelSimulation/channel_pipeline.sample.yaml
+
+# -----------------------------
+# Input Mode (choose one)
+# -----------------------------
+input: data/input.iq
+# input_dir: data/iq_batch
+input_glob: "*.iq"
+
+# -----------------------------
+# Basic Output Configuration
+# -----------------------------
+fs: 100000000
+fc: 5.8e9
+out_dir: ./results-multipath
+output_iq: ./results-multipath/processed.iq
+meta_json: ./results-multipath/run_meta.json
+
+# -----------------------------
+# Pipeline Execution Control
+# -----------------------------
+stages: [multipath]
+# Or as a list:
+# stages: [original, fading, multipath, cfo, phase_noise, iq_imbalance, awgn, crop_time_shift]
+show_progress: true
+
+# -----------------------------
+# New Unified Interface: stage_configs
+# Each stage: method + params + save
+#
+# save: (optional) if true, write intermediate IQ after this stage completes.
+#       File path: <out_dir> / <stage_name>.iq
+#       In streaming mode, enabling save for any stage forces full-signal
+#       accumulation (higher memory usage for that stage only).
+# -----------------------------
+stage_configs:
+
+  multipath:
+    method: tdl
+    save: true
+    params:
+      max_delay_samp: 20
+      n_paths: 4
+      exp_decay: 0.35

@@ -50,7 +50,7 @@ def data_augmentation(dataset_path: str = None,
     if not output_path:
         prefix = os.path.dirname(os.path.dirname(dataset_path))
         output_path = os.path.join(prefix, 'dataset_aug')
-        os.mkdir(output_path)
+    os.makedirs(output_path, exist_ok=True)
 
     if methods is None:
         methods = [
@@ -73,8 +73,8 @@ def data_augmentation(dataset_path: str = None,
                 hue=(-0, 0),
                 p=1),
             A.GaussNoise(
-                var_limit=(100, 500),
-                mean=0,
+                std_range=(0.05, 0.12),
+                mean_range=(0.0, 0.0),
                 p=1),
             A.ISONoise(
                 intensity=(0.2, 0.5),
@@ -92,15 +92,13 @@ def data_augmentation(dataset_path: str = None,
     ]
 
     for path in total_path:
-        _ = os.path.join(output_path, path.split('/')[-1])
-        if not os.path.exists(_):
-            os.mkdir(_)
+        _ = os.path.join(output_path, os.path.basename(path))
+        os.makedirs(_, exist_ok=True)
         classes = os.listdir(path)
 
         for _class in classes:
             _save_path = os.path.join(_, _class)
-            if not os.path.exists(_save_path):
-                os.mkdir(_save_path)
+            os.makedirs(_save_path, exist_ok=True)
             path_image = os.path.join(path, _class)
             images = os.listdir(path_image)
             i = 0
@@ -111,7 +109,7 @@ def data_augmentation(dataset_path: str = None,
                     original_image = cv2.imread(os.path.join(path_image, image))
                     # original_image = cv2.cvtColor(cv2.imread(os.path.join(path_image, image)), cv2.COLOR_BGR2RGB)
                     # show_image(original_image)
-                    transform = A.Compose(method)
+                    transform = A.Compose([method])
                     augmented = transform(image=original_image)
                     cv2.imwrite(os.path.join(_save_path, image+'_AugM'+str(i)+os.path.splitext(image)[1]), augmented['image'])
                     cv2.imwrite(os.path.join(_save_path, image+'_origin'+os.path.splitext(image)[1]), original_image)
@@ -284,8 +282,8 @@ def main():
                    p=1,
                ),
                A.GaussNoise(
-                   var_limit=(100, 500),
-                   mean=0,
+                   std_range=(0.05, 0.12),
+                   mean_range=(0.0, 0.0),
                    p=1
                ),
                A.ISONoise(

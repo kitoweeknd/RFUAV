@@ -1,0 +1,57 @@
+# ChannelSimulation Configuration Example (method + params multi-algorithm interface)
+# Usage:
+# python -m ChannelSimulation.channel_pipeline --config ChannelSimulation/channel_pipeline.sample.yaml
+
+# -----------------------------
+# Input Mode (choose one)
+# -----------------------------
+input: data/input.iq
+# input_dir: data/iq_batch
+input_glob: "*.iq"
+
+# -----------------------------
+# Basic Output Configuration
+# -----------------------------
+fs: 100000000
+fc: 5.8e9
+out_dir: ./results-rayleigh
+output_iq: ./results-rayleigh/processed.iq
+meta_json: ./results-rayleigh/run_meta.json
+
+# -----------------------------
+# Pipeline Execution Control
+# -----------------------------
+stages: [fading]
+# Or as a list:
+# stages: [original, fading, multipath, cfo, phase_noise, iq_imbalance, awgn, crop_time_shift]
+show_progress: true
+
+# -----------------------------
+# Backward Compatibility with Legacy Parameters (optional)
+# If both set, stage_configs takes precedence
+# -----------------------------
+fading: rayleigh
+k_factor: 5.0
+cfo_hz: 15000
+phase_std: 0.002
+iq_gain_db: 1.0
+iq_phase_deg: 3.0
+snr_db: 15.0
+seed: 42
+
+# -----------------------------
+# New Unified Interface: stage_configs
+# Each stage: method + params + save
+#
+# save: (optional) if true, write intermediate IQ after this stage completes.
+#       File path: <out_dir> / <stage_name>.iq
+#       In streaming mode, enabling save for any stage forces full-signal
+#       accumulation (higher memory usage for that stage only).
+# -----------------------------
+stage_configs:
+  fading:
+    method: rayleigh  # rayleigh / rician
+    save: true
+    params:
+      k_factor: 5.0
+      block_size: 256

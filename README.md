@@ -54,12 +54,71 @@ Around the models it also ships signal-processing utilities (spectrogram renderi
 | `abstract/` | Figures and demo GIFs used in this README |
 
 ## 1. Quick Start
-<details>
-<summary>Installation</summary>
+
+RFUAV is managed with [**uv**](https://docs.astral.sh/uv/) (`pyproject.toml` + `uv.lock`),
+which pins every dependency — including the CUDA 13.0 PyTorch wheels — for a fully
+reproducible environment. uv provisions Python 3.12 automatically; there is no
+separate conda/venv step.
+
+<details open>
+<summary>Installation (uv — recommended)</summary>
 
 ```bash
+# 1. Install uv once (see https://docs.astral.sh/uv/ for alternatives).
+curl -LsSf https://astral.sh/uv/install.sh | sh              # Linux / macOS
+#   Windows PowerShell:  powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 2. Create the environment and install everything. uv fetches Python 3.12 and
+#    resolves the cu130 torch wheels from the dedicated index in pyproject.toml.
+uv sync --all-extras
+
+# 3. Run anything through the managed env — no manual `activate` needed:
+uv run python train.py --cfg configs/exp1.1_ResNet18.yaml
+```
+
+> **Selective install** — instead of `--all-extras` you can pick extras:
+> `uv sync --extra detect` (RT-DETR / transformers), `--extra gui` (PySide6
+> channel-sim viewer), `--extra accel` (numexpr). The `dev` group (pytest) is
+> installed by default; pass `--no-dev` to skip it.
+
+</details>
+
+<details>
+<summary>Installation (pip — fallback)</summary>
+
+For environments without uv. Target interpreter: **Python 3.12**. Install the CUDA
+13.0 torch wheels from the dedicated index first, then the rest:
+
+```bash
+pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu130
 pip install -r requirements.txt
 ```
+
+</details>
+
+<details>
+<summary>Installation (Docker — GPU)</summary>
+
+A CUDA + Python 3.12 + uv image is provided ([`Dockerfile`](Dockerfile) /
+[`docker-compose.yml`](docker-compose.yml)). The repo is bind-mounted, so host edits
+are picked up without rebuilding; the managed venv lives at `/opt/venv`.
+
+```bash
+docker compose build                          # builds rfuav:cu130
+docker compose run --rm rfuav                 # default: full functional test suite
+docker compose run --rm rfuav uv run --no-sync python train.py --cfg configs/exp1.1_ResNet18.yaml
+```
+
+The image bakes the complete `--all-extras` environment at `/opt/venv`, so override
+commands use `uv run --no-sync ...` to run against it directly. The default
+`docker compose run --rm rfuav` first reconciles that env with `uv.lock` (a fast
+no-op on a fresh build) and then runs the full pytest suite on the GPU.
+
+GPU passthrough and headless Qt (`QT_QPA_PLATFORM=offscreen`) are configured in the
+compose file. Build and run route through the host proxy `host.docker.internal:7897`
+by default — override with `--build-arg HTTP_PROXY=...` or the `HTTP_PROXY` /
+`HTTPS_PROXY` environment variables if yours differs (or are unset for a direct
+connection).
 
 </details>
 
@@ -67,7 +126,7 @@ pip install -r requirements.txt
 <summary>Run inference for drone classification</summary>
 
 ```bash
-python inference.py --task classify --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --source path/to/data --save-path ./res/
+uv run python inference.py --task classify --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --source path/to/data --save-path ./res/
 ```
 
 </details>
@@ -76,7 +135,7 @@ python inference.py --task classify --cfg configs/exp1.1_ResNet18.yaml --weight-
 <summary>Quick training using ResNet50 on a small dataset</summary>
 
 ```bash
-python train.py --cfg configs/exp1.1_ResNet18.yaml
+uv run python train.py --cfg configs/exp1.1_ResNet18.yaml
 ```
 
 </details>
@@ -85,15 +144,19 @@ python train.py --cfg configs/exp1.1_ResNet18.yaml
 
 ### CLI Entrypoints
 
+> Commands below are shown with the `uv run` prefix, which executes them inside the
+> managed environment. If you installed with pip (or ran `source .venv/bin/activate`),
+> drop the prefix and call `python ...` directly.
+
 ```bash
 # Classification training
-python train.py --cfg configs/exp1.1_ResNet18.yaml
+uv run python train.py --cfg configs/exp1.1_ResNet18.yaml
 
 # Two-stage inference
-python inference.py --task two_stage --two-stage-cfg example/two_stage/sample.json
+uv run python inference.py --task two_stage --two-stage-cfg example/two_stage/sample.json
 
 # Benchmark evaluation
-python benchmark.py --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --data-path path/to/benchmark --save-path ./benchmark_res
+uv run python benchmark.py --cfg configs/exp1.1_ResNet18.yaml --weight-path path/to/best_model.pth --data-path path/to/benchmark --save-path ./benchmark_res
 ```
 
 
@@ -213,7 +276,7 @@ The `awgn1` function adjusts the noise level of raw signal data based on the SNR
 For a quick command-line SNR readout on a raw IQ file (delegates to the maintained estimator used by the viewer):
 
 ```bash
-python SNREstimation/SNREstimation.py path/to/signal.iq --fs 100e6 --bw 20e6
+uv run python SNREstimation/SNREstimation.py path/to/signal.iq --fs 100e6 --bw 20e6
 ```
 
 ### 2.3 Training Custom Drone Classification Models
@@ -396,7 +459,7 @@ Standalone command-line tools (run each with `-h` for options): `tools/RandomSeg
 
 **Installation**
 
-The pipeline's dependencies (numpy / scipy / matplotlib / pyyaml, plus PySide6 for the GUI) are already covered by the top-level `pip install -r requirements.txt` from the [Quick Start](#1-quick-start). No separate install is needed — run everything from the repository root, where `ChannelSimulation` is importable as a package. (If you only want the GUI dependency: `pip install "PySide6>=6.5"`.)
+The pipeline's dependencies (numpy / scipy / matplotlib / pyyaml, plus PySide6 for the GUI) are already covered by the [Quick Start](#1-quick-start) install (`uv sync --all-extras`, or the pip fallback). No separate install is needed — run everything from the repository root, where `ChannelSimulation` is importable as a package. (If you only want the GUI dependency: `uv sync --extra gui`, or `pip install "PySide6>=6.5"`.)
 
 **Command-line usage**
 
@@ -467,7 +530,7 @@ python -m ChannelSimulation.viewer.app
 <details>
 <summary>How to capture these screenshots</summary>
 
-1. Install the GUI dependency: `pip install "PySide6>=6.5"` (already included in the top-level `requirements.txt`).
+1. Install the GUI dependency: `uv sync --extra gui` (or `pip install "PySide6>=6.5"`; already included in `uv sync --all-extras`).
 2. Launch the viewer: `python -m ChannelSimulation.viewer.app`.
 3. Load an `.iq` file, enable a few impairments (e.g. `fading` + `awgn` + `doppler`), and switch between the spectrogram / PSD / metrics views.
 4. Take a screenshot of the window and save the PNGs to:
@@ -512,7 +575,7 @@ Dataset
 
 The raw data, spectrograms, and model weights used in this study are now publicly available on [Hugging Face](https://huggingface.co/datasets/kitofrank/RFUAV).
 
-For those interested in the detection dataset, a curated [subset](https://app.roboflow.com/rui-shi/drone-signal-detect-few-shot/models) is also provided on Roboflow, which can serve as a useful reference. The dataset can be automatically downloaded during training if the data path is not specified (see Section 2.3).
+For those interested in the detection dataset, a curated [subset](https://app.roboflow.com/rui-shi/drone-signal-detect-few-shot/models) is also provided on Roboflow, which can serve as a useful reference. Download it from Roboflow and point your config's data path at the local copy — training and detection read only from the paths you specify (there is no automatic download; see Section 2.3).
 
 
 ## Citation

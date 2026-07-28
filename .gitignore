@@ -66,7 +66,13 @@ datasets/
 *.cfile
 
 # Run outputs (train / inference / benchmark / channel simulation)
-exp/
+# Keep the multi-config sweep runner + its YAML configs tracked (documented in
+# README §2.8); ignore everything else under exp/ (results / scratch / caches).
+exp/*
+!exp/run_multi_cfg.py
+!exp/cfg/
+exp/cfg/*
+!exp/cfg/*.yaml
 output/
 outputs/
 res/
@@ -111,6 +117,11 @@ run_meta.json
 *.yml
 !configs/sample.yaml
 !ChannelSimulation/channel_pipeline.sample.yaml
+!docker-compose.yml
+# Sweep configs driven by exp/run_multi_cfg.py (test_cli args9). This negation
+# must come after the global *.yaml above, or the later pattern would re-ignore
+# them (gitignore: last matching pattern wins).
+!exp/cfg/*.yaml
 
 # OS
 .DS_Store

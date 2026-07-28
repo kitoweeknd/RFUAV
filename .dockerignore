@@ -1,0 +1,30 @@
+# Keep the Docker build context small (only pyproject.toml + uv.lock are COPYed;
+# the repo is bind-mounted at runtime, so nothing else needs to enter the image).
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+
+# Large sample media / results / weights — never needed at build time.
+abstract/
+res/
+runs/
+*.iq
+*.dat
+*.pt
+*.pth
+*.onnx
+*.mp4
+*.avi
+*.gif
+
+# Local editor / OS cruft
+.idea/
+.vscode/
+.DS_Store
+
+# uv-managed local environment (env is baked at /opt/venv in the image instead)
+/opt/venv
