@@ -1,0 +1,21 @@
+# Smoke test: MobileNetV4 on a synthetic dataset, Apple MPS (M4 Pro).
+# Prep:  python tools/create_minimal_dataset.py
+# Run:   python train.py --cfg configs/mac_test_mobilenet_v4_m_mps.yaml
+
+train: data/minimal_test/train
+val: data/minimal_test/valid
+save_path: runs/rfuav_subset_mps_mobilenet_v4
+
+model: mobilenet_v4_medium
+weights: None
+batch_size: 4
+image_size: 224
+num_classes: 2
+class_names:
+  - class_a
+  - class_b
+device: mps
+num_epochs: 2
+shuffle: true
+lr: 0.0001
+optimizer: None

@@ -158,7 +158,11 @@ class EVAMetric:
 
         from topk import Accuracy
         print('start computing the Top-k')
-        acc = Accuracy(topk=(1, 2, 3))
+        default_topk = topk or (1, 2, 3)
+        # Top-k requires k <= num_classes; otherwise torch.topk fails on small datasets.
+        if num_classes is not None:
+            default_topk = tuple(k for k in default_topk if k <= num_classes) or (1,)
+        acc = Accuracy(topk=default_topk)
         res['Top-k'] = acc(preds, labels)
 
         return res

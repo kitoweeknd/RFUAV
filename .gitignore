@@ -1,3 +1,7 @@
 .idea/
 .vscode/
 .gitignore
+venv/
+data/
+runs/
+agent/history/

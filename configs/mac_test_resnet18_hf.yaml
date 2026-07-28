@@ -1,0 +1,23 @@
+# Train ResNet18 on an RFUAV subset from Hugging Face.
+# Prep:  python tools/download_dataset.py --classes "DJI AVATA2" "DJI MINI4 PRO" --max-per-class 50
+# Run:   python train.py --cfg configs/mac_test_resnet18_hf.yaml
+#
+# class_names must match the folder names under data/rfuav_subset/.
+
+train: data/rfuav_subset/train
+val: data/rfuav_subset/valid
+save_path: runs/rfuav_subset_mps
+
+model: resnet18
+weights: None
+batch_size: 8
+image_size: 224
+num_classes: 2
+class_names:
+  - DJI AVATA2
+  - DJI MINI4 PRO
+device: mps
+num_epochs: 5
+shuffle: true
+lr: 0.0001
+optimizer: None

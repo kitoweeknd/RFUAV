@@ -1,16 +1,24 @@
-"""build from CFG
+"""
+Load and validate training YAML configs.
+
+`check_cfg()` verifies data paths, class-count consistency, and resolves
+the device via `resolve_device()` — so configs may specify `cpu`, `cuda`,
+or `mps`, and the value is corrected when the requested backend is
+unavailable.
 """
 import yaml
 import logging
 import os
 import torch
 
+from utils.device import resolve_device
+
 DefaultConfig = '../configs/config.yaml'
 Model_list = [
     "resnet18", "resnet34", "resnet50", "resnet101", "resnet152",
     "vit_b_16", "vit_b_32", "vit_l_16", "vit_l_32", "vit_h_14",
     "swin_v2_t", "swin_v2_s", "swin_v2_b", "mobilenet_v3_small",
-    "mobilenet_v3_large"]
+    "mobilenet_v3_large", "mobilenet_v4_medium"]
 
 
 def check_cfg(cfg: str):
@@ -31,9 +39,11 @@ def check_cfg(cfg: str):
     if opt['weights'] == None or not os.path.exists(opt['weights']):
         logging.info("No pretrained weights specified, training from scratch")
         opt['pretrained'] = False
-    if opt['device'] != 'cpu' and not torch.cuda.is_available():
-        logging.info("CUDA is not available, using CPU instead")
-        opt['device'] = "cpu"
+    # Normalize device to a valid torch.device string (cpu/cuda/mps).
+    resolved = resolve_device(opt['device'])
+    if str(resolved) != str(opt['device']).strip().lower():
+        logging.info("Requested device '%s', using '%s' instead", opt['device'], resolved)
+    opt['device'] = str(resolved)
     return True
 
 

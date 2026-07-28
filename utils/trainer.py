@@ -7,9 +7,11 @@ import torch
 import torch.nn as nn
 from torchvision import models
 import torch.optim as optim
+import timm
 import os
 import yaml
 from utils.build import build_from_cfg, check_cfg
+from utils.device import resolve_device
 from utils.logger import colorful_logger
 import cv2
 from abc import abstractmethod
@@ -60,7 +62,8 @@ class Basetrainer:
     - save_path (str): Path to save the model
     - weight_path (str, optional): Path to pre-trained weights, default is None
     - log_file (str, optional): Path to the log file, default is "train.log"
-    - device (str, optional): Device to use, "cuda" or "cpu", default is "cuda"
+    - device (str, optional): Device to use: "cuda", "cpu" or "mps" (Apple Silicon).
+        Resolved via `utils.device.resolve_device()`. Default is "cuda".
     - criterion (torch.nn.Module, optional): Loss function, default is `nn.CrossEntropyLoss()`
     - pretrained (bool, optional): Whether to use pre-trained model, default is `True`
     - batch_size (int, optional): Batch size, default is 8
@@ -95,7 +98,8 @@ class Basetrainer:
         self.best_loss = 1e6
         self.best_epoch = 0
         self.best_model = None
-        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
+        # CUDA, Apple MPS, and CPU with automatic fallback.
+        self.device = resolve_device(device)
         self.lr = lr
         self.logger = self.set_logger(os.path.join(save_path, log_file))
         self.criterion = criterion  # initializing the loss function
@@ -321,6 +325,11 @@ def model_init_(model_name, num_class, pretrained=True):
         model.head = nn.Linear(model.head.in_features, num_class)
 
     # Mobilenet series model
+    elif model_name == "mobilenet_v4_medium":
+        model = timm.create_model(
+            'mobilenetv4_conv_medium.e500_r224_in1k',
+            pretrained = True,
+            num_classes = num_class)
     elif model_name == "mobilenet_v3_large":
         model = models.mobilenet_v3_large(pretrained=pretrained)
         model.classifier = nn.Sequential(
@@ -673,8 +682,14 @@ class CustomTrainer(Basetrainer):
             yaml.dump(self.parameters, file, allow_unicode=True)
         return True
 
-    @property
     def train(self):
+        """
+        Run the training loop using parameters from the YAML config.
+
+        Important: this is a regular method, not a property. The previous
+        `@property` broke `trainer.train()` from `train.py`
+        (TypeError: NoneType not callable).
+        """
         num_epochs = self.parameters['num_epochs']
 
         for epoch in range(num_epochs):
