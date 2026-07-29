@@ -184,7 +184,11 @@ def generate_images(datapack: str = None,
     # bare Figure() inherits the rcParams default figsize (6.4×4.8 in), so at
     # dpi=300 the PNG stays 1920×1440 — identical appearance to the old path.
     fig = Figure()
-    FigureCanvasAgg(fig)
+    canvas = FigureCanvasAgg(fig)
+    # Rasterise the reused canvas at `dpi_eff` so a bare Figure (6.4×4.8 in) draws
+    # at 1920×1440 for the default dpi=300 — matching the old savefig(dpi=300)
+    # pixels — and so the buffer path below can read the Agg buffer directly.
+    fig.set_dpi(dpi_eff)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_axis_off()
     im = None
@@ -211,14 +215,14 @@ def generate_images(datapack: str = None,
             im.autoscale()  # re-derive clim per frame, matching per-frame imshow
 
         if location == 'buffer':
-            buf = BytesIO()
-            fig.savefig(buf, format='png', dpi=dpi_eff)
-            buf.seek(0)
-            # Image.open is lazy; load() now so that reusing the figure or letting
-            # the buffer be GC'd later cannot corrupt this frame (contract guard).
-            img = Image.open(buf)
-            img.load()
-            images.append(img)
+            # Read the RGBA raster straight off the Agg canvas instead of encoding
+            # a PNG and decoding it back: identical pixels (same Agg raster at
+            # dpi_eff, same RGBA mode the old Image.open(png) produced), but the
+            # PNG compress+decompress round-trip is gone. np.array() COPIES the
+            # buffer, so the next frame's canvas.draw() cannot corrupt this image
+            # (the guard the old lazy Image.open().load() used to provide).
+            canvas.draw()
+            images.append(Image.fromarray(np.array(canvas.buffer_rgba())))
         else:
             subdir = os.path.join(location,
                                   (file + '/' if file else '') +
@@ -701,21 +705,50 @@ def waterfall_spectrogram_optimized(datapack,
         # Local indices within this chunk
         local_indices = [idx - global_start for idx in target_frame_indices]
 
-        # Batched FFT: compute every frame's magnitude spectrum exactly once
-        # (block-wise to bound peak memory), then slice each target's waterfall
-        # window. This replaces the per-frame FFT + locked cache, which served
-        # the same overlapping frames up to time_scale/target_frame_gap times.
-        mags = np.empty((num_small_frames, fft_size), dtype=np.float32)
+        # Each target only needs the `time_scale`-frame window ending at its own
+        # frame: mags[start_frame : local_idx + 1]. The previous version FFT'd
+        # EVERY frame in the chunk (num_small_frames — up to ~48k for a 50M chunk)
+        # and then sliced these small windows out, which is wasteful whenever the
+        # targets are sparse (target_frame_gap ≥ time_scale — the common case).
+        # Here we FFT only the union of the needed windows: same per-frame input →
+        # same magnitude rows → pixel-for-pixel identical images, but the FFT work
+        # drops to what is actually rendered. When windows overlap heavily the
+        # merged span approaches the whole chunk, so this is never worse than the
+        # old all-frames pass. End-clamp to num_small_frames matches the previous
+        # numpy slice, which silently truncated the tail window.
         fft_block = 20_000
-        for b in range(0, num_small_frames, fft_block):
-            be = min(b + fft_block, num_small_frames)
-            block = data[b * fft_size: be * fft_size].reshape(be - b, fft_size)
-            mags[b:be] = np.abs(np.fft.fftshift(fft(block * window, axis=1), axes=1))
+        windows_needed = sorted((max(0, li - time_scale), min(li + 1, num_small_frames))
+                                for li in local_indices)
+        merged = []
+        for s, e in windows_needed:
+            if merged and s <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], e)
+            else:
+                merged.append([s, e])
+
+        mag_blocks = []  # (interval_start, interval_end, magnitudes) covering `merged`
+        for s, e in merged:
+            nf = e - s
+            arr = np.empty((nf, fft_size), dtype=np.float32)
+            for b in range(0, nf, fft_block):
+                be = min(b + fft_block, nf)
+                block = data[(s + b) * fft_size: (s + be) * fft_size].reshape(be - b, fft_size)
+                arr[b:be] = np.abs(np.fft.fftshift(fft(block * window, axis=1), axes=1))
+            mag_blocks.append((s, e, arr))
+
+        def _window_mags(a, b):
+            # `merged` covers every requested window by construction, so exactly
+            # one block contains [a, b); return that slice (no copy).
+            for s, e, arr in mag_blocks:
+                if s <= a and b <= e:
+                    return arr[a - s: b - s]
+            raise RuntimeError(f"window [{a}, {b}) not covered by any FFT block")
 
         fft_results = OrderedDict()
         for local_idx, global_idx in zip(local_indices, target_frame_indices):
             start_frame = max(0, local_idx - time_scale)  # clamp to chunk boundary
-            fft_results[global_idx] = mags[start_frame: local_idx + 1]
+            fft_results[global_idx] = _window_mags(start_frame,
+                                                   min(local_idx + 1, num_small_frames))
 
         def generate_image_for_frame(global_idx):
             _, buf = _generate_spectrogram_image(
