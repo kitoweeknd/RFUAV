@@ -3,7 +3,6 @@ import os
 import time
 
 import cv2
-import imageio
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import torch
@@ -11,7 +10,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from graphic.RawDataProcessor import generate_images
+from graphic.RawDataProcessor import generate_images, frames_to_video
 from .build import build_from_cfg, check_cfg
 from .logger import colorful_logger
 from .metrics.base_metric import EVAMetric
@@ -264,7 +263,10 @@ class ClassifyModel(nn.Module):
             for n, p, im in zip(names, probs_pct, images)
         ]
 
-        imageio.mimsave(os.path.join(self.save_path, name + '.mp4'), res, fps=5)
+        # Pipe annotated frames straight to the system ffmpeg (same encoder as
+        # save_as_video) instead of imageio.mimsave, which needs the optional
+        # imageio-ffmpeg backend that isn't installed.
+        frames_to_video(res, os.path.join(self.save_path, name + '.mp4'), fps=5)
 
     def add_result(self,
                    res,

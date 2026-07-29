@@ -144,7 +144,8 @@ def generate_images(datapack: str = None,
                     duration_time: float = 0.1,
                     step: int = 1,
                     location: str = 'buffer',
-                    file_type=np.float32
+                    file_type=np.float32,
+                    dpi: int = None
                     ):
     """Generate spectrogram images from a raw data file using streaming reads.
 
@@ -163,6 +164,8 @@ def generate_images(datapack: str = None,
         other frame, etc.), default 1.
     - location (str): 'buffer' to return images in RAM, or a directory path to stream to disk.
     - file_type: NumPy dtype of the raw file, default np.float32.
+    - dpi (int): Output resolution. Defaults to 300 (unchanged from before) when None,
+        so a bare Figure (6.4×4.8 in) renders at 1920×1440 exactly as the old path did.
 
     Returns:
     - list of PIL Images (when location='buffer'), otherwise None.
@@ -171,8 +174,20 @@ def generate_images(datapack: str = None,
     total_complex = _count_complex_samples(datapack, file_type)
     n_frames = int(total_complex // slice_point)
 
+    dpi_eff = 300 if dpi is None else dpi
     images = [] if location == 'buffer' else None
     frame_count = 0
+
+    # Build the Figure / Agg canvas / Axes ONCE and reuse them across frames,
+    # replacing the per-frame global `plt.figure()` (slow + not thread-safe) with
+    # the object-oriented API (same pattern as `_generate_spectrogram_image`). A
+    # bare Figure() inherits the rcParams default figsize (6.4×4.8 in), so at
+    # dpi=300 the PNG stays 1920×1440 — identical appearance to the old path.
+    fig = Figure()
+    FigureCanvasAgg(fig)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_axis_off()
+    im = None
 
     for frame_idx in range(0, n_frames, step):
         # Stream one frame from disk (only ~1.6 MB for float32 at 100 MHz, 0.1 s)
@@ -184,31 +199,115 @@ def generate_images(datapack: str = None,
         Zxx = np.fft.fftshift(Zxx, axes=0)
         aug = 10 * np.log10(np.abs(Zxx))
         aug = np.clip(aug, a_min=1e-10, a_max=None)
-        extent = [t.min(), t.max(), f.min(), f.max()]
 
-        plt.figure()
-        plt.imshow(aug, extent=extent, aspect='auto', origin='lower', cmap='jet')
-        plt.axis('off')
-        plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=None, hspace=None)
+        if im is None:
+            # `extent` is fixed across frames (depends only on fs/stft_point/
+            # slice_point), so the AxesImage is created just once.
+            extent = [t.min(), t.max(), f.min(), f.max()]
+            im = ax.imshow(aug, extent=extent, aspect='auto',
+                           origin='lower', cmap='jet')
+        else:
+            im.set_data(aug)
+            im.autoscale()  # re-derive clim per frame, matching per-frame imshow
 
         if location == 'buffer':
             buf = BytesIO()
-            plt.savefig(buf, format='png', dpi=300)
-            plt.close()
+            fig.savefig(buf, format='png', dpi=dpi_eff)
             buf.seek(0)
-            images.append(Image.open(buf))
+            # Image.open is lazy; load() now so that reusing the figure or letting
+            # the buffer be GC'd later cannot corrupt this frame (contract guard).
+            img = Image.open(buf)
+            img.load()
+            images.append(img)
         else:
             subdir = os.path.join(location,
                                   (file + '/' if file else '') +
                                   (pack + '/' if pack else ''))
             os.makedirs(subdir, exist_ok=True)
             fname = os.path.join(subdir, f'{file} ({frame_count}).jpg')
-            plt.savefig(fname, dpi=300)
-            plt.close()
+            fig.savefig(fname, dpi=dpi_eff)
 
         frame_count += 1
 
     return images
+
+
+def frames_to_video(frames, video_path: str, fps: int = 5):
+    """Encode an ordered sequence of frames into an H.264 / yuv420p mp4 by piping
+    raw RGB video straight into the system ffmpeg over stdin.
+
+    ``frames`` is any iterable of PIL.Image (any mode) or HxW(x3|x4) uint8 arrays;
+    each is coerced to contiguous RGB and ffmpeg is sized to the first one. This is
+    the single video encoder shared by ``save_as_video`` and the classify raw-data
+    pipeline, so neither needs imageio's ffmpeg backend — only the ffmpeg *binary*
+    the image installs (Dockerfile). Output matches the old files: libx264 /
+    yuv420p / crf 23.
+
+    stderr is kept tiny (``-loglevel error -nostats``) and fully drained before
+    ``wait()``, so a large frame count can't fill the pipe and deadlock the writer;
+    stdin is closed exactly once (never via ``communicate()``, which would re-flush
+    the already-closed handle -> "ValueError: flush of closed file").
+    """
+    import subprocess
+
+    proc = None
+    n = 0
+    try:
+        for frame in frames:
+            if isinstance(frame, np.ndarray):
+                arr = frame
+            else:  # PIL.Image (possibly RGBA / palette) -> RGB
+                arr = np.asarray(frame.convert('RGB'))
+            if arr.ndim == 3 and arr.shape[2] == 4:
+                arr = arr[:, :, :3]
+            arr = np.ascontiguousarray(arr, dtype=np.uint8)
+            h, w = arr.shape[:2]
+
+            if proc is None:
+                # Sized to the first frame. yuv420p needs even dimensions; the pad
+                # filter is a no-op at the 640×480 default and only rescues odd
+                # sizes from a custom dpi.
+                proc = subprocess.Popen([
+                    'ffmpeg', '-y', '-loglevel', 'error', '-nostats',
+                    '-f', 'rawvideo',
+                    '-pix_fmt', 'rgb24',
+                    '-s', f'{w}x{h}',
+                    '-framerate', str(fps),
+                    '-i', '-',
+                    '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
+                    '-c:v', 'libx264',
+                    '-pix_fmt', 'yuv420p',
+                    '-crf', '23',
+                    video_path,
+                ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                   stderr=subprocess.PIPE)
+
+            proc.stdin.write(arr.tobytes())
+            n += 1
+
+        if proc is None:
+            print('No frames to encode (empty input).')
+            return
+
+        proc.stdin.close()
+        stderr = proc.stderr.read()
+        rc = proc.wait()
+        if rc != 0:
+            raise subprocess.CalledProcessError(rc, 'ffmpeg', stderr=stderr)
+        print(f'Video ready: {video_path}  ({n} frames @ {fps} fps)')
+
+    except subprocess.CalledProcessError as e:
+        print(f"ffmpeg error: {e.stderr.decode() if e.stderr else e}")
+        raise
+    finally:
+        # If we bailed mid-stream, don't leave ffmpeg running.
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.stdin.close()
+            except (OSError, ValueError):
+                pass
+            proc.kill()
+            proc.wait()
 
 
 def save_as_video(datapack: str,
@@ -217,12 +316,16 @@ def save_as_video(datapack: str,
                   stft_point: int = 1024,
                   duration_time: float = 0.1,
                   fps: int = 5,
-                  file_type=np.float32
+                  file_type=np.float32,
+                  dpi: int = None
                   ):
-    """Save the raw data as an MP4 video, streaming frames to avoid memory overflow.
+    """Save the raw data as an MP4 video, streaming frames straight into ffmpeg.
 
-    Frames are written as PNG files in a temp directory (one at a time, never all in RAM)
-    and encoded to MP4 via ffmpeg at the end.
+    Each spectrogram frame is rendered on a single reused Figure (object-oriented
+    Agg canvas — no per-frame global pyplot) and piped as raw RGB into a long-lived
+    ffmpeg process over stdin. This removes both the PNG-to-disk round-trip and the
+    per-frame figure allocation, while the output stays byte-for-byte the same kind
+    of file (libx264 / yuv420p / crf 23 at `save_path/video.mp4`).
 
     Parameters:
     - datapack (str): Path to the raw IQ data file.
@@ -232,9 +335,9 @@ def save_as_video(datapack: str,
     - duration_time (float): Duration per frame in seconds, default 0.1.
     - fps (int): Output video frame rate, default 5.
     - file_type: NumPy dtype of the raw file, default np.float32.
+    - dpi (int): Frame resolution. None keeps the previous appearance — a bare
+        Figure at the default 100 dpi renders 640×480, exactly as before.
     """
-    import subprocess
-
     os.makedirs(save_path, exist_ok=True)
     video_path = os.path.join(save_path, 'video.mp4')
 
@@ -242,9 +345,17 @@ def save_as_video(datapack: str,
     total_complex = _count_complex_samples(datapack, file_type)
     n_frames = int(total_complex // slice_point)
 
-    tmp_dir = tempfile.mkdtemp(prefix='rdu_video_')
+    # Reused OO figure/canvas. Frame pixel size = figsize × figure dpi; the default
+    # (6.4×4.8 in @ 100 dpi) yields 640×480, matching the old savefig(format='png').
+    fig = Figure()
+    canvas = FigureCanvasAgg(fig)
+    if dpi is not None:
+        fig.set_dpi(dpi)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_axis_off()
 
-    try:
+    def render_frames():
+        im = None
         for i in range(n_frames):
             data = _complex_from_file(datapack, i * slice_point, slice_point, file_type)
 
@@ -254,38 +365,27 @@ def save_as_video(datapack: str,
             Zxx = np.fft.fftshift(Zxx, axes=0)
             aug = 10 * np.log10(np.abs(Zxx))
             aug = np.clip(aug, a_min=1e-10, a_max=None)
-            extent = [t.min(), t.max(), f.min(), f.max()]
 
-            plt.figure()
-            plt.imshow(aug, extent=extent, aspect='auto', origin='lower', cmap='jet')
-            plt.axis('off')
-            plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=None, hspace=None)
+            if im is None:
+                extent = [t.min(), t.max(), f.min(), f.max()]
+                im = ax.imshow(aug, extent=extent, aspect='auto',
+                               origin='lower', cmap='jet')
+            else:
+                # autoscale() must run every frame: the old per-frame plt.imshow
+                # picked clim from each frame's own min/max, so skipping it would
+                # shift the colour mapping.
+                im.set_data(aug)
+                im.autoscale()
 
-            frame_path = os.path.join(tmp_dir, f'frame_{i:06d}.png')
-            plt.savefig(frame_path, format='png')
-            plt.close()
+            canvas.draw()
+            # buffer_rgba() -> HxWx4; frames_to_video drops alpha and pipes RGB.
+            yield np.asarray(canvas.buffer_rgba())
 
             if (i + 1) % 100 == 0 or i == n_frames - 1:
                 print(f"  frame {i + 1}/{n_frames}", flush=True)
 
-        print("Encoding video with ffmpeg ...")
-        subprocess.run([
-            'ffmpeg', '-y',
-            '-framerate', str(fps),
-            '-i', os.path.join(tmp_dir, 'frame_%06d.png'),
-            '-c:v', 'libx264',
-            '-pix_fmt', 'yuv420p',
-            '-crf', '23',
-            video_path
-        ], check=True, capture_output=True)
-
-        print(f'Video ready: {video_path}  ({n_frames} frames @ {fps} fps)')
-
-    except subprocess.CalledProcessError as e:
-        print(f"ffmpeg error: {e.stderr.decode() if e.stderr else e}")
-        raise
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+    print("Encoding video with ffmpeg (stdin pipe) ...")
+    frames_to_video(render_frames(), video_path, fps=fps)
 
 
 def _is_interactive_backend() -> bool:
@@ -644,7 +744,9 @@ def waterfall_spectrogram_optimized(datapack,
             for j, gi in enumerate(sorted(spectrogram_images)):
                 buf = spectrogram_images[gi]
                 buf.seek(0)
-                img = Image.open(buf)
+                # The buffer is a PNG (RGBA); JPEG has no alpha channel, so drop it
+                # before saving (convert also forces the lazy load off the buffer).
+                img = Image.open(buf).convert('RGB')
                 img.save(os.path.join(location,
                                       f'{processed_frames + j}_waterfall_spectrogram.jpg'),
                          'JPEG', quality=95)
