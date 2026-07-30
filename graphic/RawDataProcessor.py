@@ -244,7 +244,7 @@ def frames_to_video(frames, video_path: str, fps: int = 5):
     each is coerced to contiguous RGB and ffmpeg is sized to the first one. This is
     the single video encoder shared by ``save_as_video`` and the classify raw-data
     pipeline, so neither needs imageio's ffmpeg backend — only the ffmpeg *binary*
-    the image installs (Dockerfile). Output matches the old files: libx264 /
+    the image installs (docker/Dockerfile). Output matches the old files: libx264 /
     yuv420p / crf 23.
 
     stderr is kept tiny (``-loglevel error -nostats``) and fully drained before

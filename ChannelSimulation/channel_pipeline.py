@@ -546,7 +546,7 @@ def process_one_file(
 
     if use_streaming:
         # Streaming: visualize first chunk only (full-signal visualization is too expensive)
-        first_chunk = next(iter_iq_chunks(input_path, auto_limit))
+        first_chunk = next(iter_iq_chunks(input_path, forced_chunk if forced_chunk is not None else auto_limit))
         rng_preview = np.random.default_rng(seed)
         x_preview = normalize_power(first_chunk)
         if "original" in enabled_stages:

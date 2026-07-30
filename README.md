@@ -99,20 +99,22 @@ pip install -r requirements.txt
 <details>
 <summary>Installation (Docker — GPU)</summary>
 
-A CUDA + Python 3.12 + uv image is provided ([`Dockerfile`](Dockerfile) /
-[`docker-compose.yml`](docker-compose.yml)). The repo is bind-mounted, so host edits
-are picked up without rebuilding; the managed venv lives at `/opt/venv`.
+A CUDA + Python 3.12 + uv image is provided ([`docker/Dockerfile`](docker/Dockerfile) /
+[`docker/docker-compose.yml`](docker/docker-compose.yml)). The repo is bind-mounted, so host edits
+are picked up without rebuilding; the managed venv lives at `/opt/venv`. Run from the
+repo root and point Compose at the file with `-f` (or `export COMPOSE_FILE=docker/docker-compose.yml`
+once to drop the flag):
 
 ```bash
-docker compose build                          # builds rfuav:cu130
-docker compose run --rm rfuav                 # default: full functional test suite
-docker compose run --rm rfuav uv run --no-sync python train.py --cfg configs/exp1.1_ResNet18.yaml
+docker compose -f docker/docker-compose.yml build                          # builds rfuav:cu130
+docker compose -f docker/docker-compose.yml run --rm rfuav                 # default: full functional test suite
+docker compose -f docker/docker-compose.yml run --rm rfuav uv run --no-sync python train.py --cfg configs/exp1.1_ResNet18.yaml
 ```
 
 The image bakes the complete `--all-extras` environment at `/opt/venv`, so override
 commands use `uv run --no-sync ...` to run against it directly. The default
-`docker compose run --rm rfuav` first reconciles that env with `uv.lock` (a fast
-no-op on a fresh build) and then runs the full pytest suite on the GPU.
+`docker compose -f docker/docker-compose.yml run --rm rfuav` first reconciles that env with `uv.lock`
+(a fast no-op on a fresh build) and then runs the full pytest suite on the GPU.
 
 GPU passthrough and headless Qt (`QT_QPA_PLATFORM=offscreen`) are configured in the
 compose file. Build and run route through the host proxy `host.docker.internal:7897`

@@ -311,6 +311,13 @@ class SpectrumCalculator:
         else:
             window_vals = np.ones(n, dtype=np.float64)
 
+        # Normaliser summed in float64 for accuracy, before the window is cast.
+        window_power = float(np.sum(window_vals ** 2))
+        # Match the signal's real precision so a complex64 input stays complex64
+        # through the multiply + FFT — a float64 window would upcast it to
+        # complex128 (2× memory, ½ throughput). Mirrors the cast in _compute_stft.
+        window_vals = window_vals.astype(signal.real.dtype, copy=False)
+
         windowed = signal * window_vals
         spectrum = fb.fft(windowed)
         # Two-sided PSD for complex IQ: keep the full spectrum and fftshift both
@@ -319,7 +326,6 @@ class SpectrumCalculator:
         # would discard the negative-frequency half of a complex baseband signal).
         # Power directly from real/imag avoids the sqrt in abs()**2.
         psd = spectrum.real ** 2 + spectrum.imag ** 2
-        window_power = np.sum(window_vals**2)
         psd = psd / (window_power * self._fs)
         psd = np.fft.fftshift(psd)
         # float32 output for display (saves ~50 % memory vs float64).

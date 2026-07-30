@@ -47,9 +47,11 @@ class MetricsCalculator:
         w = min(n, self._ALIGN_WINDOW)
         aw, bw = a[:w], b[:w]
         size = 1 << int(np.ceil(np.log2(2 * w)))
-        fa = np.fft.fft(aw, size)
-        fb = np.fft.fft(bw, size)
-        xcorr = np.abs(np.fft.ifft(fb * np.conj(fa)))
+        # Local FFT temporaries, named to avoid shadowing the module-level
+        # `fft_backend as fb` import (used as `fb.fft(...)` in other methods).
+        spec_a = np.fft.fft(aw, size)
+        spec_b = np.fft.fft(bw, size)
+        xcorr = np.abs(np.fft.ifft(spec_b * np.conj(spec_a)))
         peak = int(np.argmax(xcorr))
         lag = peak if peak < w else peak - size  # +ve: b delayed; -ve: b advanced
 

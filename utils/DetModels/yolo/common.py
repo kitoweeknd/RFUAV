@@ -9,7 +9,6 @@ from torch.utils import checkpoint
 import cv2
 import numpy as np
 import pandas as pd
-import requests
 import torch
 import torch.nn as nn
 from PIL import Image
@@ -19,7 +18,10 @@ from .basic import (Profile, letterbox, non_max_suppression, scale_boxes, xyxy2x
                    save_one_box, Colors, colorstr, increment_path)
 import torch.nn.functional as F
 from typing import Optional
-import thop
+try:
+    import thop  # optional dependency: only used for FLOPs profiling
+except ImportError:
+    thop = None
 from copy import deepcopy
 
 
@@ -990,7 +992,12 @@ class AutoShape(nn.Module):
             for i, im in enumerate(ims):
                 f = f'image{i}'  # filename
                 if isinstance(im, (str, Path)):  # filename or uri
-                    im, f = Image.open(requests.get(im, stream=True).raw if str(im).startswith('http') else im), im
+                    if str(im).startswith('http'):
+                        import requests  # lazy: only needed for URL sources
+                        src = requests.get(im, stream=True).raw
+                    else:
+                        src = im
+                    im, f = Image.open(src), im
                     im = np.asarray(exif_transpose(im))
                 elif isinstance(im, Image.Image):  # PIL Image
                     im, f = np.asarray(exif_transpose(im)), getattr(im, 'filename', f) or f

@@ -3,7 +3,10 @@ from .common import *
 from .basic import Detect, time_sync
 from .torch_utils import initialize_weights, make_divisible, scale_img
 import contextlib
-import thop
+try:
+    import thop  # optional dependency: only used for FLOPs profiling
+except ImportError:
+    thop = None
 
 
 class BaseModel(nn.Module):

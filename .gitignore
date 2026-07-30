@@ -117,7 +117,7 @@ run_meta.json
 *.yml
 !configs/sample.yaml
 !ChannelSimulation/channel_pipeline.sample.yaml
-!docker-compose.yml
+!docker/docker-compose.yml
 # Sweep configs driven by exp/run_multi_cfg.py (test_cli args9). This negation
 # must come after the global *.yaml above, or the later pattern would re-ignore
 # them (gitignore: last matching pattern wins).

@@ -67,7 +67,10 @@ def MergeData(UAV1: str,
                          onside=False)
         f = np.fft.fftshift(f)
         Zxx = np.fft.fftshift(Zxx, axes=0)
-        aug = 10 * np.log10(np.abs(Zxx))
+        # Floor the magnitude so exactly-zero STFT bins map to a finite -120 dB
+        # instead of -inf (which corrupts the imshow colormap). 1e-12 is far below
+        # any real bin magnitude, so non-zero bins are unaffected.
+        aug = 10 * np.log10(np.maximum(np.abs(Zxx), 1e-12))
         extent = [t.min(), t.max(), f.min(), f.max()]
 
         plt.figure()

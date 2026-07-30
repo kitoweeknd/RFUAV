@@ -69,7 +69,10 @@ def split_pics(source_dir, other_dir, train_dir, valid_dir, ratio, seed=42):
     random.seed(seed)  # reproducible split
     os.makedirs(train_dir, exist_ok=True)
     os.makedirs(valid_dir, exist_ok=True)
-    drone_type = [d for d in os.listdir(source_dir) if d not in other_dir]
+    # Only descend into drone-type subfolders; a stray file in source_dir would
+    # otherwise crash the os.listdir(join(source_dir, drone)) call below.
+    drone_type = [d for d in os.listdir(source_dir)
+                  if d not in other_dir and os.path.isdir(os.path.join(source_dir, d))]
     for drone in drone_type:
         pics = os.listdir(os.path.join(source_dir, drone))
         random.shuffle(pics)

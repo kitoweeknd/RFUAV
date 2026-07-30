@@ -64,6 +64,21 @@ class PresetsManager:
             return copy.deepcopy(preset)
         return None
 
+    @staticmethod
+    def _safe_stem(name: str) -> str:
+        """Reduce a GUI-supplied preset name to a safe bare filename stem.
+
+        The name is user input, so drop any directory components (on both
+        POSIX and Windows separators) plus leading/trailing dots; this stops a
+        crafted name like "../../evil" from redirecting the save/delete outside
+        PRESETS_DIR. Separator-free names (e.g. "UMa-AV (3GPP)") pass through
+        unchanged, so existing preset files still round-trip.
+        """
+        stem = name.replace("\\", "/").split("/")[-1].strip().strip(".")
+        if not stem:
+            raise ValueError(f"Invalid preset name: {name!r}")
+        return stem
+
     def add_preset(
         self,
         name: str,
@@ -88,8 +103,9 @@ class PresetsManager:
 
         self._presets[name] = preset
 
-        # Save to file
-        file_path = self.PRESETS_DIR / f"{name}.yaml"
+        # Save to file (sanitize the GUI-supplied name so it cannot escape
+        # PRESETS_DIR via path separators or "..").
+        file_path = self.PRESETS_DIR / f"{self._safe_stem(name)}.yaml"
         with open(file_path, "w", encoding="utf-8") as f:
             yaml.dump(preset, f, default_flow_style=False, allow_unicode=True)
 
@@ -107,8 +123,9 @@ class PresetsManager:
 
         del self._presets[name]
 
-        # Delete file
-        file_path = self.PRESETS_DIR / f"{name}.yaml"
+        # Delete file (same sanitization as add_preset so the path resolves to
+        # the file that was actually written).
+        file_path = self.PRESETS_DIR / f"{self._safe_stem(name)}.yaml"
         if file_path.exists():
             file_path.unlink()
 

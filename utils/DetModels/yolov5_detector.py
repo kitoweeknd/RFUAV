@@ -35,7 +35,7 @@ class YoloV5Detector(BaseDetector):
         if YOLOV5S is None:
             raise ImportError("YOLOv5 backend unavailable (utils.DetModels failed to import)")
         self.logger = colorful_logger('Inference')
-        self.model = YOLOV5S(weights=weight_path)
+        self.model = YOLOV5S(weights=weight_path, device=self.device)
         self.names = self.model.names
         self.imgsz = imgsz
         self.iou_thres = iou_thres
@@ -71,7 +71,9 @@ class YoloV5Detector(BaseDetector):
 
         results = []
         for i, det in enumerate(pred):  # per image
-            annotator = Annotator(sources[i], line_width=self.line_thickness, example=str(names))
+            # Annotator draws in place; copy so we don't scribble on the caller's
+            # input frames (matches FasterRCNNDetector's `bgr.copy()` contract).
+            annotator = Annotator(sources[i].copy(), line_width=self.line_thickness, example=str(names))
             if len(det):
                 det[:, :4] = scale_boxes(ims.shape[2:], det[:, :4], sources[i].shape).round()
                 for *xyxy, conf_i, cls in reversed(det):

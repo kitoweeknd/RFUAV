@@ -107,7 +107,7 @@ class AveragePrecision(MultiLabelMixin, BaseMetric):
         result_metrics = dict()
 
         if self.average is None:
-            _result = ap[0].tolist()
+            _result = ap.tolist()
             result_metrics['AP_classwise'] = [round(_r, 4) for _r in _result]
         else:
             result_metrics['mAP'] = round(ap.item(), 4)

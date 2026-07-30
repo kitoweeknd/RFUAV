@@ -358,8 +358,12 @@ def main() -> int:
 
         window.show()
 
-        # First-launch tutorial
-        if is_first_launch():
+        # First-launch tutorial. Skip under the offscreen/headless Qt platform,
+        # where the modal dialog.exec() inside show_first_launch_help would block
+        # startup forever with no user to dismiss it. Don't mark it done, so the
+        # tutorial still appears on the next interactive launch.
+        import os
+        if is_first_launch() and os.environ.get("QT_QPA_PLATFORM") != "offscreen":
             show_first_launch_help(window)
 
         return app.exec()

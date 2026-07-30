@@ -50,8 +50,7 @@ class TwoStagesDetector:
         else:
             raise ValueError("No model is selected")
 
-        if not os.path.exists(save_path):
-            os.mkdir(save_path)
+        os.makedirs(save_path, exist_ok=True)
         self.logger.log_with_color(f"Saving results to: {save_path}")
 
         if not os.path.exists(target_dir):

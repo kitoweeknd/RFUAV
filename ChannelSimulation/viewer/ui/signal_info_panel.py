@@ -273,7 +273,9 @@ class SignalInfoPanel(QWidget):
             self._label_fs.setText(format_frequency(fs))
 
         if "fc" in info:
-            fc = info.get("fc", 0.0)
+            # Coerce a present-but-None (or falsy) fc to 0.0; otherwise `fc > 0`
+            # below raises TypeError when info["fc"] is None.
+            fc = info.get("fc") or 0.0
             self._raw_info["fc"] = fc
             if fc > 0:
                 self._label_fc.setText(format_frequency(fc))

@@ -25,7 +25,10 @@ class FasterRCNNDetector(BaseDetector):
         if weight_path and os.path.exists(weight_path):
             num_classes = int(num_classes)
             self.model = fasterrcnn_resnet50_fpn_v2(weights=None, num_classes=num_classes)
-            state = torch.load(weight_path, map_location='cpu')
+            # Loaded straight into load_state_dict below, so the checkpoint is a
+            # state_dict (tensors only); weights_only=True is safe and avoids the
+            # arbitrary-code-execution risk of unpickling a full object.
+            state = torch.load(weight_path, map_location='cpu', weights_only=True)
             if isinstance(state, dict) and 'model' in state:
                 state = state['model']
             self.model.load_state_dict(state)

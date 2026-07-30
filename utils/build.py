@@ -18,7 +18,8 @@ def is_supported_model(name: str) -> bool:
 
 def check_cfg(cfg: str):
 
-    opt = yaml.load(open(cfg, 'r', encoding='utf-8'), Loader=yaml.FullLoader)
+    with open(cfg, 'r', encoding='utf-8') as f:
+        opt = yaml.safe_load(f)
     if len(opt['class_names']) != opt['num_classes']:
         raise ValueError("The number of classes does not match the number of class names")
     if not os.path.exists(opt['train']):
@@ -53,4 +54,5 @@ def build_from_cfg(cfg: str = DefaultConfig):
         logging.info("Using custom config: {}".format(cfg))
         return opt
 
-    return yaml.load(open(cfg, 'r', encoding='utf-8'), Loader=yaml.FullLoader)
+    with open(cfg, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)

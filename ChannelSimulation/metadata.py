@@ -21,21 +21,19 @@ def build_run_metadata(
     seed: int,
     fc: float = 0.0,
 ) -> dict:
+    # Canonical stage order — derived from the single source of truth in
+    # channel_pipeline rather than re-hardcoded here (the hand-copied list had
+    # drifted, omitting "doppler"). Imported lazily because channel_pipeline
+    # imports THIS module at load time; a module-level import would be circular
+    # (and STAGE_ORDER is defined only after that import in channel_pipeline).
+    from ChannelSimulation.channel_pipeline import STAGE_ORDER
+
     return {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "input_file": str(Path(input_file)),
         "output_iq": str(Path(output_iq)),
         "image_dir": str(Path(image_dir)),
-        "pipeline": [
-            "original",
-            "fading",
-            "multipath",
-            "cfo",
-            "phase_noise",
-            "iq_imbalance",
-            "awgn",
-            "crop_time_shift",
-        ],
+        "pipeline": list(STAGE_ORDER),
         "params": {
             "fs": fs,
             "fc": fc,

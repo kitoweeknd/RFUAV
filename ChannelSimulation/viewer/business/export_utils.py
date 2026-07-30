@@ -23,31 +23,39 @@ class ExportUtils:
         file_path: str | Path,
         format: str = "float32",
     ) -> None:
-        """Export IQ data
+        """Export IQ data as interleaved samples (I, Q, I, Q, …).
 
         Args:
-            signal: IQ signal (complex128 or complex64)
+            signal: IQ signal (complex64 or complex128)
             file_path: Target file path
-            format: Output format (float32 / int16)
+            format: Output sample format — "float32" (default) writes raw
+                interleaved float32; "int16" clips to [-1, 1] and scales to
+                full-scale signed 16-bit.
         """
         file_path = Path(file_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Convert to interleaved format
-        if signal.dtype == np.complex64:
-            real = np.real(signal).astype(np.float32)
-            imag = np.imag(signal).astype(np.float32)
-        elif signal.dtype == np.complex128:
-            real = np.real(signal).astype(np.float32)
-            imag = np.imag(signal).astype(np.float32)
-        else:
-            real = np.real(signal).astype(np.float32)
-            imag = np.imag(signal).astype(np.float32)
+        # Split into real/imag once — dtype-agnostic (complex64 and complex128
+        # both narrow to float32 components for the on-disk layout).
+        real = np.real(signal).astype(np.float32)
+        imag = np.imag(signal).astype(np.float32)
 
-        # Interleaved storage
-        interleaved = np.empty(len(signal) * 2, dtype=np.float32)
-        interleaved[0::2] = real
-        interleaved[1::2] = imag
+        if format == "float32":
+            interleaved = np.empty(len(signal) * 2, dtype=np.float32)
+            interleaved[0::2] = real
+            interleaved[1::2] = imag
+        elif format == "int16":
+            # Full-scale signed-16-bit convention: clip the normalised [-1, 1]
+            # range to ±1 then scale to ±32767. Clipping guards the int16 cast
+            # against wraparound for samples outside [-1, 1].
+            interleaved = np.empty(len(signal) * 2, dtype=np.int16)
+            interleaved[0::2] = np.clip(real, -1.0, 1.0) * 32767.0
+            interleaved[1::2] = np.clip(imag, -1.0, 1.0) * 32767.0
+        else:
+            raise ValueError(
+                f"Unsupported IQ export format: {format!r} "
+                "(expected 'float32' or 'int16')"
+            )
 
         # Write to file
         interleaved.tofile(file_path)

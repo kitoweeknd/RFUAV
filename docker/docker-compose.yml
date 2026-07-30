@@ -1,0 +1,59 @@
+# RFUAV — GPU functional test / dev runtime.
+#
+# Usage (on the GPU box, from D:/ML/RFUAV — the repo root; the compose file now
+# lives under docker/, so pass it explicitly with -f):
+#   docker compose -f docker/docker-compose.yml build
+#   docker compose -f docker/docker-compose.yml run --rm rfuav                       # full pytest suite
+#   docker compose -f docker/docker-compose.yml run --rm rfuav uv run --no-sync pytest -m "not net and not slow"
+#   docker compose -f docker/docker-compose.yml run --rm rfuav uv run python train.py --cfg <cfg.yaml>
+#   docker compose -f docker/docker-compose.yml run --rm rfuav nvidia-smi            # sanity-check GPU passthrough
+
+# Pin the project name. Compose otherwise derives it from the project directory
+# basename, which is now `docker/` (this file's dir) instead of the repo root —
+# pinning keeps the project identity `rfuav` stable regardless of where the file lives.
+name: rfuav
+services:
+  rfuav:
+    build:
+      # Context is the repo root (one level up) so the Dockerfile's
+      # `COPY pyproject.toml uv.lock* ./` still finds them; the Dockerfile path
+      # is given relative to that context. .dockerignore stays at the repo root
+      # (the build-context root) so both classic and BuildKit builders honour it.
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        # Host Clash proxy (Docker Desktop). Override via shell env if different.
+        HTTP_PROXY: ${HTTP_PROXY:-http://host.docker.internal:7897}
+        HTTPS_PROXY: ${HTTPS_PROXY:-http://host.docker.internal:7897}
+    image: rfuav:cu130
+    working_dir: /workspace/RFUAV
+    volumes:
+      # Live checkout (Windows D:/ML/RFUAV, i.e. the repo root one level up from
+      # this file). Code + configs edited on the host are picked up without
+      # rebuilding. /opt/venv is outside this mount.
+      - ../:/workspace/RFUAV
+    environment:
+      HTTP_PROXY: ${HTTP_PROXY:-http://host.docker.internal:7897}
+      HTTPS_PROXY: ${HTTPS_PROXY:-http://host.docker.internal:7897}
+      NO_PROXY: localhost,127.0.0.1
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUNBUFFERED: "1"
+    extra_hosts:
+      # Make host.docker.internal resolvable for proxy access on Linux hosts too.
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Default: full functional test suite. The leading `uv sync --frozen
+    # --all-extras` reconciles the baked /opt/venv with uv.lock before running —
+    # a fast no-op on a freshly built image, and a self-heal if the image lags
+    # the lock (e.g. a newly added pure-Python dep). Override on the CLI for
+    # other tasks, e.g. `... rfuav uv run --no-sync python train.py --cfg ...`.
+    command:
+      - bash
+      - -lc
+      - uv sync --frozen --all-extras --group dev --no-install-project && uv run --no-sync pytest -v

@@ -9,13 +9,20 @@ class YOLOV5S(nn.Module):
     # YOLOv5 MultiBackend class for python inference on various backends
     def __init__(self,
                  weights='yolov5s.pt',
-                 device=torch.device('cuda'),
+                 device=None,
                  dnn=False,
                  data=None,
                  fp16=False,
                  fuse=True):
 
         super().__init__()
+        # Default to CUDA only when actually available; also accept a string
+        # device (e.g. 'cpu'/'cuda') and normalise to torch.device so the
+        # `device.type` checks below work regardless of the caller's form.
+        if device is None:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        elif isinstance(device, str):
+            device = torch.device(device)
         w = str(weights[0] if isinstance(weights, list) else weights)
         pt = True
         fp16 &= False  # FP16
@@ -56,7 +63,10 @@ def attempt_load(weights, device=None, inplace=True, fuse=True):
 
     model = Ensemble()
     for w in weights if isinstance(weights, list) else [weights]:
-        ckpt = torch.load(w, map_location='cpu')  # load
+        # YOLOv5 .pt checkpoints are full-object pickles (ckpt['model'] is an
+        # nn.Module), so weights_only=False is required on torch>=2.6 where the
+        # default flipped to True (which refuses to unpickle class instances).
+        ckpt = torch.load(w, map_location='cpu', weights_only=False)  # load
         ckpt = ckpt['model'].to(device).float()
 
         # Model compatibility updates

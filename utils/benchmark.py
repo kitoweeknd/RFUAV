@@ -114,8 +114,7 @@ class ClassifyModel(nn.Module):
         - save_path (str): Path to save the results.
         """
         if self.save:
-            if not os.path.exists(save_path):
-                os.mkdir(save_path)
+            os.makedirs(save_path, exist_ok=True)
             self.save_path = save_path
             self.logger.log_with_color(f"Saving results to: {save_path}")
 
@@ -201,7 +200,7 @@ class ClassifyModel(nn.Module):
 
         start_time = time.time()
 
-        name = os.path.basename(source)[:-4]
+        name = os.path.splitext(os.path.basename(source))[0]
         origin_image = Image.open(source).convert('RGB')
         preprocessed_image = self.preprocess(source)
 
@@ -265,8 +264,10 @@ class ClassifyModel(nn.Module):
 
         # Pipe annotated frames straight to the system ffmpeg (same encoder as
         # save_as_video) instead of imageio.mimsave, which needs the optional
-        # imageio-ffmpeg backend that isn't installed.
-        frames_to_video(res, os.path.join(self.save_path, name + '.mp4'), fps=5)
+        # imageio-ffmpeg backend that isn't installed. self.save_path is only
+        # set when self.save is True (defaults to None), so guard the write.
+        if self.save and self.save_path:
+            frames_to_video(res, os.path.join(self.save_path, name + '.mp4'), fps=5)
 
     def add_result(self,
                    res,

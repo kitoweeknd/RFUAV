@@ -115,7 +115,15 @@ class BatchProcessor:
                 self._processor = processor
 
             def run(self):
-                results = self._processor._run_sync()
+                # Always emit finished_signal, even if _run_sync aborts
+                # unexpectedly: otherwise on_finished never runs, the worker
+                # handle is never cleared, and the GUI stays stuck at
+                # "processing". Per-task failures are already handled inside
+                # _run_sync; this guards an error raised outside that loop.
+                try:
+                    results = self._processor._run_sync()
+                except Exception:
+                    results = list(self._processor._results)
                 completed = sum(1 for t in self._processor._tasks if t.status == "completed")
                 failed = sum(1 for t in self._processor._tasks if t.status == "failed")
                 self.finished_signal.emit(results, completed, failed)

@@ -2,7 +2,6 @@
 import argparse
 
 from utils.benchmark import ClassifyModel
-from utils.TwoStagesDetector import TwoStagesDetector
 
 
 def parse_args():
@@ -30,6 +29,9 @@ def main():
         test = ClassifyModel(cfg=args.cfg, weight_path=args.weight_path)
         test.inference(source=args.source, save_path=args.save_path)
     else:
+        # Imported lazily so the classify task doesn't pull in the detection
+        # stack (DetModels -> vendored YOLOv5 -> requests/thop/torch).
+        from utils.TwoStagesDetector import TwoStagesDetector
         TwoStagesDetector(cfg=args.two_stage_cfg)
 
 

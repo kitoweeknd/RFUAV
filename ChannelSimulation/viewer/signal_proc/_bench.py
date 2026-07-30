@@ -52,18 +52,21 @@ def _stft_parity(sig: np.ndarray, fs: float) -> float:
 def _worker_run(sig, cfg, fs, fc):
     """Time the real ProcessingWorker end-to-end: total + time-to-first-paint."""
     from PySide6.QtCore import QCoreApplication
-    from .processing_worker import ProcessingWorker, _SPECTRAL_CACHE
+    from .processing_worker import ProcessingWorker
 
     if QCoreApplication.instance() is None:
         QCoreApplication([])  # worker emits Qt signals
-    _SPECTRAL_CACHE.clear()
     w = ProcessingWorker(iq_data=sig, config=cfg, fs=fs, fc=fc, seed=42)
     marks: dict[str, float] = {}
+    stages: set[str] = set()
+    # first-paint = the immediate spectrum_ready for the "final" stage; each
+    # intermediate stage precompute arrives as stage_spectrum_cached(name, dict).
     w.spectrum_ready.connect(lambda d: marks.setdefault("first", time.perf_counter()))
+    w.stage_spectrum_cached.connect(lambda name, d: stages.add(name))
     t0 = time.perf_counter()
-    w.run()
+    w.run()  # QThread.run() called directly → synchronous; signals fire inline
     total = time.perf_counter() - t0
-    n_stages = len({k[0] for k in _SPECTRAL_CACHE._cache})
+    n_stages = len(stages) + 1  # intermediate stages + the "final" stage
     return total, marks.get("first", t0) - t0, n_stages
 
 
@@ -113,7 +116,7 @@ def main(argv: list[str]) -> int:
     total, first, cached = _worker_run(
         sig, {"stage_configs": {s: {"enabled": True} for s in STAGE_ORDER[1:]}}, fs, fc
     )
-    print(f"\n[worker end-to-end, all {cached - 3} stages]  "
+    print(f"\n[worker end-to-end, {cached} stages]  "
           f"total={total:.2f}s  first-paint={first:.2f}s  stages_cached={cached}")
     return 0 if (dmax < 0.01 and finite) else 1
 

@@ -67,7 +67,7 @@ RUN uv sync --all-extras --group dev --no-install-project \
 
 # --- runtime defaults --------------------------------------------------------
 # Headless Qt + unbuffered stdout for live test logs. The repo itself is bind
-# mounted at runtime (see docker-compose.yml) rather than COPYed, so tests run
+# mounted at runtime (see docker/docker-compose.yml) rather than COPYed, so tests run
 # against the live checkout.
 ENV QT_QPA_PLATFORM=offscreen \
     PYTHONUNBUFFERED=1 \
@@ -77,6 +77,6 @@ ENV QT_QPA_PLATFORM=offscreen \
 # reconciles the baked /opt/venv against uv.lock — a fast no-op on a freshly
 # built image, and a self-heal if the image ever lags the lock (e.g. a newly
 # added pure-Python dep) — then `--no-sync` runs pytest against that env.
-# docker-compose.yml sets the same command; overriding it on the CLI (e.g.
+# docker/docker-compose.yml sets the same command; overriding it on the CLI (e.g.
 # `uv run --no-sync python train.py ...`) skips the suite as expected.
 CMD ["bash", "-lc", "uv sync --frozen --all-extras --group dev --no-install-project && uv run --no-sync pytest -v"]

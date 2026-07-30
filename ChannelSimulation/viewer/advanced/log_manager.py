@@ -56,6 +56,12 @@ class LogManager(QObject):
         # Create logger
         self._logger = logging.getLogger("ChannelSimViewer")
         self._logger.setLevel(level.value)
+        # Close existing handlers before dropping them: this logger is a shared
+        # singleton, so re-instantiating LogManager would otherwise leak the
+        # previous FileHandler's open file descriptor. StreamHandler.close()
+        # never closes sys.stdout, so this is safe.
+        for _h in self._logger.handlers[:]:
+            _h.close()
         self._logger.handlers.clear()
 
         # File handler
@@ -106,6 +112,10 @@ class LogManager(QObject):
 
         logger = logging.getLogger("ChannelSimViewer.UserActions")
         logger.setLevel(logging.INFO)
+        # Close before clearing to avoid leaking the prior FileHandler's fd
+        # when this shared singleton logger is re-initialised.
+        for _h in logger.handlers[:]:
+            _h.close()
         logger.handlers.clear()
 
         handler = logging.FileHandler(log_file, encoding="utf-8")

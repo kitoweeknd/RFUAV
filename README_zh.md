@@ -98,19 +98,20 @@ pip install -r requirements.txt
 <details>
 <summary>安装（Docker —— GPU）</summary>
 
-仓库提供了 CUDA + Python 3.12 + uv 的镜像（[`Dockerfile`](Dockerfile) /
-[`docker-compose.yml`](docker-compose.yml)）。仓库以卷挂载，宿主机改动无需重建镜像即可
-生效；托管虚拟环境位于 `/opt/venv`。
+仓库提供了 CUDA + Python 3.12 + uv 的镜像（[`docker/Dockerfile`](docker/Dockerfile) /
+[`docker/docker-compose.yml`](docker/docker-compose.yml)）。仓库以卷挂载，宿主机改动无需重建镜像即可
+生效；托管虚拟环境位于 `/opt/venv`。请在仓库根目录运行，并用 `-f` 指定该文件
+（或先 `export COMPOSE_FILE=docker/docker-compose.yml` 一次即可省去 `-f`）：
 
 ```bash
-docker compose build                          # 构建 rfuav:cu130
-docker compose run --rm rfuav                 # 默认：运行完整功能测试套件
-docker compose run --rm rfuav uv run --no-sync python train.py --cfg configs/exp1.1_ResNet18.yaml
+docker compose -f docker/docker-compose.yml build                          # 构建 rfuav:cu130
+docker compose -f docker/docker-compose.yml run --rm rfuav                 # 默认：运行完整功能测试套件
+docker compose -f docker/docker-compose.yml run --rm rfuav uv run --no-sync python train.py --cfg configs/exp1.1_ResNet18.yaml
 ```
 
 镜像在 `/opt/venv` 中已烤入完整的 `--all-extras` 环境，因此覆盖命令用
-`uv run --no-sync ...` 直接在其上运行。默认的 `docker compose run --rm rfuav` 会先
-按 `uv.lock` 校准该环境（在全新构建的镜像上是快速空操作），再在 GPU 上跑完整 pytest 套件。
+`uv run --no-sync ...` 直接在其上运行。默认的 `docker compose -f docker/docker-compose.yml run --rm rfuav`
+会先按 `uv.lock` 校准该环境（在全新构建的镜像上是快速空操作），再在 GPU 上跑完整 pytest 套件。
 
 GPU 直通与无头 Qt（`QT_QPA_PLATFORM=offscreen`）已在 compose 文件中配置。构建期与运行期
 默认经宿主代理 `host.docker.internal:7897`；如你的代理不同（或需直连），用

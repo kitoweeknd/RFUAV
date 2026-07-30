@@ -544,6 +544,7 @@ class MainWindow(QMainWindow):
 
     def _add_to_recent_files(self, file_path: str) -> None:
         """Add a file to the recent files list."""
+        recent_file = None
         try:
             from ChannelSimulation.viewer.core.utils import get_app_data_dir
             import json
@@ -561,6 +562,12 @@ class MainWindow(QMainWindow):
             recent.remove(file_path)
         recent.insert(0, file_path)
         recent = recent[:10]
+
+        # If the data dir couldn't be resolved above, recent_file is unset and
+        # there's nowhere to persist to — skip the write (previously this raised
+        # a NameError that the broad except silently swallowed).
+        if recent_file is None:
+            return
 
         try:
             with open(recent_file, "w", encoding="utf-8") as f:

@@ -7,7 +7,8 @@
 #     uv sync --all-extras            # env + all optional deps
 #     uv run python train.py ...
 #
-# Or via Docker (GPU):  docker compose build && docker compose run --rm rfuav ...
+# Or via Docker (GPU):  docker compose -f docker/docker-compose.yml build && \
+#                       docker compose -f docker/docker-compose.yml run --rm rfuav ...
 #
 # This requirements.txt is a best-effort pip fallback for environments without
 # uv. Target interpreter: Python 3.12.  Versions are kept in sync with

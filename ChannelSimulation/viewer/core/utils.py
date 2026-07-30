@@ -10,6 +10,7 @@ helpers only resolve and create paths; they do not configure Python logging.
 from __future__ import annotations
 
 import functools
+import math
 import os
 import sys
 from pathlib import Path
@@ -134,8 +135,14 @@ def parse_frequency_string(s: str) -> float | None:
     """
     s = s.strip().lower()
 
-    # Try to parse unit (longest suffix first so single letters can't shadow
-    # multi-character ones)
+    # Drop a trailing "hz" unit so the documented full forms ("1.5 ghz",
+    # "100 mhz", "1.23 khz", "500 hz") reach the magnitude logic below the same
+    # way their bare-suffix forms ("1.5g", "100m", "1.23k", "500") do.
+    if s.endswith("hz"):
+        s = s[:-2].strip()
+
+    # Magnitude suffix (longest first so single letters can't shadow a longer
+    # match). After the "hz" strip above, "ghz"→"g", "mhz"→"m", "khz"→"k".
     multipliers = {
         "g": 1e9,
         "m": 1e6,
@@ -146,13 +153,17 @@ def parse_frequency_string(s: str) -> float | None:
         if s.endswith(suffix):
             try:
                 num_str = s[:-len(suffix)].strip()
-                return float(num_str) * multipliers[suffix]
+                val = float(num_str) * multipliers[suffix]
+                # "inf"/"nan" parse as floats but are not a valid frequency;
+                # treat them as a parse failure like the None returns below.
+                return val if math.isfinite(val) else None
             except ValueError:
                 continue
 
-    # Try to parse number directly
+    # No magnitude suffix — parse the bare (already unit-stripped) number.
     try:
-        return float(s)
+        val = float(s)
+        return val if math.isfinite(val) else None
     except ValueError:
         return None
 
