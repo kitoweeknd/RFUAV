@@ -21,35 +21,24 @@ from typing import Any
 import numpy as np
 
 try:
-    from ChannelSimulation.channel_pipeline import STAGE_ORDER as _STAGE_ORDER
     from ChannelSimulation.core.io_utils import read_interleaved_iq
-    from ChannelSimulation.core.common import normalize_power
+    from ChannelSimulation.core.common import STAGE_ORDER, normalize_power
 except ImportError:
     import sys
     from pathlib import Path as _Path
     sys.path.insert(0, str(_Path(__file__).parent.parent.parent))
-    from ChannelSimulation.channel_pipeline import STAGE_ORDER as _STAGE_ORDER
     from ChannelSimulation.core.io_utils import read_interleaved_iq
-    from ChannelSimulation.core.common import normalize_power
+    from ChannelSimulation.core.common import STAGE_ORDER, normalize_power
 
+# STAGE_ORDER is imported from core.common (the backend's single source of
+# truth) and re-exported from this module (_bench and other viewer code import
+# it from here), so the viewer's stage list can no longer drift from the
+# pipeline's — the previous hand-copied list was one drift away from the bug
+# class that already bit metadata.py once (a copy that dropped "doppler").
 
 # Internal working dtype — float32 complex is sufficient for signal processing.
 # This halves the memory footprint of intermediate results vs complex128.
 _WORKING_DTYPE = np.complex64
-
-
-# Stage order (consistent with backend)
-STAGE_ORDER = [
-    "original",
-    "fading",
-    "doppler",
-    "multipath",
-    "cfo",
-    "phase_noise",
-    "iq_imbalance",
-    "awgn",
-    "crop_time_shift",
-]
 
 # Default stage configurations
 DEFAULT_STAGE_CONFIGS: dict[str, dict[str, Any]] = {

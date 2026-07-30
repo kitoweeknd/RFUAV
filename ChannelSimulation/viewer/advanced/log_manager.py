@@ -32,6 +32,19 @@ class LogLevel(Enum):
     CRITICAL = logging.CRITICAL
 
 
+def _close_and_clear_handlers(logger: logging.Logger) -> None:
+    """Close, then drop, all handlers on a shared named logger.
+
+    These loggers are process-wide singletons, so re-initialising LogManager
+    would otherwise leak the previous FileHandler's open file descriptor.
+    StreamHandler.close() never closes sys.stdout, so this is safe. Kept as
+    one helper so the teardown idiom cannot drift between the two loggers.
+    """
+    for _h in logger.handlers[:]:
+        _h.close()
+    logger.handlers.clear()
+
+
 class LogManager(QObject):
     """Log Manager
 
@@ -56,13 +69,7 @@ class LogManager(QObject):
         # Create logger
         self._logger = logging.getLogger("ChannelSimViewer")
         self._logger.setLevel(level.value)
-        # Close existing handlers before dropping them: this logger is a shared
-        # singleton, so re-instantiating LogManager would otherwise leak the
-        # previous FileHandler's open file descriptor. StreamHandler.close()
-        # never closes sys.stdout, so this is safe.
-        for _h in self._logger.handlers[:]:
-            _h.close()
-        self._logger.handlers.clear()
+        _close_and_clear_handlers(self._logger)
 
         # File handler
         self._file_handler = self._create_file_handler()
@@ -112,11 +119,7 @@ class LogManager(QObject):
 
         logger = logging.getLogger("ChannelSimViewer.UserActions")
         logger.setLevel(logging.INFO)
-        # Close before clearing to avoid leaking the prior FileHandler's fd
-        # when this shared singleton logger is re-initialised.
-        for _h in logger.handlers[:]:
-            _h.close()
-        logger.handlers.clear()
+        _close_and_clear_handlers(logger)
 
         handler = logging.FileHandler(log_file, encoding="utf-8")
         handler.setLevel(logging.INFO)

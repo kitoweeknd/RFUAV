@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from .base_detector import resolve_device
 from .yolo import DetectionModel
 from .yolo.basic import Ensemble, Detect
 import numpy as np
@@ -16,16 +17,17 @@ class YOLOV5S(nn.Module):
                  fuse=True):
 
         super().__init__()
-        # Default to CUDA only when actually available; also accept a string
-        # device (e.g. 'cpu'/'cuda') and normalise to torch.device so the
-        # `device.type` checks below work regardless of the caller's form.
-        if device is None:
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        elif isinstance(device, str):
-            device = torch.device(device)
+        # Normalise to torch.device via the shared helper (one default-device
+        # policy for all detectors; also accepts str and int CUDA-index forms)
+        # so the `device.type` checks below work regardless of caller form.
+        device = resolve_device(device)
         w = str(weights[0] if isinstance(weights, list) else weights)
         pt = True
-        fp16 &= False  # FP16
+        # FP16 inference is intentionally disabled: the vendored YOLOv5
+        # half-precision path is not validated in this repo, so the
+        # constructor flag is accepted for upstream API compatibility but
+        # ignored (was the obscure `fp16 &= False`).
+        fp16 = False
         nhwc = False  # BHWC formats (vs torch BCWH)
         stride = 32  # default stride
         cuda = torch.cuda.is_available() and device.type != 'cpu'  # use CUDA

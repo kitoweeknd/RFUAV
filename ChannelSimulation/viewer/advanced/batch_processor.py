@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import gc
 import json
+import logging
 import time
 import yaml
 from dataclasses import dataclass, asdict
@@ -119,11 +120,23 @@ class BatchProcessor:
                 # unexpectedly: otherwise on_finished never runs, the worker
                 # handle is never cleared, and the GUI stays stuck at
                 # "processing". Per-task failures are already handled inside
-                # _run_sync; this guards an error raised outside that loop.
+                # _run_sync; this guards an error raised outside that loop —
+                # and must not swallow it silently: log the traceback and mark
+                # every task the loop never finished as failed, so the
+                # completed/failed tally accounts for all tasks instead of
+                # reporting a clean "Failed: 0" for an aborted batch.
                 try:
-                    results = self._processor._run_sync()
-                except Exception:
-                    results = list(self._processor._results)
+                    self._processor._run_sync()
+                except Exception as e:
+                    logging.getLogger(__name__).exception("Batch run aborted")
+                    for t in self._processor._tasks:
+                        if t.status in ("pending", "running"):
+                            t.status = "failed"
+                            t.error = f"batch aborted: {e!r}"
+                # Snapshot on both paths (_run_sync returns self._results
+                # itself, so returning it directly would hand out an alias
+                # that a later run()'s clear() mutates under the consumer).
+                results = list(self._processor._results)
                 completed = sum(1 for t in self._processor._tasks if t.status == "completed")
                 failed = sum(1 for t in self._processor._tasks if t.status == "failed")
                 self.finished_signal.emit(results, completed, failed)
@@ -142,16 +155,22 @@ class BatchProcessor:
         self._worker_thread.start()
 
     def _emit_progress(self, current: int, total: int, message: str) -> None:
-        """Report progress in a thread-safe way.
+        """Report progress in a thread-safe, non-raising way.
 
         Emits via the worker's Qt signal so the connected callback runs on the
         main thread. Falls back to a direct call if no worker thread is active
-        (e.g. ``_run_sync`` invoked synchronously outside ``run``).
+        (e.g. ``_run_sync`` invoked synchronously outside ``run``). Progress is
+        best-effort UI feedback: a failed emit (e.g. the Qt object was torn
+        down by a concurrent stop) must not abort the batch mid-run, so
+        errors are logged and suppressed.
         """
-        if self._worker_thread is not None:
-            self._worker_thread.progress_signal.emit(current, total, message)
-        elif self._progress_callback is not None:
-            self._progress_callback(current, total, message)
+        try:
+            if self._worker_thread is not None:
+                self._worker_thread.progress_signal.emit(current, total, message)
+            elif self._progress_callback is not None:
+                self._progress_callback(current, total, message)
+        except Exception:
+            logging.getLogger(__name__).exception("Batch progress report failed")
 
     def _run_sync(self) -> List[BatchResult]:
         """Synchronous run for internal use"""

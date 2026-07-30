@@ -18,9 +18,28 @@ import torch
 from .yolo.basic import Colors
 
 
+def resolve_device(device=None):
+    """Normalise ``device`` to a ``torch.device``.
+
+    Single place for the default-device policy so the detectors cannot drift.
+    Accepts None (auto: CUDA when available, else CPU), an existing
+    ``torch.device``, or anything ``torch.device()`` itself accepts — a string
+    ('cpu', 'cuda:1', ...) or an int ordinal, which torch maps to the current
+    accelerator type (``cuda:0`` on CUDA builds, ``mps:0`` on Apple-silicon
+    builds). Note ``device=0`` therefore selects accelerator 0, not "falsy,
+    use the default" (the previous ``device or ...`` idiom silently coerced
+    0 to the default).
+    """
+    if device is None:
+        return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if isinstance(device, torch.device):
+        return device
+    return torch.device(device)
+
+
 class BaseDetector:
     def __init__(self, device=None, conf_thres=0.6):
-        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = resolve_device(device)
         self.conf_thres = conf_thres
         self._use_amp = str(self.device) != 'cpu'
         self.names = None  # class-id -> name (dict or list); set by each subclass

@@ -9,7 +9,6 @@ Supports exporting IQ data from intermediate stages.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -30,35 +29,41 @@ class ExportUtils:
             file_path: Target file path
             format: Output sample format — "float32" (default) writes raw
                 interleaved float32; "int16" clips to [-1, 1] and scales to
-                full-scale signed 16-bit.
+                full-scale signed 16-bit (rounded to nearest).
         """
-        file_path = Path(file_path)
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Split into real/imag once — dtype-agnostic (complex64 and complex128
-        # both narrow to float32 components for the on-disk layout).
-        real = np.real(signal).astype(np.float32)
-        imag = np.imag(signal).astype(np.float32)
-
-        if format == "float32":
-            interleaved = np.empty(len(signal) * 2, dtype=np.float32)
-            interleaved[0::2] = real
-            interleaved[1::2] = imag
-        elif format == "int16":
-            # Full-scale signed-16-bit convention: clip the normalised [-1, 1]
-            # range to ±1 then scale to ±32767. Clipping guards the int16 cast
-            # against wraparound for samples outside [-1, 1].
-            interleaved = np.empty(len(signal) * 2, dtype=np.int16)
-            interleaved[0::2] = np.clip(real, -1.0, 1.0) * 32767.0
-            interleaved[1::2] = np.clip(imag, -1.0, 1.0) * 32767.0
-        else:
+        if format not in ("float32", "int16"):
             raise ValueError(
                 f"Unsupported IQ export format: {format!r} "
                 "(expected 'float32' or 'int16')"
             )
 
-        # Write to file
-        interleaved.tofile(file_path)
+        file_path = Path(file_path)
+
+        if format == "float32":
+            # Delegate to the canonical on-disk writer, so the GUI export and
+            # the backend pipeline can never drift apart in file layout.
+            from ChannelSimulation.core.io_utils import save_interleaved_iq
+
+            save_interleaved_iq(file_path, signal)
+            return
+
+        # int16: full-scale signed-16-bit convention. Build the interleaved
+        # float32 buffer once (complex64 and complex128 inputs both narrow to
+        # float32 components on assignment), then sanitise/clip/scale/round it
+        # in place — no per-component temporaries — before the final int16
+        # cast. NaNs are zeroed first: they pass np.clip unchanged and would
+        # otherwise cast to platform-dependent garbage. Rounding to nearest
+        # (instead of the cast's truncation toward zero) avoids a systematic
+        # up-to-1-LSB magnitude bias in the exported samples.
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        interleaved = np.empty(len(signal) * 2, dtype=np.float32)
+        interleaved[0::2] = np.real(signal)
+        interleaved[1::2] = np.imag(signal)
+        np.nan_to_num(interleaved, copy=False, nan=0.0)
+        np.clip(interleaved, -1.0, 1.0, out=interleaved)
+        interleaved *= np.float32(32767.0)
+        np.round(interleaved, out=interleaved)
+        interleaved.astype(np.int16).tofile(file_path)
 
     @staticmethod
     def export_spectrum_png(

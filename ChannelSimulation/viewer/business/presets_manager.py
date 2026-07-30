@@ -21,11 +21,18 @@ class PresetsManager:
 
     def __init__(self):
         self._presets: Dict[str, Dict[str, Any]] = {}
+        # name -> source yaml path. Ground truth for delete_preset: names read
+        # from disk are NOT validated (a legacy or hand-edited yaml may carry a
+        # name the strict _safe_stem rejects), so the recorded path — which came
+        # from PRESETS_DIR.glob and is therefore always inside the presets dir —
+        # is what keeps such presets deletable through this API.
+        self._preset_files: Dict[str, Path] = {}
         self._load_presets()
 
     def _load_presets(self) -> None:
         """Load preset templates"""
         self._presets.clear()
+        self._preset_files.clear()
 
         # Ensure directory exists
         self.PRESETS_DIR.mkdir(parents=True, exist_ok=True)
@@ -39,6 +46,7 @@ class PresetsManager:
                 if preset and isinstance(preset, dict):
                     name = preset.get("name", yaml_file.stem)
                     self._presets[name] = preset
+                    self._preset_files[name] = yaml_file
             except Exception as e:
                 print(f"[WARNING] Failed to load preset {yaml_file}: {e}")
 
@@ -64,20 +72,50 @@ class PresetsManager:
             return copy.deepcopy(preset)
         return None
 
-    @staticmethod
-    def _safe_stem(name: str) -> str:
-        """Reduce a GUI-supplied preset name to a safe bare filename stem.
+    # Windows reserves these device basenames regardless of extension —
+    # open("CON.yaml", "w") talks to the console device instead of creating a
+    # file, so the preset would silently never reach disk.
+    _RESERVED_STEMS = frozenset(
+        {"CON", "PRN", "AUX", "NUL"}
+        | {f"COM{i}" for i in range(1, 10)}
+        | {f"LPT{i}" for i in range(1, 10)}
+    )
 
-        The name is user input, so drop any directory components (on both
-        POSIX and Windows separators) plus leading/trailing dots; this stops a
-        crafted name like "../../evil" from redirecting the save/delete outside
-        PRESETS_DIR. Separator-free names (e.g. "UMa-AV (3GPP)") pass through
-        unchanged, so existing preset files still round-trip.
+    @classmethod
+    def _safe_stem(cls, name: str) -> str:
+        """Validate a GUI-supplied preset name as a safe bare filename stem.
+
+        The name doubles as the yaml filename, so rather than rewriting it —
+        which silently maps distinct names onto one file, overwriting or
+        deleting an unrelated preset — reject anything that is not already a
+        plain single-component name:
+
+        - '/', '\\' and ':' cover POSIX/UNC traversal, Windows drive-relative
+          escapes ("C:evil" resets the pathlib join anchor and lands outside
+          PRESETS_DIR) and NTFS alternate data streams;
+        - the remaining Windows-invalid filename characters would otherwise
+          only fail later inside open() with an opaque OSError;
+        - leading/trailing spaces or dots collide after Windows' implicit
+          name trimming ("config." and "config" map to the same file);
+        - reserved device basenames (CON, NUL, ...) silently write to the
+          device instead of a file.
+
+        Plain names (e.g. "UMa-AV (3GPP)") pass through unchanged, so existing
+        preset files still round-trip.
         """
-        stem = name.replace("\\", "/").split("/")[-1].strip().strip(".")
-        if not stem:
-            raise ValueError(f"Invalid preset name: {name!r}")
-        return stem
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"Preset name must be a non-empty string: {name!r}")
+        if set(name) & set('/\\:<>"|?*') or any(ord(c) < 32 for c in name):
+            raise ValueError(
+                f"Preset name contains characters not allowed in filenames: {name!r}"
+            )
+        if name != name.strip(" ."):
+            raise ValueError(
+                f"Preset name may not start or end with spaces or dots: {name!r}"
+            )
+        if name.split(".")[0].upper() in cls._RESERVED_STEMS:
+            raise ValueError(f"Preset name is a reserved Windows device name: {name!r}")
+        return name
 
     def add_preset(
         self,
@@ -94,6 +132,12 @@ class PresetsManager:
             description: Description
             category: Category (satellite / uav / cellular / radar / custom)
         """
+        # Validate the name and write the file BEFORE touching the in-memory
+        # table: if the name is rejected (or the write fails), self._presets
+        # must not be left holding a phantom entry that has no backing file
+        # and would silently vanish on the next reload().
+        file_path = self.PRESETS_DIR / f"{self._safe_stem(name)}.yaml"
+
         preset = {
             "name": name,
             "description": description,
@@ -101,13 +145,11 @@ class PresetsManager:
             **copy.deepcopy(config),
         }
 
-        self._presets[name] = preset
-
-        # Save to file (sanitize the GUI-supplied name so it cannot escape
-        # PRESETS_DIR via path separators or "..").
-        file_path = self.PRESETS_DIR / f"{self._safe_stem(name)}.yaml"
         with open(file_path, "w", encoding="utf-8") as f:
             yaml.dump(preset, f, default_flow_style=False, allow_unicode=True)
+
+        self._presets[name] = preset
+        self._preset_files[name] = file_path
 
     def delete_preset(self, name: str) -> bool:
         """Delete preset
@@ -121,14 +163,19 @@ class PresetsManager:
         if name not in self._presets:
             return False
 
-        del self._presets[name]
-
-        # Delete file (same sanitization as add_preset so the path resolves to
-        # the file that was actually written).
-        file_path = self.PRESETS_DIR / f"{self._safe_stem(name)}.yaml"
+        # Resolve the path before touching in-memory state, so a failure here
+        # cannot half-delete the preset. Prefer the recorded source file (see
+        # __init__: names loaded from disk are unvalidated, and must remain
+        # deletable); fall back to the validated name->path mapping — the same
+        # validation as add_preset, so it resolves to the file actually written.
+        file_path = self._preset_files.get(name)
+        if file_path is None:
+            file_path = self.PRESETS_DIR / f"{self._safe_stem(name)}.yaml"
         if file_path.exists():
             file_path.unlink()
 
+        del self._presets[name]
+        self._preset_files.pop(name, None)
         return True
 
     def get_presets_by_category(self, category: str) -> List[str]:

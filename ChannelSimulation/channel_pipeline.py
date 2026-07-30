@@ -15,7 +15,7 @@ try:
     from ChannelSimulation.channels.iq_imbalance import apply_iq_imbalance
     from ChannelSimulation.channels.multipath import apply_multipath
     from ChannelSimulation.channels.phase_noise import apply_phase_noise
-    from ChannelSimulation.core.common import normalize_power
+    from ChannelSimulation.core.common import STAGE_ORDER, normalize_power
     from ChannelSimulation.core.io_utils import (
         append_interleaved_iq,
         count_complex_samples,
@@ -34,7 +34,7 @@ except ImportError:  # Compatible with direct script execution
     from ChannelSimulation.channels.iq_imbalance import apply_iq_imbalance
     from ChannelSimulation.channels.multipath import apply_multipath
     from ChannelSimulation.channels.phase_noise import apply_phase_noise
-    from ChannelSimulation.core.common import normalize_power
+    from ChannelSimulation.core.common import STAGE_ORDER, normalize_power
     from ChannelSimulation.core.io_utils import (
         append_interleaved_iq,
         count_complex_samples,
@@ -46,17 +46,9 @@ except ImportError:  # Compatible with direct script execution
     from ChannelSimulation.viz.visualization import plot_time_frequency
 
 
-STAGE_ORDER = [
-    "original",
-    "fading",
-    "doppler",
-    "multipath",
-    "cfo",
-    "phase_noise",
-    "iq_imbalance",
-    "awgn",
-    "crop_time_shift",
-]
+# STAGE_ORDER is defined in core.common (the single source of truth, imported
+# above) and re-exported from this module for backwards compatibility:
+# ChannelSimulation/__init__ and external callers import it from here.
 
 # Chunks that require the full signal (cannot be processed per-chunk independently).
 # Doppler builds a continuous phase (arange-based rotation + cumulative phase noise),
@@ -545,8 +537,16 @@ def process_one_file(
         print(f"{progress_prefix}  mode: {mode}  ({n_total:,} complex samples)")
 
     if use_streaming:
-        # Streaming: visualize first chunk only (full-signal visualization is too expensive)
-        first_chunk = next(iter_iq_chunks(input_path, forced_chunk if forced_chunk is not None else auto_limit))
+        # Streaming: visualize first chunk only (full-signal visualization is too expensive).
+        # Guard the empty-file case: a bare next() on a 0-byte input would raise a
+        # message-less StopIteration and kill a whole batch run (the full-signal
+        # path raises a clear ValueError from read_interleaved_iq for the same input).
+        first_chunk = next(
+            iter_iq_chunks(input_path, forced_chunk if forced_chunk is not None else auto_limit),
+            None,
+        )
+        if first_chunk is None:
+            raise ValueError(f"File data too short (no complex samples): {input_path}")
         rng_preview = np.random.default_rng(seed)
         x_preview = normalize_power(first_chunk)
         if "original" in enabled_stages:

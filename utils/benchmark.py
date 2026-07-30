@@ -257,16 +257,28 @@ class ClassifyModel(nn.Module):
                     names.append(self._idx_to_name[int(idx[j].item())])
                     probs_pct.append(float(conf[j].item()) * 100)
 
-        res = [
-            self.add_result(res=n, probability=p, image=im)
-            for n, p, im in zip(names, probs_pct, images)
-        ]
+        # Report the classification outcome regardless of save mode: a
+        # save=False run previously rendered + inferred everything and then
+        # silently discarded it all (no file, no log — the only consumer of
+        # the annotated frames is the video writer below).
+        majority = max(set(names), key=names.count)
+        self.logger.log_with_color(
+            f"{name}: {len(names)} frames, majority: {majority} "
+            f"({names.count(majority)}/{len(names)}), "
+            f"mean confidence: {sum(probs_pct) / len(probs_pct):.2f}%"
+        )
 
+        # Annotate + encode only when saving — add_result draws onto the
+        # frames in place, and the annotated list has no other consumer.
         # Pipe annotated frames straight to the system ffmpeg (same encoder as
         # save_as_video) instead of imageio.mimsave, which needs the optional
         # imageio-ffmpeg backend that isn't installed. self.save_path is only
         # set when self.save is True (defaults to None), so guard the write.
         if self.save and self.save_path:
+            res = [
+                self.add_result(res=n, probability=p, image=im)
+                for n, p, im in zip(names, probs_pct, images)
+            ]
             frames_to_video(res, os.path.join(self.save_path, name + '.mp4'), fps=5)
 
     def add_result(self,

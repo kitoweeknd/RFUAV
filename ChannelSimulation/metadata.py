@@ -4,6 +4,13 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+# STAGE_ORDER comes from the leaf module core.common — NOT from
+# channel_pipeline, which imports THIS module at load time (that would be a
+# circular import) — so the metadata always reports the canonical stage list
+# instead of a hand-copied one (a copy here had drifted once, dropping
+# "doppler").
+from ChannelSimulation.core.common import STAGE_ORDER
+
 
 def build_run_metadata(
     *,
@@ -21,13 +28,6 @@ def build_run_metadata(
     seed: int,
     fc: float = 0.0,
 ) -> dict:
-    # Canonical stage order — derived from the single source of truth in
-    # channel_pipeline rather than re-hardcoded here (the hand-copied list had
-    # drifted, omitting "doppler"). Imported lazily because channel_pipeline
-    # imports THIS module at load time; a module-level import would be circular
-    # (and STAGE_ORDER is defined only after that import in channel_pipeline).
-    from ChannelSimulation.channel_pipeline import STAGE_ORDER
-
     return {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "input_file": str(Path(input_file)),

@@ -66,8 +66,10 @@ def _worker_run(sig, cfg, fs, fc):
     t0 = time.perf_counter()
     w.run()  # QThread.run() called directly → synchronous; signals fire inline
     total = time.perf_counter() - t0
-    n_stages = len(stages) + 1  # intermediate stages + the "final" stage
-    return total, marks.get("first", t0) - t0, n_stages
+    # Count of spectra cached via the worker signal (preprocess + enabled
+    # stages); "final" arrives on a different signal and is reported
+    # separately in the print below rather than folded into this number.
+    return total, marks.get("first", t0) - t0, len(stages)
 
 
 def main(argv: list[str]) -> int:
@@ -116,8 +118,8 @@ def main(argv: list[str]) -> int:
     total, first, cached = _worker_run(
         sig, {"stage_configs": {s: {"enabled": True} for s in STAGE_ORDER[1:]}}, fs, fc
     )
-    print(f"\n[worker end-to-end, {cached} stages]  "
-          f"total={total:.2f}s  first-paint={first:.2f}s  stages_cached={cached}")
+    print(f"\n[worker end-to-end]  total={total:.2f}s  first-paint={first:.2f}s  "
+          f"stages_cached={cached} (+ final)")
     return 0 if (dmax < 0.01 and finite) else 1
 
 

@@ -472,22 +472,54 @@ class MainWindow(QMainWindow):
         menu.aboutToShow.connect(self._refresh_recent_files)
         return menu
 
+    # -- recent-files persistence (shared by refresh / clear / add below) ----
+
+    def _recent_files_path(self) -> "Path | None":
+        """Resolve the recent-files JSON path, or None if unavailable."""
+        try:
+            from ChannelSimulation.viewer.core.utils import get_app_data_dir
+            return get_app_data_dir() / "recent_files.json"
+        except Exception:
+            return None
+
+    def _load_recent_list(self) -> list:
+        """Load the recent-files list; any failure or non-list content -> [].
+
+        The file is external state (users/tools can corrupt it): payloads that
+        are valid JSON but not a list ("{}", a string, a number) must degrade
+        to the empty list here rather than crash the Qt slots that consume it
+        — the next save simply rewrites the file with a clean list.
+        """
+        recent_file = self._recent_files_path()
+        if recent_file is None:
+            return []
+        try:
+            import json
+            with open(recent_file, "r", encoding="utf-8") as f:
+                recent = json.load(f)
+        except Exception:
+            return []
+        return recent if isinstance(recent, list) else []
+
+    def _save_recent_list(self, recent: list) -> None:
+        """Persist the recent-files list (best-effort: failures are ignored)."""
+        recent_file = self._recent_files_path()
+        if recent_file is None:
+            return
+        try:
+            import json
+            with open(recent_file, "w", encoding="utf-8") as f:
+                json.dump(recent, f, indent=2)
+        except Exception:
+            pass
+
     def _refresh_recent_files(self) -> None:
         """Refresh and display recent files list."""
         self._recent_menu.clear()
-        try:
-            from ChannelSimulation.viewer.core.utils import get_app_data_dir
-            import json
-            recent_file = get_app_data_dir() / "recent_files.json"
-            if recent_file.exists():
-                with open(recent_file, "r", encoding="utf-8") as f:
-                    recent = json.load(f)
-            else:
-                recent = []
-        except Exception:
-            recent = []
+        recent = self._load_recent_list()
 
-        valid = [p for p in recent if p and Path(p).exists()]
+        # Entries are external data too — tolerate non-string junk in the list.
+        valid = [p for p in recent if isinstance(p, str) and p and Path(p).exists()]
         if not valid:
             # QMenu.addAction takes text/QAction, not a QWidget — use a disabled item.
             no_item = self._recent_menu.addAction("(no recent files)")
@@ -533,47 +565,17 @@ class MainWindow(QMainWindow):
 
     def _clear_recent_files(self) -> None:
         """Clear the recent files list."""
-        try:
-            from ChannelSimulation.viewer.core.utils import get_app_data_dir
-            import json
-            recent_file = get_app_data_dir() / "recent_files.json"
-            with open(recent_file, "w", encoding="utf-8") as f:
-                json.dump([], f)
-        except Exception:
-            pass
+        self._save_recent_list([])
 
     def _add_to_recent_files(self, file_path: str) -> None:
         """Add a file to the recent files list."""
-        recent_file = None
-        try:
-            from ChannelSimulation.viewer.core.utils import get_app_data_dir
-            import json
-            recent_file = get_app_data_dir() / "recent_files.json"
-            if recent_file.exists():
-                with open(recent_file, "r", encoding="utf-8") as f:
-                    recent = json.load(f)
-            else:
-                recent = []
-        except Exception:
-            recent = []
-
-        # Remove if already present, add to front
+        # _load_recent_list is guaranteed to return a list, so the mutations
+        # below can no longer raise out of the Qt slot on a corrupted file.
+        recent = self._load_recent_list()
         if file_path in recent:
             recent.remove(file_path)
         recent.insert(0, file_path)
-        recent = recent[:10]
-
-        # If the data dir couldn't be resolved above, recent_file is unset and
-        # there's nowhere to persist to — skip the write (previously this raised
-        # a NameError that the broad except silently swallowed).
-        if recent_file is None:
-            return
-
-        try:
-            with open(recent_file, "w", encoding="utf-8") as f:
-                json.dump(recent, f, indent=2)
-        except Exception:
-            pass
+        self._save_recent_list(recent[:10])
 
     def _on_apply_scenario(self, scenario_name: str) -> None:
         """Apply a 3GPP UAV scenario preset (UMa-AV or UMi-AV).

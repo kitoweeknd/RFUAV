@@ -5,6 +5,7 @@ custom checkpoint trained elsewhere. torchvision is already a project dependency
 so this backend needs no extra install.
 """
 import os
+import pickle
 
 import cv2
 import torch
@@ -28,7 +29,22 @@ class FasterRCNNDetector(BaseDetector):
             # Loaded straight into load_state_dict below, so the checkpoint is a
             # state_dict (tensors only); weights_only=True is safe and avoids the
             # arbitrary-code-execution risk of unpickling a full object.
-            state = torch.load(weight_path, map_location='cpu', weights_only=True)
+            try:
+                state = torch.load(weight_path, map_location='cpu', weights_only=True)
+            except pickle.UnpicklingError as e:
+                # Full training checkpoints (e.g. torchvision references/
+                # detection saves {'model', 'optimizer', 'args': Namespace, ...})
+                # pickle non-tensor objects that weights_only refuses — and the
+                # whole file must unpickle before the 'model' key is readable.
+                # Re-raise with a repo-level remedy instead of torch's generic
+                # message.
+                raise RuntimeError(
+                    f"Could not load '{weight_path}' with weights_only=True: the "
+                    "checkpoint pickles non-tensor objects (typical for full "
+                    "training checkpoints containing args/config). Re-save just "
+                    "the weights — torch.save(ckpt['model'], path) — or allowlist "
+                    "the offending classes via torch.serialization.add_safe_globals."
+                ) from e
             if isinstance(state, dict) and 'model' in state:
                 state = state['model']
             self.model.load_state_dict(state)
