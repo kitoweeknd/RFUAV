@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kitoweeknd/RFUAV/spec/rfuav-compliance-schema.json",
+  "title": "RFUAV v2.0 compliance profile for SigMF v1.2.6 .sigmf-meta documents",
+  "description": "Second CI validation layer. sigmf-python 1.11.1 validates only the SigMF core STRUCTURE: it accepts misspelled core:* keys silently (additionalProperties:true), it does not anchor the core:datatype pattern (cf32_lefoo passes), and it knows nothing about the rfuav namespace (verificacion-empirica-02). This schema encodes the RFUAV compliance profile of g2-canonical-spec-v0.1 SS2/SS3/SS8 and is enforced by tools/rfuav_v2/validate_sidecar.py, which additionally performs the cross-field and filesystem checks that JSON Schema cannot express (see RULES table in that file).",
+  "type": "object",
+  "required": ["global", "captures", "annotations"],
+  "additionalProperties": false,
+
+  "$defs": {
+    "sha512_lower": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{128}$",
+      "description": "SHA-512 of the .sigmf-data file, 128 LOWERCASE hex chars. Stock SigMF allows [0-9a-fA-F] and is unanchored; the RFUAV profile pins case and length so that hashes are byte-comparable across manifests (D4)."
+    },
+    "iso8601_utc_z": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$",
+      "description": "Strict ISO-8601 / RFC-3339 UTC instant with a literal trailing Z. Naive local timestamps and numeric offsets (+08:00) are REJECTED. Calendar validity (no 2024-02-31) is checked in code."
+    },
+    "http_url": {
+      "type": "string",
+      "pattern": "^https?://[^\\s\"<>]+$",
+      "description": "Absolute http(s) URL."
+    },
+    "doi_or_url": {
+      "type": "string",
+      "pattern": "^(10\\.\\d{4,9}/[^\\s]+|https?://[^\\s\"<>]+)$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*-u\\d{2}-r\\d{2}-s\\d{2}-d\\d{8}-\\d{2}$",
+      "description": "{taxonomy_short}-u{unit:02d}-r{rx:02d}-s{site:02d}-d{YYYYMMDD}-{seq:02d} (spec SS2). This is the Shulman leakage grouping key: every simultaneous sub-capture of one over-the-air event shares it."
+    },
+    "recording_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*-u\\d{2}-r\\d{2}-s\\d{2}-d\\d{8}-\\d{2}-c\\d{2}$",
+      "description": "{session_id}-c{cfg:02d} (spec SS2). The prefix relation to rfuav:session_id is checked in code (JSON Schema cannot compare sibling values)."
+    },
+    "taxonomy_id": {
+      "type": "string",
+      "pattern": "^((uav|rc|gs|unk)\\.[a-z0-9]+\\.[a-z0-9]+(\\.[a-z0-9]+)?|bg\\.[a-z0-9]+(\\.[a-z0-9]+){0,2})$",
+      "description": "{role}.{vendor}.{model}[.{variant}] (spec SS2). The bg role is 2-4 segments because spec SS1 mandates the 2-segment literal bg.kong for the background class, which the original 3-segment-only pattern REJECTED. Vocabulary fixes already approved: AVTA2->avata2, DIMINI4PRO->mini4pro, DAUTEL->autel, SKYDROID vendor merge. PARROT is uav.parrot.anafi (F4 / verificacion-empirica-05)."
+    },
+    "device_role": {
+      "type": "string",
+      "enum": ["uav", "rc", "gs", "bg", "unk"]
+    },
+    "signal_state": {
+      "type": "string",
+      "enum": ["flight", "pairing", "hover", "unknown"],
+      "description": "SPEC-GAP-01: spec SS3 fixes exactly these four values, but the most frequent state token in the real library is 'daifei/dafei' (idle-but-powered) at 149/796 .iq files vs hover 17. Under this enum those 149 files must be labelled 'unknown', destroying a real class distinction. Proposal for rfuav.sigmf-ext.md v0.1.0: add 'idle' and 'background'. NOT applied here because SS3 was approved verbatim."
+    },
+    "quarantine_status": {
+      "type": "string",
+      "enum": ["none", "partials", "duplicates", "superseded", "ceshi", "defective", "misfiled", "probe"],
+      "description": "Mirrors _quarantine/{partials|duplicates|ceshi|defective|misfiled|probe} (spec SS1) plus 'superseded' for sliced copies of a retained original (SS5) and 'none' for clean canonical records. Nothing is ever deleted; this field is the sidecar face of LEDGER.csv."
+    },
+    "source_dataset": {
+      "type": "string",
+      "enum": ["rfuav", "dronerf", "dronerfa", "dronerfb-dir", "drff-r1", "drff-r2", "cardrf", "cagedronerf", "dronedetect"],
+      "description": "Closed vocabulary from spec SS1/SS7 (bundled/ + recipes/ source list)."
+    },
+    "protocol_mode_at_capture": {
+      "type": "string",
+      "enum": ["factory_default_unverified", "factory_default_verified", "non_default_documented", "unknown"],
+      "description": "F2: protocol modes are not traceable; every multi-protocol radio was captured in factory default state, so the library-wide value is factory_default_unverified."
+    },
+    "spdx_id": {
+      "type": "string",
+      "pattern": "^([A-Za-z0-9][A-Za-z0-9.+-]{1,63}|NOASSERTION|NONE)$",
+      "description": "SPDX short identifier of the ORIGINAL upstream licence (not the RFUAV v2.0 licence). Membership in the known-SPDX allowlist is a code-level WARN, not an error."
+    },
+    "band_token": {
+      "type": "string",
+      "pattern": "^[a-z0-9]{2,8}$",
+      "description": "Controlled band token (e.g. 2g4, 5g8, 900m, 940m). The registry lives in manifests/taxonomy/labels.json; only the lexical shape is enforced here."
+    },
+    "link_protocol": {
+      "type": "string",
+      "pattern": "^([a-z0-9]+(\\.[a-z0-9_]+)+|unknown)$",
+      "description": "vendor.mode registry token: dji.ocusync2 / dji.o3plus / dji.o4, frsky.access, futaba.fasstest, flysky.afhds2a, elrs.24, wifi.80211a_n (PARROT ANAFI, F4 - the paper's 'FHSS 18.36 MHz' for PARROT is REFUTED)."
+    },
+    "nonneg_int": { "type": "integer", "minimum": 0 },
+    "pos_number": { "type": "number", "exclusiveMinimum": 0 },
+
+    "extension_object": {
+      "type": "object",
+      "required": ["name", "version", "optional"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "optional": { "type": "boolean" }
+      }
+    },
+
+    "geolocation": {
+      "type": "object",
+      "required": ["type", "coordinates"],
+      "properties": {
+        "type": { "type": "string", "enum": ["Point"] },
+        "coordinates": { "type": "array", "minItems": 2, "maxItems": 3, "items": { "type": "number" } },
+        "bbox": { "type": "array", "minItems": 4, "items": { "type": "number" } }
+      }
+    },
+
+    "foreign_namespace_key": {
+      "description": "Any key of a declared non-core, non-rfuav SigMF extension namespace (traceability:, signal:, ntia-core:, capture_details:, ...). Declaration in core:extensions is enforced in code.",
+      "type": ["string", "number", "integer", "boolean", "object", "array", "null"]
+    }
+  },
+
+  "properties": {
+    "global": {
+      "type": "object",
+      "required": [
+        "core:datatype",
+        "core:version",
+        "core:sample_rate",
+        "core:sha512",
+        "core:hw",
+        "core:author",
+        "core:license",
+        "core:recorder",
+        "core:extensions",
+        "rfuav:taxonomy_id",
+        "rfuav:recording_id",
+        "rfuav:session_id",
+        "rfuav:device_role",
+        "rfuav:signal_state",
+        "rfuav:site_id",
+        "rfuav:source_dataset",
+        "rfuav:original_license",
+        "rfuav:redistributable",
+        "rfuav:quarantine_status",
+        "rfuav:continuous",
+        "rfuav:naming_dialect",
+        "rfuav:protocol_mode_at_capture"
+      ],
+      "properties": {
+        "core:datatype": {
+          "const": "cf32_le",
+          "description": "EXACT equality. The stock schema pattern ^(c|r)(f32|...)(_le|_be)? is unanchored, so cf32_lefoo and bare cf32 both pass upstream (verificacion-empirica-02 Test 2). RFUAV is byte-identical complex float32 interleaved LE, so the only legal value is cf32_le (D1)."
+        },
+        "core:version": { "const": "1.2.6" },
+        "core:sample_rate": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000000000000 },
+        "core:sha512": { "$ref": "#/$defs/sha512_lower" },
+        "core:hw": { "type": "string", "minLength": 1 },
+        "core:author": { "type": "string", "minLength": 1 },
+        "core:license": { "$ref": "#/$defs/http_url" },
+        "core:recorder": { "type": "string", "minLength": 1 },
+        "core:extensions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/extension_object" },
+          "description": "MUST contain {name:rfuav, version:0.1.0, optional:true}. Today sigmf-python only warns about undeclared extensions, but upstream announces a future hard ValidationError, so the declaration is mandatory from day one (verificacion-empirica-02 implication 1)."
+        },
+        "core:description": { "type": "string" },
+        "core:num_channels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1,
+          "description": "RFUAV recordings are single-channel. Multi-channel grouping uses .sigmf-collection (1 archive = 1 recording, verificacion-empirica-02 Test 4). The SS8 size identity size = sr*2*4*duration assumes num_channels == 1."
+        },
+        "core:offset": { "$ref": "#/$defs/nonneg_int" },
+        "core:trailing_bytes": { "$ref": "#/$defs/nonneg_int" },
+        "core:metadata_only": { "type": "boolean" },
+        "core:dataset": { "type": "string", "pattern": "^[^/\\\\:*?\"<>|]+(\\.[^/\\\\:*?\"<>|]+)*$" },
+        "core:collection": { "type": "string", "minLength": 1 },
+        "core:data_doi": { "$ref": "#/$defs/doi_or_url" },
+        "core:meta_doi": { "$ref": "#/$defs/doi_or_url" },
+        "core:geolocation": { "$ref": "#/$defs/geolocation" },
+
+        "rfuav:taxonomy_id": { "$ref": "#/$defs/taxonomy_id" },
+        "rfuav:recording_id": { "$ref": "#/$defs/recording_id" },
+        "rfuav:session_id": { "$ref": "#/$defs/session_id" },
+        "rfuav:model": { "type": "string", "minLength": 1 },
+        "rfuav:device_role": { "$ref": "#/$defs/device_role" },
+        "rfuav:device_unit_id": { "type": "string", "pattern": "^u\\d{2}$" },
+        "rfuav:rx_id": { "type": "string", "pattern": "^r\\d{2}$" },
+        "rfuav:site_id": {
+          "type": "string",
+          "pattern": "^s\\d{2}$",
+          "description": "F5: the library has a single capture site, so s01 is a fact, not a placeholder. The axis stays first-class anyway (D6)."
+        },
+        "rfuav:signal_state": { "$ref": "#/$defs/signal_state" },
+        "rfuav:take": { "type": "integer", "minimum": 1 },
+        "rfuav:vtsbw_hz": { "$ref": "#/$defs/pos_number" },
+        "rfuav:attenuation_label": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._+-]{1,32}$",
+          "description": "NOMINAL ladder step as written in the source filename (e.g. 35db). V04: the ladder is monotonic but NOT dB-true (slopes 0.58-0.77) and the -- in --Xdb is a separator, so X is an intended-signal-strength step, never a negative SNR. Ordinal WITHIN one arm only."
+        },
+        "rfuav:attenuation_db": {
+          "type": ["number", "null"],
+          "description": "MEASURED attenuation, null until G3a calibration backfills it."
+        },
+        "rfuav:snr_nominal_db": {
+          "type": ["number", "null"],
+          "description": "Nominal label only. E-006: AVATA2 nominal SNR2dB measures 29.9 dB, so ReferenceSNRLevel is untrustworthy library-wide. Calibrated values live in annotations as rfuav:snr_est_v2_db and NEVER overwrite this field."
+        },
+        "rfuav:rx_gain_db": { "type": ["number", "null"], "description": "SS9-a recommended branch: mirror gain/attenuation/SNRdB into the rfuav namespace as OPTIONAL fields instead of declaring capture_details (whose 6 fields become mandatory and are unfillable for foreign sources)." },
+        "rfuav:rx_antenna": { "type": "string", "minLength": 1 },
+        "rfuav:environment": { "type": "string", "minLength": 1 },
+        "rfuav:link_protocol": { "$ref": "#/$defs/link_protocol" },
+        "rfuav:protocol_mode_at_capture": { "$ref": "#/$defs/protocol_mode_at_capture" },
+        "rfuav:bands_capable": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/band_token" } },
+        "rfuav:band_captured": { "$ref": "#/$defs/band_token" },
+        "rfuav:variant_unresolved": { "type": "boolean" },
+        "rfuav:source_dataset": { "$ref": "#/$defs/source_dataset" },
+        "rfuav:source_doi": { "$ref": "#/$defs/doi_or_url" },
+        "rfuav:source_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "D4: upstream SHA-256 kept as an independent field; RFUAV's own integrity hash is always SHA-512." },
+        "rfuav:source_file": { "type": "string", "minLength": 1, "description": "Original path lineage. traceability:origin is the preferred home; this is the flat mirror used by the migration manifest." },
+        "rfuav:original_license": { "$ref": "#/$defs/spdx_id" },
+        "rfuav:redistributable": { "type": "boolean", "description": "D7: bundled/ (physically redistributable) vs recipes/ (rebuild locally). Physical files never mix licences." },
+        "rfuav:attribution": { "type": "string", "minLength": 1, "description": "Required by CC BY SS3(a) for every bundled foreign source." },
+        "rfuav:modifications": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "rfuav:naming_dialect": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,31}$",
+          "description": "Identifier of the source filename dialect this record was normalised from (SS5: 4 dialects + typos). Deliberately NOT a closed enum here - the dialect registry is owned by the dialect parser and its unit tests."
+        },
+        "rfuav:continuous": { "type": "boolean" },
+        "rfuav:gap_boundaries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonneg_int" },
+          "description": "Sample indices at which the recording is discontinuous (-lostN files, missing slices). MUST be strictly increasing and MUST be non-empty when rfuav:continuous is false; both checked in code."
+        },
+        "rfuav:quarantine_status": { "$ref": "#/$defs/quarantine_status" },
+        "rfuav:duration_s": { "$ref": "#/$defs/pos_number", "description": "ADDITIVE beyond SS3 enumeration: required to evaluate the SS8 size identity locally without opening the manifest." },
+        "rfuav:num_samples": { "type": "integer", "minimum": 1 },
+        "rfuav:size_bytes": { "type": "integer", "minimum": 1 },
+        "rfuav:recording_index": { "type": "integer", "minimum": 0, "description": "E-002: v1's SerialNumber was a sequential file counter, not a hardware serial. Renamed here; the real receiver serial belongs in ntia-core HardwareSpec.id." },
+        "rfuav:capture_date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "True capture date. NEVER the slicing date: the 11-26 mtimes are slicing dates (audit A)." },
+        "rfuav:errata_refs": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^RFUAV-E-\\d{3}$" } },
+        "rfuav:migration_ref": { "type": "string", "minLength": 1 }
+      },
+      "patternProperties": {
+        "^(?!core:|rfuav:)[A-Za-z][A-Za-z0-9_-]*:[A-Za-z][A-Za-z0-9_]*$": { "$ref": "#/$defs/foreign_namespace_key" }
+      },
+      "additionalProperties": false
+    },
+
+    "captures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["core:sample_start"],
+        "properties": {
+          "core:sample_start": { "$ref": "#/$defs/nonneg_int" },
+          "core:datetime": { "$ref": "#/$defs/iso8601_utc_z" },
+          "core:frequency": { "type": "number" },
+          "core:global_index": { "$ref": "#/$defs/nonneg_int" },
+          "core:header_bytes": { "$ref": "#/$defs/nonneg_int" },
+          "core:geolocation": { "$ref": "#/$defs/geolocation" },
+          "rfuav:vtsbw_hz": { "$ref": "#/$defs/pos_number" },
+          "rfuav:attenuation_db": { "type": ["number", "null"] },
+          "rfuav:rx_gain_db": { "type": ["number", "null"] }
+        },
+        "patternProperties": {
+          "^(?!core:|rfuav:)[A-Za-z][A-Za-z0-9_-]*:[A-Za-z][A-Za-z0-9_]*$": { "$ref": "#/$defs/foreign_namespace_key" }
+        },
+        "additionalProperties": false
+      }
+    },
+
+    "annotations": {
+      "type": "array",
+      "description": "Burst-level ground truth only (10^2-10^4 per file). Dense per-frame labels live in frames.parquet, never here (SS3).",
+      "items": {
+        "type": "object",
+        "required": ["core:sample_start"],
+        "properties": {
+          "core:sample_start": { "$ref": "#/$defs/nonneg_int" },
+          "core:sample_count": { "type": "integer", "minimum": 1 },
+          "core:freq_lower_edge": { "type": "number" },
+          "core:freq_upper_edge": { "type": "number" },
+          "core:label": { "type": "string", "minLength": 1 },
+          "core:comment": { "type": "string" },
+          "core:generator": { "type": "string", "minLength": 1 },
+          "core:uuid": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+          "rfuav:snr_est_v2_db": { "type": "number" },
+          "rfuav:snr_est_v2_ci95": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } },
+          "rfuav:method_version": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,31}$" },
+          "rfuav:burst_protocol": { "$ref": "#/$defs/link_protocol" },
+          "rfuav:emitter_id": { "type": "string", "minLength": 1 }
+        },
+        "patternProperties": {
+          "^(?!core:|rfuav:)[A-Za-z][A-Za-z0-9_-]*:[A-Za-z][A-Za-z0-9_]*$": { "$ref": "#/$defs/foreign_namespace_key" }
+        },
+        "additionalProperties": false,
+        "if": { "type": "object", "required": ["rfuav:snr_est_v2_db"] },
+        "then": {
+          "required": ["rfuav:method_version"],
+          "description": "D: SNR estimates are VERSIONED fields; an estimate without its method_version is unreproducible (RadioML lesson, C3 #103)."
+        }
+      }
+    }
+  }
+}

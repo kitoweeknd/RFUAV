@@ -1,0 +1,2587 @@
+{
+  "schema": "rfuav.taxonomy.labels/0.1",
+  "version": "0.1.0",
+  "spec_ref": "memoria/planes/g2-canonical-spec-v0.1.md sec.2 (D-spec approved 2026-07-31)",
+  "generated_by": "tools/rfuav_v2/taxonomy/build_labels.py",
+  "purpose": "Authoritative class registry for RFUAV v2.  One entry per taxonomy_id. Vocabulary and per-class evidence are DERIVED (from dialect.py::_V and the recordings manifest); the only authored content is the device -> link_protocol assignment, each with its basis.  Protocol prose lives in link_protocols.json and is never inlined here.",
+  "headline_counts": {
+    "taxonomy_ids_total": 64,
+    "observed_in_library": 63,
+    "reportable_own_capture": 40,
+    "foreign_root_only": 23,
+    "registered_but_never_observed": 1,
+    "honesty_note": "The class count defensible as RFUAV's own capture is 40, NOT 63.  The other 23 classes exist only inside the ZJU and .dat_pic roots, which E-005/E-006 measured as int16-converted with cross-class duplicate content and E-014.3 forbids counting.  Any '>=60 classes' claim built on 63 is a claim about someone else's data."
+  },
+  "eval_tier_histogram_own_capture": {
+    "unsplittable": 5,
+    "grouped_cv": 20,
+    "holdout_1v1": 15
+  },
+  "eval_tier_note": "Histogram is over the 40 own-capture classes.  `unsplittable` here means the class has exactly ONE own session, so no leakage-clean split of it exists at any ratio -- it can be trained on or held out whole, never both.  The 23 foreign-only classes are excluded (they have zero own sessions by definition).",
+  "eval_tier_disclosure": {
+    "own_capture": {
+      "n_classes": 40,
+      "n_tier_unsupported": 0,
+      "n_thin_signal": 0,
+      "n_singleton_sessions": 0
+    },
+    "all_roots_observed": {
+      "n_classes": 63,
+      "n_tier_unsupported": 21,
+      "n_thin_signal": 23,
+      "n_singleton_sessions": 21
+    },
+    "reconciles_with": "manifests/library_totals.csv publishes the same four counts over the same two scopes.  A mismatch between that file and this one means one of the two aggregations is wrong -- they read the same recordings.csv and call the same split_grouped.tier_basis().",
+    "do_not_quote": "Do NOT quote eval_tier_including_foreign == grouped_cv as 'cross-validatable classes'.  Check eval_tier_including_foreign_supported first: 21 of the 63 observed classes carry a tier their own evidence does not support."
+  },
+  "link_protocol_caveat": "See link_protocols.json::global_caveat (F2).  Every assignment below at evidence level `factory_default_prior` is a PRIOR from vendor documentation for that model, never an on-air measurement, and must not be used as a training label or evaluation ground truth.  Exactly one row is `verified`: uav.parrot.anafi.",
+  "protocols_registered_but_unassigned": {
+    "ids": [
+      "dji.wifi",
+      "elrs.24",
+      "flysky.afhds3",
+      "futaba.sfhss",
+      "multiprotocol.4in1"
+    ],
+    "why": "F7: no capture log records which internal/external module was fitted to the EdgeTX/OpenTX host radios (Jumper T14, Jumper TPro V2, RadioMaster Boxer, RadioMaster TX16S).  Registering a protocol without assigning it is the honest encoding of 'plausible but unverifiable' -- see those classes' basis text."
+  },
+  "vendor_merge_decision": {
+    "question": "spec sec.2 merges vendor SKYDROID == 云卓(YUNZHUO); dialect.py refused and delegated the call to this file.",
+    "decision": "NOT merged in the taxonomy_id namespace.",
+    "rationale": "F1: Skydroid H12 and Yunzhuo H12 are two distinct physical radios, both captured.  Merging vendor would collide rc.skydroid.h12 with rc.yunzhuo.h12 and fuse two real classes into one -- data loss disguised as normalisation.",
+    "how_spec_s2_is_honoured": "as the non-key field `vendor_family` = 'skydroid_yunzhuo' on all six affected classes, so the merged view is a GROUP BY, not a rename.",
+    "status": "deviates from the literal text of spec sec.2 -- OPEN, awaiting ratification."
+  },
+  "grouping_key_warning": "session_id, never class_dir and never taxonomy_id, is the grouping key for splitting.  See class_aliases.json::_policy -- the same device appears under several directory spellings, and a per-directory split puts one device on both sides of the boundary.",
+  "labels": [
+    {
+      "taxonomy_id": "bg.kong",
+      "vendor": null,
+      "model": "kong",
+      "device_role": "bg",
+      "raw_keys": [
+        "KONG"
+      ],
+      "link_protocol": null,
+      "link_protocol_basis": "'KONG' (空) is the empty-channel background class: there is no transmitter, so link_protocol is not applicable.",
+      "link_protocol_evidence": "not_applicable",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 8,
+      "n_uncut_recordings": 1,
+      "n_recordings_own_capture": 8,
+      "n_uncut_recordings_own_capture": 1,
+      "n_sessions_total": 1,
+      "n_sessions_own_capture": 1,
+      "nominal_seconds": 27.474,
+      "unique_seconds": 13.737,
+      "unique_seconds_own_capture": 13.737,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "unsplittable",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true,
+      "misfiled_recordings": 1,
+      "misfiled_errata": "E-004"
+    },
+    {
+      "taxonomy_id": "rc.devention.devo_10",
+      "vendor": "devention",
+      "model": "devo_10",
+      "device_role": "rc",
+      "raw_keys": [
+        "DEVENTIONDEVO",
+        "DEVENTIONDEVO10"
+      ],
+      "link_protocol": "walkera.devo",
+      "link_protocol_basis": "Walkera/Devention DEVO series link.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 9,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 9,
+      "n_uncut_recordings_own_capture": 3,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 3,
+      "nominal_seconds": 37.265,
+      "unique_seconds": 31.265,
+      "unique_seconds_own_capture": 31.265,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.flysky.el18",
+      "vendor": "flysky",
+      "model": "el18",
+      "device_role": "rc",
+      "raw_keys": [
+        "FLYSKYEL18"
+      ],
+      "link_protocol": "flysky.afhds2a",
+      "link_protocol_basis": "FlySky EL18 ships AFHDS 2A.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 11,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 11,
+      "n_uncut_recordings_own_capture": 4,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 3,
+      "nominal_seconds": 53.256,
+      "unique_seconds": 46.256,
+      "unique_seconds_own_capture": 46.256,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.flysky.fs_i6x",
+      "vendor": "flysky",
+      "model": "fs_i6x",
+      "device_role": "rc",
+      "raw_keys": [
+        "FLYSKYFSI6X"
+      ],
+      "link_protocol": "flysky.afhds2a",
+      "link_protocol_basis": "FlySky FS-i6X ships AFHDS 2A.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 10,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 10,
+      "n_uncut_recordings_own_capture": 4,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 3,
+      "nominal_seconds": 48.601,
+      "unique_seconds": 42.601,
+      "unique_seconds_own_capture": 42.601,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.flysky.nv14",
+      "vendor": "flysky",
+      "model": "nv14",
+      "device_role": "rc",
+      "raw_keys": [
+        "FLYSKYNV14"
+      ],
+      "link_protocol": "flysky.afhds2a",
+      "link_protocol_basis": "FlySky NV14 ships AFHDS 2A.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 9,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 9,
+      "n_uncut_recordings_own_capture": 3,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 3,
+      "nominal_seconds": 37.931,
+      "unique_seconds": 31.931,
+      "unique_seconds_own_capture": 31.931,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.frsky.taranis_plus",
+      "vendor": "frsky",
+      "model": "taranis_plus",
+      "device_role": "rc",
+      "raw_keys": [
+        "TARAINSPLUS",
+        "TARAINSPLUSFLY",
+        "TARANISPLUS",
+        "TARANISPLUSFLY"
+      ],
+      "link_protocol": "frsky.accst_d16",
+      "link_protocol_basis": "Taranis X9D Plus ships ACCST D16.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 4,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 4.4,
+      "unique_seconds": 4.4,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        ".dat_pic",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "rc.frsky.x14",
+      "vendor": "frsky",
+      "model": "x14",
+      "device_role": "rc",
+      "raw_keys": [
+        "FRSKYX14"
+      ],
+      "link_protocol": "frsky.access",
+      "link_protocol_basis": "FrSky X14 ships ACCESS.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 9,
+      "n_uncut_recordings": 2,
+      "n_recordings_own_capture": 9,
+      "n_uncut_recordings_own_capture": 2,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 32.669,
+      "unique_seconds": 25.669,
+      "unique_seconds_own_capture": 25.669,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.frsky.x20",
+      "vendor": "frsky",
+      "model": "x20",
+      "device_role": "rc",
+      "raw_keys": [
+        "FRSKYX20"
+      ],
+      "link_protocol": "frsky.access",
+      "link_protocol_basis": "FrSky X20 ships ACCESS.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 1,
+      "n_uncut_recordings": 1,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 1,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 2.133,
+      "unique_seconds": 2.133,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 0,
+      "bands": [],
+      "source_roots": [
+        ".dat_pic"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "unsplittable",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "thin_signal",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.frsky.x20r",
+      "vendor": "frsky",
+      "model": "x20r",
+      "device_role": "rc",
+      "raw_keys": [
+        "FRSKYX20R"
+      ],
+      "link_protocol": "frsky.access",
+      "link_protocol_basis": "FrSky X20R ships ACCESS.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 9,
+      "n_uncut_recordings": 2,
+      "n_recordings_own_capture": 9,
+      "n_uncut_recordings_own_capture": 2,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 32.615,
+      "unique_seconds": 25.615,
+      "unique_seconds_own_capture": 25.615,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.frsky.x9dp2019",
+      "vendor": "frsky",
+      "model": "x9dp2019",
+      "device_role": "rc",
+      "raw_keys": [
+        "FRSKYX9DP2019"
+      ],
+      "link_protocol": "frsky.accst_d16",
+      "link_protocol_basis": "X9D Plus 2019 ships ACCST D16; it is field-reflashable to ACCESS and the capture did not record which firmware was on it (F2).",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 9,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 9,
+      "n_uncut_recordings_own_capture": 3,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 3,
+      "nominal_seconds": 38.761,
+      "unique_seconds": 32.761,
+      "unique_seconds_own_capture": 32.761,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.futaba.t10j",
+      "vendor": "futaba",
+      "model": "t10j",
+      "device_role": "rc",
+      "raw_keys": [
+        "FUTABAT10J"
+      ],
+      "link_protocol": "futaba.tfhss",
+      "link_protocol_basis": "Futaba T10J ships T-FHSS.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 12,
+      "n_uncut_recordings": 5,
+      "n_recordings_own_capture": 12,
+      "n_uncut_recordings_own_capture": 5,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 4,
+      "nominal_seconds": 57.282,
+      "unique_seconds": 50.282,
+      "unique_seconds_own_capture": 50.282,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.futaba.t14sg",
+      "vendor": "futaba",
+      "model": "t14sg",
+      "device_role": "rc",
+      "raw_keys": [
+        "FUTABAT14SG",
+        "FUTABAT14SGFLY"
+      ],
+      "link_protocol": "futaba.fasstest",
+      "link_protocol_basis": "T14SG default is FASSTest; the radio also offers S-FHSS from the menu.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 26,
+      "n_uncut_recordings": 5,
+      "n_recordings_own_capture": 23,
+      "n_uncut_recordings_own_capture": 2,
+      "n_sessions_total": 5,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 83.239,
+      "unique_seconds": 50.901,
+      "unique_seconds_own_capture": 48.501,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "2_4g",
+        "5_8g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "浙大被预处理为IQ的数据",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.futaba.t16iz",
+      "vendor": "futaba",
+      "model": "t16iz",
+      "device_role": "rc",
+      "raw_keys": [
+        "FUTABAT16IZ"
+      ],
+      "link_protocol": "futaba.fasstest",
+      "link_protocol_basis": "T16IZ default is FASSTest; also offers T-FHSS/S-FHSS from the menu.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 13,
+      "n_uncut_recordings": 6,
+      "n_recordings_own_capture": 13,
+      "n_uncut_recordings_own_capture": 6,
+      "n_sessions_total": 5,
+      "n_sessions_own_capture": 5,
+      "nominal_seconds": 66.662,
+      "unique_seconds": 59.662,
+      "unique_seconds_own_capture": 59.662,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.futaba.t18sz",
+      "vendor": "futaba",
+      "model": "t18sz",
+      "device_role": "rc",
+      "raw_keys": [
+        "FUTABAT18SZ"
+      ],
+      "link_protocol": "futaba.fasstest",
+      "link_protocol_basis": "T18SZ default is FASSTest; also offers T-FHSS/S-FHSS from the menu.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 12,
+      "n_uncut_recordings": 5,
+      "n_recordings_own_capture": 12,
+      "n_uncut_recordings_own_capture": 5,
+      "n_sessions_total": 5,
+      "n_sessions_own_capture": 5,
+      "nominal_seconds": 58.452,
+      "unique_seconds": 51.452,
+      "unique_seconds_own_capture": 51.452,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.futaba.t61z",
+      "vendor": "futaba",
+      "model": "t61z",
+      "device_role": "rc",
+      "raw_keys": [
+        "FUTABAT61Z",
+        "FUTABAT61ZFLY"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "'T61Z' is not a Futaba product; suspected transposition of T16IZ.  The protocol is left unknown until the spelling is resolved (E-002).",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": true,
+      "observed_in_library": true,
+      "n_recordings": 3,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 2.25,
+      "unique_seconds": 2.25,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "rc.herelink.hx4",
+      "vendor": "herelink",
+      "model": "hx4",
+      "device_role": "rc",
+      "raw_keys": [
+        "HERELINKHX4"
+      ],
+      "link_protocol": "microhard.pmddl2450",
+      "link_protocol_basis": "Herelink HX4 ground link is built on a Microhard pMDDL2450 module.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 16,
+      "n_uncut_recordings": 1,
+      "n_recordings_own_capture": 16,
+      "n_uncut_recordings_own_capture": 1,
+      "n_sessions_total": 1,
+      "n_sessions_own_capture": 1,
+      "nominal_seconds": 33.544,
+      "unique_seconds": 12.772,
+      "unique_seconds_own_capture": 12.772,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "unsplittable",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.jrpropo.xg14",
+      "vendor": "jrpropo",
+      "model": "xg14",
+      "device_role": "rc",
+      "raw_keys": [
+        "JRPROPOXG14"
+      ],
+      "link_protocol": "jrpropo.dmss",
+      "link_protocol_basis": "JR Propo XG14 ships DMSS.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 10,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 10,
+      "n_uncut_recordings_own_capture": 3,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 3,
+      "nominal_seconds": 43.879,
+      "unique_seconds": 36.879,
+      "unique_seconds_own_capture": 36.879,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.jrpropo.xg7",
+      "vendor": "jrpropo",
+      "model": "xg7",
+      "device_role": "rc",
+      "raw_keys": [
+        "JRPROPOXG7"
+      ],
+      "link_protocol": "jrpropo.dmss",
+      "link_protocol_basis": "JR Propo XG7 ships DMSS.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 10,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 10,
+      "n_uncut_recordings_own_capture": 3,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 29.53,
+      "unique_seconds": 22.53,
+      "unique_seconds_own_capture": 22.53,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.jumper.t14",
+      "vendor": "jumper",
+      "model": "t14",
+      "device_role": "rc",
+      "raw_keys": [
+        "JUMPERT14"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "EdgeTX host radio; internal/external module not recorded (F7).  Plausible: elrs.24 or multiprotocol.4in1 -- neither is asserted.",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 10,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 10,
+      "n_uncut_recordings_own_capture": 3,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 33.327,
+      "unique_seconds": 26.327,
+      "unique_seconds_own_capture": 26.327,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.jumper.tpro_v2",
+      "vendor": "jumper",
+      "model": "tpro_v2",
+      "device_role": "rc",
+      "raw_keys": [
+        "JUMPERTPROV2"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "EdgeTX host radio; module not recorded (F7).  Plausible: elrs.24 or multiprotocol.4in1 -- neither is asserted.",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 9,
+      "n_uncut_recordings": 2,
+      "n_recordings_own_capture": 9,
+      "n_uncut_recordings_own_capture": 2,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 31.883,
+      "unique_seconds": 24.883,
+      "unique_seconds_own_capture": 24.883,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.radiolink.at10_ii",
+      "vendor": "radiolink",
+      "model": "at10_ii",
+      "device_role": "rc",
+      "raw_keys": [
+        "RADIOLINKAT10II"
+      ],
+      "link_protocol": "radiolink.dsss_fhss",
+      "link_protocol_basis": "RadioLink AT10II link.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 11,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 11,
+      "n_uncut_recordings_own_capture": 4,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 4,
+      "nominal_seconds": 38.684,
+      "unique_seconds": 31.684,
+      "unique_seconds_own_capture": 31.684,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.radiolink.at9s",
+      "vendor": "radiolink",
+      "model": "at9s",
+      "device_role": "rc",
+      "raw_keys": [
+        "RADIOLINKAT9S",
+        "RADIOLINKAT9SFLY"
+      ],
+      "link_protocol": "radiolink.dsss_fhss",
+      "link_protocol_basis": "RadioLink AT9S link.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": true,
+      "observed_in_library": true,
+      "n_recordings": 3,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 2.55,
+      "unique_seconds": 2.55,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "rc.radiolink.at9s_pro",
+      "vendor": "radiolink",
+      "model": "at9s_pro",
+      "device_role": "rc",
+      "raw_keys": [
+        "RADIOLINKAT9SPRO"
+      ],
+      "link_protocol": "radiolink.dsss_fhss",
+      "link_protocol_basis": "RadioLink AT9S Pro link.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 13,
+      "n_uncut_recordings": 5,
+      "n_recordings_own_capture": 13,
+      "n_uncut_recordings_own_capture": 5,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 63.13,
+      "unique_seconds": 55.13,
+      "unique_seconds_own_capture": 55.13,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.radiomaster.boxer",
+      "vendor": "radiomaster",
+      "model": "boxer",
+      "device_role": "rc",
+      "raw_keys": [
+        "RADIOMASTERBOXER"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "EdgeTX host radio; module not recorded (F7).  Plausible: elrs.24 or multiprotocol.4in1 -- neither is asserted.",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 10,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 10,
+      "n_uncut_recordings_own_capture": 3,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 33.163,
+      "unique_seconds": 26.163,
+      "unique_seconds_own_capture": 26.163,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.radiomaster.tx16s",
+      "vendor": "radiomaster",
+      "model": "tx16s",
+      "device_role": "rc",
+      "raw_keys": [
+        "RADIOMASTERTX16S"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "EdgeTX host radio; module not recorded (F7).  Plausible: elrs.24 or multiprotocol.4in1 -- neither is asserted.",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 10,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 10,
+      "n_uncut_recordings_own_capture": 3,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 30.033,
+      "unique_seconds": 23.033,
+      "unique_seconds_own_capture": 23.033,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.siyi.ft24",
+      "vendor": "siyi",
+      "model": "ft24",
+      "device_role": "rc",
+      "raw_keys": [
+        "SIYIFT24"
+      ],
+      "link_protocol": "siyi.fhss",
+      "link_protocol_basis": "SIYI FT24 is an FHSS RC link.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 10,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 10,
+      "n_uncut_recordings_own_capture": 3,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 3,
+      "nominal_seconds": 41.833,
+      "unique_seconds": 34.833,
+      "unique_seconds_own_capture": 34.833,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.siyi.mk15",
+      "vendor": "siyi",
+      "model": "mk15",
+      "device_role": "rc",
+      "raw_keys": [
+        "SIYIMK15"
+      ],
+      "link_protocol": "siyi.datalink",
+      "link_protocol_basis": "SIYI MK15 uses the SIYI datalink.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 38,
+      "n_uncut_recordings": 2,
+      "n_recordings_own_capture": 38,
+      "n_uncut_recordings_own_capture": 2,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 114.864,
+      "unique_seconds": 53.432,
+      "unique_seconds_own_capture": 53.432,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.siyi.mk32",
+      "vendor": "siyi",
+      "model": "mk32",
+      "device_role": "rc",
+      "raw_keys": [
+        "SIYIMK32"
+      ],
+      "link_protocol": "siyi.datalink",
+      "link_protocol_basis": "SIYI MK32 uses the SIYI datalink.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 52,
+      "n_uncut_recordings": 2,
+      "n_recordings_own_capture": 52,
+      "n_uncut_recordings_own_capture": 2,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 177.777,
+      "unique_seconds": 85.888,
+      "unique_seconds_own_capture": 85.888,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.skydroid.h12",
+      "vendor": "skydroid",
+      "model": "h12",
+      "device_role": "rc",
+      "vendor_family": "skydroid_yunzhuo",
+      "raw_keys": [
+        "SKYDROIDH12"
+      ],
+      "link_protocol": "skydroid.link",
+      "link_protocol_basis": "Skydroid H12 integrated link.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 10,
+      "n_uncut_recordings": 2,
+      "n_recordings_own_capture": 10,
+      "n_uncut_recordings_own_capture": 2,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 44.799,
+      "unique_seconds": 36.799,
+      "unique_seconds_own_capture": 36.799,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.skydroid.t10",
+      "vendor": "skydroid",
+      "model": "t10",
+      "device_role": "rc",
+      "vendor_family": "skydroid_yunzhuo",
+      "raw_keys": [
+        "SKYDROIDT10"
+      ],
+      "link_protocol": "skydroid.link",
+      "link_protocol_basis": "Skydroid T10 integrated link.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 12,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 12,
+      "n_uncut_recordings_own_capture": 3,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 3,
+      "nominal_seconds": 65.571,
+      "unique_seconds": 56.571,
+      "unique_seconds_own_capture": 56.571,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.vbar.vbar_control",
+      "vendor": "vbar",
+      "model": "vbar_control",
+      "device_role": "rc",
+      "raw_keys": [
+        "VBAR",
+        "VBARFLY"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "VBar Control link family not established, and the class spelling is itself unresolved (VBARFLY vs VBAR).",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": true,
+      "observed_in_library": true,
+      "n_recordings": 3,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 2.4,
+      "unique_seconds": 2.4,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "rc.wfly.et10",
+      "vendor": "wfly",
+      "model": "et10",
+      "device_role": "rc",
+      "raw_keys": [
+        "WFLYET10"
+      ],
+      "link_protocol": "wfly.wfly24",
+      "link_protocol_basis": "WFLY ET10 ships the WFLY 2.4G link.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 13,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 13,
+      "n_uncut_recordings_own_capture": 4,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 3,
+      "nominal_seconds": 58.256,
+      "unique_seconds": 49.256,
+      "unique_seconds_own_capture": 49.256,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.wfly.et16s",
+      "vendor": "wfly",
+      "model": "et16s",
+      "device_role": "rc",
+      "raw_keys": [
+        "WFLYET16S"
+      ],
+      "link_protocol": "wfly.wfly24",
+      "link_protocol_basis": "WFLY ET16S ships the WFLY 2.4G link.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 11,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 11,
+      "n_uncut_recordings_own_capture": 3,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 42.598,
+      "unique_seconds": 34.598,
+      "unique_seconds_own_capture": 34.598,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.wfly.wft09sii",
+      "vendor": "wfly",
+      "model": "wft09sii",
+      "device_role": "rc",
+      "raw_keys": [
+        "WFLYWFT09SII"
+      ],
+      "link_protocol": "wfly.wfly24",
+      "link_protocol_basis": "WFLY WFT09SII ships the WFLY 2.4G link.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 10,
+      "n_uncut_recordings": 2,
+      "n_recordings_own_capture": 10,
+      "n_uncut_recordings_own_capture": 2,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 48.119,
+      "unique_seconds": 40.119,
+      "unique_seconds_own_capture": 40.119,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.yunzhuo.h12",
+      "vendor": "yunzhuo",
+      "model": "h12",
+      "device_role": "rc",
+      "vendor_family": "skydroid_yunzhuo",
+      "raw_keys": [
+        "YUNZHUOH12"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "Yunzhuo link family not independently established; skydroid.link is NOT assumed (F1: Yunzhuo H12 and Skydroid H12 are distinct devices).",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 21,
+      "n_uncut_recordings": 1,
+      "n_recordings_own_capture": 21,
+      "n_uncut_recordings_own_capture": 1,
+      "n_sessions_total": 1,
+      "n_sessions_own_capture": 1,
+      "nominal_seconds": 66.035,
+      "unique_seconds": 31.018,
+      "unique_seconds_own_capture": 31.018,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "unsplittable",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.yunzhuo.h16",
+      "vendor": "yunzhuo",
+      "model": "h16",
+      "device_role": "rc",
+      "vendor_family": "skydroid_yunzhuo",
+      "raw_keys": [
+        "YUNZHUOH16"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "Yunzhuo link family not established (F1).",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 27,
+      "n_uncut_recordings": 2,
+      "n_recordings_own_capture": 27,
+      "n_uncut_recordings_own_capture": 2,
+      "n_sessions_total": 2,
+      "n_sessions_own_capture": 2,
+      "nominal_seconds": 106.322,
+      "unique_seconds": 61.422,
+      "unique_seconds_own_capture": 61.422,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "holdout_1v1",
+      "eval_tier_including_foreign": "holdout_1v1",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.yunzhuo.h30",
+      "vendor": "yunzhuo",
+      "model": "h30",
+      "device_role": "rc",
+      "vendor_family": "skydroid_yunzhuo",
+      "raw_keys": [
+        "YUNZHUOH30"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "Yunzhuo link family not established (F1).",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 27,
+      "n_uncut_recordings": 1,
+      "n_recordings_own_capture": 27,
+      "n_uncut_recordings_own_capture": 1,
+      "n_sessions_total": 1,
+      "n_sessions_own_capture": 1,
+      "nominal_seconds": 90.278,
+      "unique_seconds": 43.139,
+      "unique_seconds_own_capture": 43.139,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "unsplittable",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "rc.yunzhuo.t12",
+      "vendor": "yunzhuo",
+      "model": "t12",
+      "device_role": "rc",
+      "vendor_family": "skydroid_yunzhuo",
+      "raw_keys": [
+        "YUNZHUOT12",
+        "YUNZHUOT12FLY"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "Yunzhuo link family not established (F1).",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 3,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 2.4,
+      "unique_seconds": 2.4,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.autel.evo_nano",
+      "vendor": "autel",
+      "model": "evo_nano",
+      "device_role": "uav",
+      "raw_keys": [
+        "AUTELEVONANO",
+        "DAUTELEVONANO"
+      ],
+      "link_protocol": "autel.skylink",
+      "link_protocol_basis": "Autel EVO Nano ships SkyLink.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 20,
+      "n_uncut_recordings": 7,
+      "n_recordings_own_capture": 17,
+      "n_uncut_recordings_own_capture": 4,
+      "n_sessions_total": 7,
+      "n_sessions_own_capture": 4,
+      "nominal_seconds": 53.549,
+      "unique_seconds": 41.519,
+      "unique_seconds_own_capture": 39.644,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "uav.dji",
+      "vendor": "dji",
+      "model": null,
+      "device_role": "uav",
+      "raw_keys": [
+        "DJI"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "ZJU bare-'DJi' bucket: model itself unknown, so protocol is too.",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": true,
+      "observed_in_library": true,
+      "n_recordings": 4,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 4.533,
+      "unique_seconds": 4.533,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        ".dat_pic",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.air2r",
+      "vendor": "dji",
+      "model": "air2r",
+      "device_role": "uav",
+      "raw_keys": [
+        "AIR2R"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "Registered spelling only; never observed in the library.",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": true,
+      "observed_in_library": false,
+      "n_recordings": 0,
+      "n_uncut_recordings": 0,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 0,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 0.0,
+      "unique_seconds": 0.0,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 0,
+      "bands": [],
+      "source_roots": [],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "unsplittable",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": null,
+      "eval_tier_including_foreign_supported": null
+    },
+    {
+      "taxonomy_id": "uav.dji.air2s",
+      "vendor": "dji",
+      "model": "air2s",
+      "device_role": "uav",
+      "raw_keys": [
+        "AIR2S"
+      ],
+      "link_protocol": "dji.o3",
+      "link_protocol_basis": "Air 2S ships O3.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": true,
+      "observed_in_library": true,
+      "n_recordings": 4,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 4.25,
+      "unique_seconds": 4.25,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        ".dat_pic",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.avata",
+      "vendor": "dji",
+      "model": "avata",
+      "device_role": "uav",
+      "raw_keys": [
+        "AVATA"
+      ],
+      "link_protocol": "dji.o3",
+      "link_protocol_basis": "DJI Avata ships O3.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 4,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 4.383,
+      "unique_seconds": 4.383,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        ".dat_pic",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.avata2",
+      "vendor": "dji",
+      "model": "avata2",
+      "device_role": "uav",
+      "raw_keys": [
+        "DJAVTA2",
+        "DJIAVATA2",
+        "DJIAVTA2"
+      ],
+      "link_protocol": "dji.o4",
+      "link_protocol_basis": "DJI Avata 2 ships O4.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 71,
+      "n_uncut_recordings": 27,
+      "n_recordings_own_capture": 68,
+      "n_uncut_recordings_own_capture": 24,
+      "n_sessions_total": 15,
+      "n_sessions_own_capture": 12,
+      "nominal_seconds": 311.047,
+      "unique_seconds": 268.592,
+      "unique_seconds_own_capture": 266.717,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "浙大被预处理为IQ的数据",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "uav.dji.fpv_combo",
+      "vendor": "dji",
+      "model": "fpv_combo",
+      "device_role": "uav",
+      "raw_keys": [
+        "DJCOMBO",
+        "DJFPVCOMBO",
+        "DJICOMBO",
+        "DJIFPVCOMBO"
+      ],
+      "link_protocol": "dji.o3",
+      "link_protocol_basis": "DJI FPV (2021) ships OcuSync 3.0.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 54,
+      "n_uncut_recordings": 16,
+      "n_recordings_own_capture": 54,
+      "n_uncut_recordings_own_capture": 16,
+      "n_sessions_total": 8,
+      "n_sessions_own_capture": 8,
+      "nominal_seconds": 371.819,
+      "unique_seconds": 334.503,
+      "unique_seconds_own_capture": 334.503,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "uav.dji.inspire2",
+      "vendor": "dji",
+      "model": "inspire2",
+      "device_role": "uav",
+      "raw_keys": [
+        "INSPIRE",
+        "INSPIRE2"
+      ],
+      "link_protocol": "dji.lightbridge2",
+      "link_protocol_basis": "Inspire 2 ships Lightbridge 2.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 4,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 4.383,
+      "unique_seconds": 4.383,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        ".dat_pic",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.matrice100",
+      "vendor": "dji",
+      "model": "matrice100",
+      "device_role": "uav",
+      "raw_keys": [
+        "MATRICE100"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "M100 shipped with more than one link option across production runs and nothing in the capture names which; not guessed.",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 4,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 4.533,
+      "unique_seconds": 4.533,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        ".dat_pic",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.matrice200",
+      "vendor": "dji",
+      "model": "matrice200",
+      "device_role": "uav",
+      "raw_keys": [
+        "MATRICE200"
+      ],
+      "link_protocol": "dji.lightbridge2",
+      "link_protocol_basis": "M200 series ships Lightbridge 2.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 3,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 2.4,
+      "unique_seconds": 2.4,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.matrice300",
+      "vendor": "dji",
+      "model": "matrice300",
+      "device_role": "uav",
+      "raw_keys": [
+        "MATRICE300"
+      ],
+      "link_protocol": "dji.o2",
+      "link_protocol_basis": "M300 RTK ships OcuSync 2.0 Enterprise.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 3,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 2.25,
+      "unique_seconds": 2.25,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.matrice30t",
+      "vendor": "dji",
+      "model": "matrice30t",
+      "device_role": "uav",
+      "raw_keys": [
+        "MATRICE30T"
+      ],
+      "link_protocol": "dji.o3",
+      "link_protocol_basis": "M30T ships O3 Enterprise.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 3,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 2.25,
+      "unique_seconds": 2.25,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.matrice600_pro",
+      "vendor": "dji",
+      "model": "matrice600_pro",
+      "device_role": "uav",
+      "raw_keys": [
+        "MATRICE600PRO"
+      ],
+      "link_protocol": "dji.lightbridge2",
+      "link_protocol_basis": "M600 Pro ships Lightbridge 2.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 4,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 4.383,
+      "unique_seconds": 4.383,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        ".dat_pic",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.mavic2_air2",
+      "vendor": "dji",
+      "model": "mavic2_air2",
+      "device_role": "uav",
+      "raw_keys": [
+        "MAVIC2AIR2"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "Class name conflates two different aircraft (Mavic 2 / Air 2), so no single protocol can be attributed -- see variant_unresolved.",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 1,
+      "n_uncut_recordings": 1,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 1,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 4.115,
+      "unique_seconds": 4.115,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 0,
+      "bands": [],
+      "source_roots": [
+        ".dat_pic"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "unsplittable",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "thin_signal",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "uav.dji.mavic3",
+      "vendor": "dji",
+      "model": "mavic3",
+      "device_role": "uav",
+      "raw_keys": [
+        "MAVIC3"
+      ],
+      "link_protocol": "dji.o3",
+      "link_protocol_basis": "Mavic 3 ships O3.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 3,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 1.8,
+      "unique_seconds": 1.8,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.mavic3_pro",
+      "vendor": "dji",
+      "model": "mavic3_pro",
+      "device_role": "uav",
+      "raw_keys": [
+        "DJIMAVIC3PRO",
+        "DJMAVIC3PRO"
+      ],
+      "link_protocol": "dji.o3plus",
+      "link_protocol_basis": "Mavic 3 Pro ships O3+.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 42,
+      "n_uncut_recordings": 9,
+      "n_recordings_own_capture": 42,
+      "n_uncut_recordings_own_capture": 9,
+      "n_sessions_total": 9,
+      "n_sessions_own_capture": 9,
+      "nominal_seconds": 168.79,
+      "unique_seconds": 122.766,
+      "unique_seconds_own_capture": 122.766,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "2_4g",
+        "5_8g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "uav.dji.mavic_pro",
+      "vendor": "dji",
+      "model": "mavic_pro",
+      "device_role": "uav",
+      "raw_keys": [
+        "MAVICPRO"
+      ],
+      "link_protocol": "dji.o1",
+      "link_protocol_basis": "Mavic Pro ships OcuSync 1.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 3,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 2.1,
+      "unique_seconds": 2.1,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.mini2",
+      "vendor": "dji",
+      "model": "mini2",
+      "device_role": "uav",
+      "raw_keys": [
+        "MINI2"
+      ],
+      "link_protocol": "dji.o2",
+      "link_protocol_basis": "Mini 2 ships O2.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 3,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 3.15,
+      "unique_seconds": 3.15,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.mini3",
+      "vendor": "dji",
+      "model": "mini3",
+      "device_role": "uav",
+      "raw_keys": [
+        "DJIMINI3",
+        "DJMINI3",
+        "MINI3"
+      ],
+      "link_protocol": "dji.o2",
+      "link_protocol_basis": "Mini 3 ships O2.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 32,
+      "n_uncut_recordings": 15,
+      "n_recordings_own_capture": 29,
+      "n_uncut_recordings_own_capture": 12,
+      "n_sessions_total": 14,
+      "n_sessions_own_capture": 11,
+      "nominal_seconds": 260.734,
+      "unique_seconds": 243.734,
+      "unique_seconds_own_capture": 241.859,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "2_4g",
+        "5_8g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "浙大被预处理为IQ的数据",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "uav.dji.mini3_pro",
+      "vendor": "dji",
+      "model": "mini3_pro",
+      "device_role": "uav",
+      "raw_keys": [
+        "DJIMINI3PRO",
+        "MINI3PRO"
+      ],
+      "link_protocol": "dji.o3",
+      "link_protocol_basis": "Mini 3 Pro ships O3.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 3,
+      "n_uncut_recordings": 3,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 3,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 2.4,
+      "unique_seconds": 2.4,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.mini4_pro",
+      "vendor": "dji",
+      "model": "mini4_pro",
+      "device_role": "uav",
+      "raw_keys": [
+        "DIMINI4PRO",
+        "DJIMINI4PRO",
+        "DJMINI4PRO"
+      ],
+      "link_protocol": "dji.o4",
+      "link_protocol_basis": "Mini 4 Pro ships O4.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 24,
+      "n_uncut_recordings": 10,
+      "n_recordings_own_capture": 21,
+      "n_uncut_recordings_own_capture": 7,
+      "n_sessions_total": 10,
+      "n_sessions_own_capture": 7,
+      "nominal_seconds": 96.221,
+      "unique_seconds": 82.221,
+      "unique_seconds_own_capture": 80.346,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "2_4g",
+        "5_8g"
+      ],
+      "source_roots": [
+        "PublicDataset",
+        "rawdata",
+        "浙大被预处理为IQ的数据",
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "uav.dji.phantom3",
+      "vendor": "dji",
+      "model": "phantom3",
+      "device_role": "uav",
+      "raw_keys": [
+        "PHANTOM3"
+      ],
+      "link_protocol": "unknown",
+      "link_protocol_basis": "Phantom 3 variants split across Wi-Fi (Standard/4K) and Lightbridge (Professional/Advanced); the directory does not name the variant.",
+      "link_protocol_evidence": "unknown",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 4,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 4.117,
+      "unique_seconds": 4.117,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        ".dat_pic",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.phantom4_pro",
+      "vendor": "dji",
+      "model": "phantom4_pro",
+      "device_role": "uav",
+      "raw_keys": [
+        "PHANTOM4PRO"
+      ],
+      "link_protocol": "dji.lightbridge2",
+      "link_protocol_basis": "P4 Pro ships Lightbridge HD.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 4,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 3.967,
+      "unique_seconds": 3.967,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        ".dat_pic",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.dji.phantom4_pro_rtk",
+      "vendor": "dji",
+      "model": "phantom4_pro_rtk",
+      "device_role": "uav",
+      "raw_keys": [
+        "PHANTOM4PRORTK"
+      ],
+      "link_protocol": "dji.o2",
+      "link_protocol_basis": "P4 RTK ships OcuSync.",
+      "link_protocol_evidence": "factory_default_prior",
+      "variant_unresolved": false,
+      "observed_in_library": true,
+      "n_recordings": 4,
+      "n_uncut_recordings": 4,
+      "n_recordings_own_capture": 0,
+      "n_uncut_recordings_own_capture": 0,
+      "n_sessions_total": 4,
+      "n_sessions_own_capture": 0,
+      "nominal_seconds": 5.95,
+      "unique_seconds": 5.95,
+      "unique_seconds_own_capture": 0.0,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        ".dat_pic",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": false,
+      "reportable_in_class_count": false,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": null,
+      "eval_tier_supported": null,
+      "tier_basis_including_foreign": "singleton_sessions+thin_signal",
+      "eval_tier_including_foreign_supported": false
+    },
+    {
+      "taxonomy_id": "uav.parrot.anafi",
+      "vendor": "parrot",
+      "model": "anafi",
+      "device_role": "uav",
+      "raw_keys": [
+        "PARROT"
+      ],
+      "supersedes": [
+        "uav.parrot.parrot_unspecified"
+      ],
+      "rename_errata": "E-007",
+      "migration_required": "dialect.py still emits uav.parrot.parrot_unspecified; build_manifests.py must map it to uav.parrot.anafi in the same commit that rebuilds the manifest, or the two files disagree.",
+      "link_protocol": "wifi.80211an",
+      "link_protocol_basis": "MEASURED, not a prior: E-007/F4 forensics identify a Parrot ANAFI on Wi-Fi 802.11a/n, refuting the v1 paper's 'FHSS, 18.36 MHz'.  This is the sole `verified` row in link_protocols.json.",
+      "link_protocol_evidence": "verified",
+      "variant_unresolved": true,
+      "observed_in_library": true,
+      "n_recordings": 7,
+      "n_uncut_recordings": 7,
+      "n_recordings_own_capture": 4,
+      "n_uncut_recordings_own_capture": 4,
+      "n_sessions_total": 6,
+      "n_sessions_own_capture": 3,
+      "nominal_seconds": 35.42,
+      "unique_seconds": 35.42,
+      "unique_seconds_own_capture": 33.545,
+      "duration_inferred_rows": 3,
+      "bands": [
+        "5_8g"
+      ],
+      "source_roots": [
+        "rawdata",
+        "浙大被预处理为IQ的数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "grouped_cv",
+      "eval_tier_including_foreign": "grouped_cv",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    },
+    {
+      "taxonomy_id": "unk.weizhi",
+      "vendor": "weizhi",
+      "model": null,
+      "device_role": "unk",
+      "raw_keys": [
+        "WEIZHI"
+      ],
+      "link_protocol": null,
+      "link_protocol_basis": "F3: a ~940 MHz probe, not a drone link, and slated for quarantine.  Protocol not applicable.",
+      "link_protocol_evidence": "not_applicable",
+      "variant_unresolved": true,
+      "observed_in_library": true,
+      "n_recordings": 1,
+      "n_uncut_recordings": 1,
+      "n_recordings_own_capture": 1,
+      "n_uncut_recordings_own_capture": 1,
+      "n_sessions_total": 1,
+      "n_sessions_own_capture": 1,
+      "nominal_seconds": 11.031,
+      "unique_seconds": 11.031,
+      "unique_seconds_own_capture": 11.031,
+      "duration_inferred_rows": 0,
+      "bands": [
+        "sub_1g"
+      ],
+      "source_roots": [
+        "过大的原始数据"
+      ],
+      "own_capture": true,
+      "reportable_in_class_count": true,
+      "eval_tier": "unsplittable",
+      "eval_tier_including_foreign": "unsplittable",
+      "tier_basis": "measured",
+      "eval_tier_supported": true,
+      "tier_basis_including_foreign": "measured",
+      "eval_tier_including_foreign_supported": true
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+recording_id,session_id,taxonomy_id,capture_condition,source_relpath,split
+r001,S-mini3-a,uav.dji.mini3,close,mini3/pack1_00.dat,train
+r002,S-mini3-a,uav.dji.mini3,middle,mini3/pack1_01.dat,train
+r003,S-mini3-a,uav.dji.mini3,far,mini3/pack1_02.dat,train
+r004,S-mini3-a,uav.dji.mini3,close,mini3/pack1_03.dat,train
+r005,S-mini3-b,uav.dji.mini3,middle,mini3/pack2_00.dat,valid
+r006,S-mini3-b,uav.dji.mini3,close,mini3/pack2_01.dat,valid
+r007,S-mini3-b,uav.dji.mini3,far,mini3/pack2_02.dat,valid
+r008,S-mini3-b,uav.dji.mini3,middle,mini3/pack2_03.dat,valid
+r009,S-air2s-a,uav.dji.air2s,far,air2s/pack1_00.dat,train
+r010,S-air2s-a,uav.dji.air2s,far,air2s/pack1_01.dat,train
+r011,S-air2s-b,uav.dji.air2s,far,air2s/pack2_00.dat,valid
+r012,S-kong-x,bg.kong,close,kong/mix_00.dat,train
+r013,S-kong-x,bg.kong,close,kong/mix_01.dat,train
+r014,S-solo-z,rc.yunzhuo.h30,close,h30/only_00.dat,excluded

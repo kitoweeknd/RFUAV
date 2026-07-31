@@ -1,0 +1,508 @@
+E1 ANALYSIS  files=1107303  bytes=4126438843602 (4.13 TB)
+
+== EXT HISTOGRAM (all) ==
+  .jpg     n=1088773   bytes=  855340834315 (  855.34 GB)
+  .txt     n=13661     bytes=       1226391 (    0.00 GB)
+  .png     n=3254      bytes=     423301500 (    0.42 GB)
+  .iq      n=796       bytes= 2602071275116 ( 2602.07 GB)
+  .pth     n=453       bytes=  168493817186 (  168.49 GB)
+  .dat     n=106       bytes=  153347945488 (  153.35 GB)
+  .db      n=58        bytes=      58079744 (    0.06 GB)
+  .xml     n=53        bytes=         28353 (    0.00 GB)
+  .rar     n=48        bytes=  322141738185 (  322.14 GB)
+  .yaml    n=40        bytes=         30784 (    0.00 GB)
+  .log     n=34        bytes=        404660 (    0.00 GB)
+  .xmp     n=12        bytes=         60504 (    0.00 GB)
+  .pt      n=6         bytes=     342144316 (    0.34 GB)
+  .zip     n=3         bytes=   23857954744 (   23.86 GB)
+  .cache   n=3         bytes=       3356023 (    0.00 GB)
+  .avi     n=1         bytes=     350721786 (    0.35 GB)
+  .mp4     n=1         bytes=       4963202 (    0.00 GB)
+  .npy     n=1         bytes=        961305 (    0.00 GB)
+
+== ROOTS (level-1 dirs under RFUAV) ==
+  .dat_pic                     n=74             8.28 GB   .png:31 .jpg:31 .dat:11 .iq:1
+  .pt asset                    n=4              0.82 GB   .iq:1 .pt:1 .pth:1 .avi:1
+  Fig3D                        n=12             0.01 GB   .png:12
+  PublicDataset                n=295583       842.26 GB   .jpg:295082 .iq:358 .xml:53 .rar:47 .db:24 .pth:18
+  RFUAV_pt                     n=11             0.70 GB   .pt:5 .yaml:4 .iq:1 .pth:1
+  augmentation_exp1_MethodSelect n=503724       522.34 GB   .jpg:499914 .png:3208 .pth:334 .txt:191 .db:34 .yaml:20
+  augmentation_exp2_allDrone   n=206926       261.90 GB   .jpg:206807 .pth:94 .yaml:12 .log:12 .zip:1
+  crop_data                    n=95           146.35 GB   .dat:95
+  darw_test                    n=157            0.03 GB   .jpg:154 .png:2 .mp4:1
+  exp3                         n=3268           5.31 GB   .jpg:3251 .iq:12 .pth:3 .yaml:1 .log:1
+  exp4-grey                    n=4              0.19 GB   .pth:2 .yaml:1 .log:1
+  pics_exp1_alldrones          n=97010         25.84 GB   .jpg:83534 .txt:13470 .cache:3 .png:1 .yaml:1 .npy:1
+  rawdata                      n=312         1568.56 GB   .iq:300 .xmp:12
+  浙大被预处理为IQ的数据                 n=81            49.14 GB   .iq:81
+  过大的原始数据                      n=42           694.73 GB   .iq:42
+
+== LEVEL-2 (class dirs) ==
+  .dat_pic\AVATA                                       n=5              0.64 GB   .png:4 .dat:1
+  .dat_pic\Air2S                                       n=6              0.60 GB   .png:5 .dat:1
+  .dat_pic\Dji                                         n=3              0.64 GB   .png:2 .dat:1
+  .dat_pic\Frsky                                       n=3              0.64 GB   .png:2 .dat:1
+  .dat_pic\Matrice100                                  n=4              0.64 GB   .png:3 .dat:1
+  .dat_pic\Matrice600                                  n=4              0.64 GB   .png:3 .dat:1
+  .dat_pic\Mavic2Air2                                  n=32             1.26 GB   .jpg:31 .iq:1
+  .dat_pic\PhanTom4ProRTK                              n=3              0.84 GB   .png:2 .dat:1
+  .dat_pic\Phantom3                                    n=3              0.56 GB   .png:2 .dat:1
+  .dat_pic\Phantom4Pro                                 n=3              0.56 GB   .png:2 .dat:1
+  .dat_pic\Taranis_Plus                                n=3              0.60 GB   .png:2 .dat:1
+  .dat_pic\inspire2                                    n=5              0.64 GB   .png:4 .dat:1
+  .pt asset\FUTABA-T10J_0.3s.iq                        n=1              0.24 GB   .iq:1
+  .pt asset\RFUAV_stage1.pt                            n=1              0.06 GB   .pt:1
+  .pt asset\stage2.pth                                 n=1              0.17 GB   .pth:1
+  .pt asset\toutput_video.avi                          n=1              0.35 GB   .avi:1
+  Fig3D\1024-0.5s-jet.png                              n=1              0.00 GB   .png:1
+  Fig3D\1048576-STFT.png                               n=1              0.00 GB   .png:1
+  Fig3D\131072-STFT.png                                n=1              0.00 GB   .png:1
+  Fig3D\16384-STFT.png                                 n=1              0.00 GB   .png:1
+  Fig3D\2048-0.5s-jet.png                              n=1              0.00 GB   .png:1
+  Fig3D\2048-STFT.png                                  n=1              0.00 GB   .png:1
+  Fig3D\262144-STFT.png                                n=1              0.00 GB   .png:1
+  Fig3D\32768-STFT.png                                 n=1              0.00 GB   .png:1
+  Fig3D\4096-STFT.png                                  n=1              0.00 GB   .png:1
+  Fig3D\524288-STFT.png                                n=1              0.00 GB   .png:1
+  Fig3D\65536-STFT.png                                 n=1              0.00 GB   .png:1
+  Fig3D\8192-STFT.png                                  n=1              0.00 GB   .png:1
+  PublicDataset\DAUTEL EVO NANO                        n=14             9.62 GB   .iq:13 .xml:1
+  PublicDataset\DEVENTION DEVO                         n=7              4.80 GB   .iq:6 .xml:1
+  PublicDataset\DJI AVATA2                             n=48            33.96 GB   .iq:44 .xml:4
+  PublicDataset\DJI FPV COMBO                          n=41            29.85 GB   .iq:38 .xml:3
+  PublicDataset\DJI MAVIC3 PRO                         n=20            14.25 GB   .iq:18 .xml:2
+  PublicDataset\DJI MINI3                              n=19            13.60 GB   .iq:17 .xml:2
+  PublicDataset\DJI MINI4 PRO                          n=16            11.20 GB   .iq:14 .xml:2
+  PublicDataset\Dataset                                n=295172       558.57 GB   .jpg:295082 .rar:47 .db:24 .pth:18 .yaml:1
+  PublicDataset\FLYSKY EL 18                           n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\FLYSKY FS I6X                          n=7              4.80 GB   .iq:6 .xml:1
+  PublicDataset\FLYSKY NV 14                           n=7              4.80 GB   .iq:6 .xml:1
+  PublicDataset\FRSKY X14                              n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\FRSKY X20R                             n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\FRSKY X9DP2019                         n=7              4.80 GB   .iq:6 .xml:1
+  PublicDataset\FUTABA T10J                            n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\FUTABA T14SG                           n=10             6.40 GB   .iq:8 .xml:2
+  PublicDataset\FUTABA T16IZ                           n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\FUTABA T18SZ                           n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\Herelink Hx4                           n=10             6.40 GB   .iq:8 .xml:2
+  PublicDataset\JR PROPO XG14                          n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\JR PROPO XG7                           n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\JUMPER T14                             n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\JUMPER TProV2                          n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\RadioMaster BOXER                      n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\RadioMaster TX16S                      n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\Radiolink AT10 II                      n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\Radiolink AT9S Pro                     n=9              6.40 GB   .iq:8 .xml:1
+  PublicDataset\SIYI FT24                              n=8              5.60 GB   .iq:7 .xml:1
+  PublicDataset\SIYI MK15                              n=10             6.40 GB   .iq:8 .xml:2
+  PublicDataset\SIYI MK32                              n=9              4.80 GB   .iq:6 .xml:3
+  PublicDataset\SKYDROID H12                           n=9              6.40 GB   .iq:8 .xml:1
+  PublicDataset\SKYDROID T10                           n=10             7.20 GB   .iq:9 .xml:1
+  PublicDataset\WFLY ET10                              n=10             7.20 GB   .iq:9 .xml:1
+  PublicDataset\WFLY ET16S                             n=9              6.40 GB   .iq:8 .xml:1
+  PublicDataset\WFLY WFT09SII                          n=9              6.40 GB   .iq:8 .xml:1
+  PublicDataset\YUNZHUO H12                            n=6              3.20 GB   .iq:4 .xml:2
+  PublicDataset\YUNZHUO H16                            n=6              3.20 GB   .iq:4 .xml:2
+  PublicDataset\YUNZHUO H30                            n=6              3.20 GB   .iq:4 .xml:2
+  RFUAV_pt\FUTABA-T10J_0.3s.iq                         n=1              0.24 GB   .iq:1
+  RFUAV_pt\RFUAV.pt                                    n=1              0.06 GB   .pt:1
+  RFUAV_pt\RFUAV_stage1.pt                             n=1              0.06 GB   .pt:1
+  RFUAV_pt\signal_detect                               n=7              0.17 GB   .yaml:4 .pt:3
+  RFUAV_pt\stage2.pth                                  n=1              0.17 GB   .pth:1
+  augmentation_exp1_MethodSelect\1.dataset-test        n=8              0.01 GB   .jpg:8
+  augmentation_exp1_MethodSelect\2.dataset-20dB_hot_usingAG n=8456          12.13 GB   .jpg:8454 .zip:2
+  augmentation_exp1_MethodSelect\3.dataset-origin+20dB_defaultcolor_usingAG n=15535         14.16 GB   .jpg:15534 .db:1
+  augmentation_exp1_MethodSelect\4.dataset-20dB_hsv_usingAG n=8096           7.17 GB   .jpg:8096
+  augmentation_exp1_MethodSelect\5.dataset-20dB_autumn_usingAG n=8008           4.69 GB   .jpg:8008
+  augmentation_exp1_MethodSelect\benchmark_STFTP       n=65691         42.51 GB   .jpg:65688 .db:3
+  augmentation_exp1_MethodSelect\benchmark_or          n=262774       193.94 GB   .jpg:262751 .db:23
+  augmentation_exp1_MethodSelect\benchmark_res_exp1.1  n=2492           0.29 GB   .png:2352 .txt:140
+  augmentation_exp1_MethodSelect\benchmark_res_exp1.2  n=712            0.09 GB   .png:672 .txt:40
+  augmentation_exp1_MethodSelect\benchmark_res_exp1.3  n=178            0.02 GB   .png:168 .txt:10
+  augmentation_exp1_MethodSelect\benchmark_test        n=65708         84.59 GB   .jpg:65687 .png:16 .db:4 .txt:1
+  augmentation_exp1_MethodSelect\exp_res.rar           n=1              0.28 GB   .rar:1
+  augmentation_exp1_MethodSelect\temp                  n=65691         42.51 GB   .jpg:65688 .db:3
+  augmentation_exp1_MethodSelect\train_res             n=374          119.96 GB   .pth:334 .yaml:20 .log:20
+  augmentation_exp2_allDrone\alldrone_dataset          n=19085         18.37 GB   .jpg:19085
+  augmentation_exp2_allDrone\alldrone_dataset.zip      n=1             18.24 GB   .zip:1
+  augmentation_exp2_allDrone\alldrone_dataset_aug      n=133595       152.17 GB   .jpg:133595
+  augmentation_exp2_allDrone\exp                       n=118           38.21 GB   .pth:94 .yaml:12 .log:12
+  augmentation_exp2_allDrone\or_image                  n=39245         21.47 GB   .jpg:39245
+  augmentation_exp2_allDrone\单边的数据集                    n=14882         13.45 GB   .jpg:14882
+  crop_data\DJFPVCOMBO                                 n=87           133.80 GB   .dat:87
+  crop_data\DJMINI4PRO                                 n=8             12.55 GB   .dat:8
+  darw_test\ (0).jpg                                   n=1              0.00 GB   .jpg:1
+  darw_test\ (0.0).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (0.125).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (0.25).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (0.375).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (0.5).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (0.625).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (0.75).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (0.875).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (1.0).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (1.125).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (1.25).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (1.375).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (1.5).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (1.625).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (1.75).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (1.875).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (10.0).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (10.125).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (10.25).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (10.375).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (10.5).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (10.625).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (10.75).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (10.875).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (11.0).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (11.125).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (11.25).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (11.375).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (11.5).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (11.625).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (11.75).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (11.875).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (12.0).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (12.125).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (12.25).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (12.375).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (12.5).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (12.625).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (12.75).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (12.875).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (13.0).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (13.125).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (13.25).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (13.375).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (13.5).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (13.625).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (13.75).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (13.875).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (14.0).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (14.125).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (14.25).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (14.375).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (14.5).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (14.625).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (14.75).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (14.875).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (15.0).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (15.125).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (15.25).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (15.375).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (15.5).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (15.625).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (15.75).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (15.875).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (16.0).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (16.125).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (16.25).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (16.375).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (16.5).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (16.625).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (16.75).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (16.875).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (17.0).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (17.125).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (17.25).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (17.375).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (17.5).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (17.625).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (17.75).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (17.875).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (18.0).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (18.125).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (18.25).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (18.375).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (18.5).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (18.625).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (18.75).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (18.875).jpg                              n=1              0.00 GB   .jpg:1
+  darw_test\ (19.0).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (2.0).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (2.125).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (2.25).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (2.375).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (2.5).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (2.625).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (2.75).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (2.875).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (3.0).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (3.125).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (3.25).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (3.375).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (3.5).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (3.625).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (3.75).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (3.875).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (4.0).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (4.125).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (4.25).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (4.375).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (4.5).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (4.625).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (4.75).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (4.875).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (5.0).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (5.125).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (5.25).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (5.375).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (5.5).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (5.625).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (5.75).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (5.875).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (6.0).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (6.125).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (6.25).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (6.375).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (6.5).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (6.625).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (6.75).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (6.875).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (7.0).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (7.125).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (7.25).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (7.375).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (7.5).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (7.625).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (7.75).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (7.875).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (8.0).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (8.125).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (8.25).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (8.375).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (8.5).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (8.625).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (8.75).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (8.875).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (9.0).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (9.125).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (9.25).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (9.375).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (9.5).jpg                                 n=1              0.00 GB   .jpg:1
+  darw_test\ (9.625).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\ (9.75).jpg                                n=1              0.00 GB   .jpg:1
+  darw_test\ (9.875).jpg                               n=1              0.00 GB   .jpg:1
+  darw_test\confusion_matrix.png                       n=1              0.00 GB   .png:1
+  darw_test\confusion_matrix_normalized.png            n=1              0.00 GB   .png:1
+  darw_test\video.mp4                                  n=1              0.00 GB   .mp4:1
+  exp3\input                                           n=1              0.24 GB   .iq:1
+  exp3\rawdata                                         n=11             4.00 GB   .iq:11
+  exp3\res                                             n=5              0.51 GB   .pth:3 .yaml:1 .log:1
+  exp3\train                                           n=1738           0.29 GB   .jpg:1738
+  exp3\valid                                           n=1513           0.26 GB   .jpg:1513
+  exp4-grey\ResNet_epoch_1.pth                         n=1              0.09 GB   .pth:1
+  exp4-grey\best_model.pth                             n=1              0.09 GB   .pth:1
+  exp4-grey\config.yaml                                n=1              0.00 GB   .yaml:1
+  exp4-grey\train.log                                  n=1              0.00 GB   .log:1
+  pics_exp1_alldrones\1.classification_dataset         n=42453          8.93 GB   .jpg:28978 .txt:13470 .cache:3 .yaml:1 .npy:1
+  pics_exp1_alldrones\2.classification_dataset         n=15509          4.77 GB   .jpg:15509
+  pics_exp1_alldrones\3.SNR_dataset                    n=6458           2.13 GB   .jpg:6458
+  pics_exp1_alldrones\DAUTEL                           n=730            0.24 GB   .jpg:730
+  pics_exp1_alldrones\DEVENTION                        n=622            0.21 GB   .jpg:622
+  pics_exp1_alldrones\DJFPVCOMBO                       n=3288           1.11 GB   .jpg:3288
+  pics_exp1_alldrones\DJI AVATA2                       n=2899           1.02 GB   .jpg:2899
+  pics_exp1_alldrones\DJMAVIC3PRO                      n=2246           0.72 GB   .jpg:2246
+  pics_exp1_alldrones\DJMINI3                          n=2990           0.94 GB   .jpg:2990
+  pics_exp1_alldrones\DJMINI4PRO                       n=1282           0.41 GB   .jpg:1282
+  pics_exp1_alldrones\FLYSKY                           n=2365           0.73 GB   .jpg:2365
+  pics_exp1_alldrones\FRSKY                            n=1674           0.46 GB   .jpg:1674
+  pics_exp1_alldrones\FUTABA                           n=4182           1.24 GB   .jpg:4182
+  pics_exp1_alldrones\JR PROPO                         n=1166           0.29 GB   .jpg:1166
+  pics_exp1_alldrones\JUMPER                           n=996            0.29 GB   .jpg:996
+  pics_exp1_alldrones\PARROT                           n=317            0.09 GB   .jpg:317
+  pics_exp1_alldrones\Radiamaster                      n=906            0.25 GB   .jpg:906
+  pics_exp1_alldrones\Radiolink                        n=1150           0.35 GB   .jpg:1150
+  pics_exp1_alldrones\SIYI                             n=3414           0.95 GB   .jpg:3414
+  pics_exp1_alldrones\SKYDROID                         n=1852           0.53 GB   .jpg:1852
+  pics_exp1_alldrones\herelink                         n=510            0.18 GB   .jpg:510
+  pics_exp1_alldrones\spectrum.png                     n=1              0.00 GB   .png:1
+  rawdata\DAUTEL EVO NANO                              n=4             31.71 GB   .iq:4
+  rawdata\DEVENTION DEVO                               n=3             25.01 GB   .iq:3
+  rawdata\DJFPVCOMBO                                   n=8            133.80 GB   .iq:8
+  rawdata\DJI AVATA2                                   n=12           106.69 GB   .iq:12
+  rawdata\DJMAVIC3PRO                                  n=18            66.04 GB   .iq:18
+  rawdata\DJMINI3                                      n=11           137.14 GB   .iq:11
+  rawdata\DJMINI4PRO                                   n=6             61.73 GB   .iq:6
+  rawdata\FLYSKY_EL_18                                 n=5             37.01 GB   .iq:4 .xmp:1
+  rawdata\FLYSKY_FS_I6X                                n=5             34.08 GB   .iq:4 .xmp:1
+  rawdata\FLYSKY_NV_14                                 n=3             25.55 GB   .iq:3
+  rawdata\FRSKY-X14                                    n=2             20.54 GB   .iq:2
+  rawdata\FRSKY-X20R                                   n=2             20.49 GB   .iq:2
+  rawdata\FRSKY-X9DP2019                               n=3             26.21 GB   .iq:3
+  rawdata\FUTABA-T10J                                  n=6             40.23 GB   .iq:5 .xmp:1
+  rawdata\FUTABA-T16IZ                                 n=7             47.73 GB   .iq:6 .xmp:1
+  rawdata\FUTABA-T18SZ                                 n=5             41.16 GB   .iq:5
+  rawdata\FutabaT14SG                                  n=14            38.94 GB   .iq:13 .xmp:1
+  rawdata\JR PROPO_XG14                                n=3             29.50 GB   .iq:3
+  rawdata\JR PROPO_XG7                                 n=4             18.02 GB   .iq:3 .xmp:1
+  rawdata\JUMPER-T14                                   n=4             21.06 GB   .iq:3 .xmp:1
+  rawdata\JUMPER-TProV2                                n=2             19.91 GB   .iq:2
+  rawdata\KONG                                         n=7             10.99 GB   .iq:7
+  rawdata\PARROT                                       n=5             26.84 GB   .iq:4 .xmp:1
+  rawdata\Radiolink_AT10_II                            n=4             25.35 GB   .iq:4
+  rawdata\Radiolink_AT9S_Pro                           n=4             23.23 GB   .iq:3 .xmp:1
+  rawdata\Radiomaster_BOXER                            n=3             20.93 GB   .iq:3
+  rawdata\Radiomaster_TX16S                            n=4             18.43 GB   .iq:3 .xmp:1
+  rawdata\SIYI_FT24                                    n=3             27.87 GB   .iq:3
+  rawdata\SIYI_MK15                                    n=28            60.91 GB   .iq:28
+  rawdata\SIYI_MK32                                    n=44            68.71 GB   .iq:44
+  rawdata\SKYDROID-H12                                 n=2             29.44 GB   .iq:2
+  rawdata\SKYDROID-T10                                 n=3             45.26 GB   .iq:3
+  rawdata\WFLY_ET10                                    n=5             39.41 GB   .iq:4 .xmp:1
+  rawdata\WFLY_ET16S                                   n=4             27.68 GB   .iq:3 .xmp:1
+  rawdata\WFLY_WFT09SII                                n=2             32.09 GB   .iq:2
+  rawdata\YUNZHUO-H12                                  n=16            24.81 GB   .iq:16
+  rawdata\YUNZHUO-H16                                  n=22            49.14 GB   .iq:22
+  rawdata\YUNZHUO-H30                                  n=22            34.51 GB   .iq:22
+  rawdata\herelinkHx4                                  n=7             20.44 GB   .iq:7
+  浙大被预处理为IQ的数据\iq data                                 n=81            49.14 GB   .iq:81
+  过大的原始数据\DJCOMBO                                      n=1             34.95 GB   .iq:1
+  过大的原始数据\DJFPVCOMBO                                   n=7             98.85 GB   .iq:7
+  过大的原始数据\DJI AVATA2                                   n=12           106.69 GB   .iq:12
+  过大的原始数据\DJMAVIC3PRO                                  n=3             46.57 GB   .iq:3
+  过大的原始数据\DJMAVIC3PROcheshi                            n=3              8.18 GB   .iq:3
+  过大的原始数据\DJMINI3ceshi                                 n=2             67.34 GB   .iq:2
+  过大的原始数据\DJMINI4PROceshi                              n=1              2.55 GB   .iq:1
+  过大的原始数据\FUtabaT14SG                                  n=2             57.81 GB   .iq:2
+  过大的原始数据\Radiolink_AT9S_Pro                           n=2             20.87 GB   .iq:2
+  过大的原始数据\SIYI_MK15                                    n=2             60.91 GB   .iq:2
+  过大的原始数据\SIYI_MK32                                    n=2             68.71 GB   .iq:2
+  过大的原始数据\WEIZHI-28db-90db_940m_100m_40m.iq            n=1              8.82 GB   .iq:1
+  过大的原始数据\YUNZHUO-H12                                  n=1             24.81 GB   .iq:1
+  过大的原始数据\YUNZHUO-H16                                  n=1             32.72 GB   .iq:1
+  过大的原始数据\YUNZHUO-H30                                  n=1             34.51 GB   .iq:1
+  过大的原始数据\herelinkHx4                                  n=1             20.44 GB   .iq:1
+
+== .iq FILENAME SHAPES (digits->#) top 80 ==
+  pack#_#-#s.iq                                                          358
+  YUNZHUO-H#_#_daifei_gain#dB_#-#s.iq                                    43
+  SIYI_MK#_#_daifei_gain#dB_#-#s.iq                                      38
+  SIYI_MK#_#_duima_gain#dB_#-#s.iq                                       34
+  DJI AVTA#-SNR#dB-#db_#m_#m_#m(#).iq                                    24
+  DJFPVCOMBO-#db-#db_#m_#m_#m.iq                                         16
+  YUNZHUO-H#_#_xuanting_gain#dB_#-#s.iq                                  16
+  DJMAVIC#PRO-#db-#db_#m_#m_#m_#-#s.iq                                   15
+  DJMINI#--#db-#db_#m_#m_#m.iq                                           12
+  FUtabaT#SG_#_daifei_#dB(#)_#-#s.iq                                     12
+  Matrice#-SNR#-#m.iq                                                    9
+  DJMAVIC#PRO-#db-#db_#m_#m_#m.iq                                        8
+  DIMINI#PRO-#db-#db_#m_#m_#m.iq                                         7
+  herelinkHx#_#_duima_gain#dB_#-#s.iq                                    7
+  KONG-#db_#m_#m_#-#s.iq                                                 7
+  FUTABA-T#J_#.#s.iq                                                     4
+  FLYSKY_FS_I#X_#-#s.iq                                                  4
+  FUTABA-T#J_#-#s.iq                                                     3
+  DAUTEL_EVO Nano-#db_#m_#m(#).iq                                        3
+  FUTABA-T#IZ-dafei-#db_#m_#m(#).iq                                      3
+  FUTABA-T#SZ-daifei-#db_#m_#m(#).iq                                     3
+  JR PROPO_XG#-daifei-#db_#m_#m(#).iq                                    3
+  PARROT_#db_#m_#m(#).iq                                                 3
+  Air#S-SNR#-#m.iq                                                       3
+  AVATA-SNR#-#m.iq                                                       3
+  DAUTEL_EVO Nano-SNR#-#m.iq                                             3
+  DJI-SNR#-#m.iq                                                         3
+  DJI AVTA#-SNR#-#m.iq                                                   3
+  DJMINI#-SNR#-#m.iq                                                     3
+  DJMINI#PRO-SNR#-#m.iq                                                  3
+  FutabaT#SG_FLY-SNR#-#m.iq                                              3
+  FutabaT#Z_FLY-SNR#-#m.iq                                               3
+  Inspire#-SNR#-#m.iq                                                    3
+  Matrice#T-SNR#-#m.iq                                                   3
+  Matrice#Pro-SNR#-#m.iq                                                 3
+  Mavic#-SNR#-#m.iq                                                      3
+  MavicPro-SNR#-#m.iq                                                    3
+  Mini#-SNR#-#m.iq                                                       3
+  Mini#PRO-SNR#-#m.iq                                                    3
+  PARROT-SNR#-#m.iq                                                      3
+  Phantom#-SNR#-#m.iq                                                    3
+  Phantom#Pro-SNR#-#m.iq                                                 3
+  Phantom#ProRTK-SNR#-#m.iq                                              3
+  RadioLinkAT#S_FLY-SNR#-#m.iq                                           3
+  Tarains_Plus_FLY-SNR#-#m.iq                                            3
+  VBar_Fly-SNR#-#m.iq                                                    3
+  yunzhuoT#_FLY-SNR#-#m.iq                                               3
+  DEVENTION_DEVO_#-daifei-#db_#m_#m(#).iq                                2
+  FLYSKY_EL_#-daifei-#db_#m_#m(#).iq                                     2
+  FLYSKY_FS_I#X-daifei-#db_#m_#m(#).iq                                   2
+  FLYSKY_NV_#-daifei-#db_#m_#m(#).iq                                     2
+  FUTABA-T#J-daifei-#db_#m_#m(#).iq                                      2
+  FUTABA-T#J-duima-#db_#m_#m(#).iq                                       2
+  FUTABA-T#IZ-duima-#db_#m_#m(#).iq                                      2
+  FUTABA-T#SZ-duima-#db_#m_#m(#).iq                                      2
+  JR PROPO_XG#-duima-#db_#m_#m(#).iq                                     2
+  Radiolink_AT#S_Pro-dafei-#db_#m_#.iq                                   2
+  Radiolink_AT#S_Pro-duima-#db_#m_#.iq                                   2
+  SIYI_FT#-daifei-#db_#m_#m(#).iq                                        2
+  WFLY_ET#-duima-#db_#m_#.iq                                             2
+  SIYI_MK#_#_daifei_gain#dB.iq                                           2
+  SIYI_MK#_#_duima_gain#dB.iq                                            2
+  YUNZHUO-H#_#_daifei_gain#dB.iq                                         2
+  data.bin_#SPS_-#Hz_#_#_#_T#-#-#.iq                                     1
+  FLYSKY_FS_I#X.iq                                                       1
+  FUTABA-T#J.iq                                                          1
+  Radiolink_AT#S_Pro.iq                                                  1
+  DAUTEL_EVO Nano-#db_#m_#m_#dB(#).iq                                    1
+  DEVENTION_DEVO_#-duima-#db_#m_#m(#).iq                                 1
+  KONG-#db_#m_#m.iq                                                      1
+  FLYSKY_EL_#-daifei-#db_#m_#m(#)（局部）.iq                                 1
+  FLYSKY_EL_#-duima-#db_#m_#m(#).iq                                      1
+  FLYSKY_FS_I#X-daifei-#db_#m_#m(#)（局部）.iq                               1
+  FLYSKY_FS_I#X-duima-#db_#m_#m(#).iq                                    1
+  FLYSKY_NV_#-duima-#db_#m_#m(#).iq                                      1
+  FRSKY-X#-daifei-#db_#m_#m(#).iq                                        1
+  FRSKY-X#-duima-#db_#m_#m(#).iq                                         1
+  FRSKY-X#R-daifei-#db_#m_#m.iq                                          1
+  FRSKY-X#R-duima-#db_#m_#m.iq                                           1
+  FRSKY-X#DP#-dafei-#db_#m_#m(#).iq                                      1
+  (total distinct shapes: 123, total .iq: 796)
+
+== MTIME CALENDAR ==
+  [iq] 2024-04-26:1 2024-09-10:29 2024-09-11:35 2024-09-12:82 2024-09-21:11 2024-10-30:7 2024-11-26:165 2024-11-27:7 2024-12-06:14 2024-12-18:57 2024-12-19:24 2025-02-24:122 2025-02-25:154 2025-02-26:63 2025-02-27:19 2025-04-14:6
+  [bin] 2024-04-21:11 2024-09-28:1 2024-10-29:87 2024-11-04:8 2025-03-13:42 2025-03-14:4 2025-03-17:1 2025-07-11:1 2025-12-05:3
+  [img] 2024-04-21:31 2024-04-26:31 2024-09-24:18465 2024-09-25:20582 2024-09-26:39820 2024-09-27:4668 2024-10-18:8 2024-11-04:29764 2024-11-11:154 2024-11-14:2 2024-11-19:18456 2024-11-20:73036 2024-11-21:109986 2024-11-22:108330 2024-11-23:93252 2024-11-24:46714 2024-11-25:26848 2024-11-26:16824 2024-11-27:10759 2024-11-28:48871 2024-12-06:3904 2024-12-10:358 2024-12-13:73195 2024-12-24:264 2024-12-25:13834 2024-12-26:423 2024-12-27:681 2024-12-29:222 2024-12-30:354 2025-01-03:28182 2025-01-06:272 2025-01-07:400 2025-01-08:131376 2025-01-09:184 2025-01-10:171765 2026-04-29:2 2026-05-13:10
+  [other] 2024-08-26:1 2024-09-26:1 2024-09-27:13471 2024-09-28:1 2024-11-12:1 2024-11-19:12 2024-11-20:20 2024-11-21:4 2024-11-22:8 2024-11-23:2 2024-11-25:2 2024-11-27:6 2024-11-29:56 2024-11-30:53 2024-12-01:23 2024-12-02:28 2024-12-04:33 2024-12-05:44 2024-12-06:32 2024-12-10:6 2024-12-11:31 2024-12-13:4 2024-12-24:17 2024-12-25:25 2024-12-26:25 2024-12-27:41 2024-12-29:13 2024-12-30:21 2025-01-03:90 2025-01-04:12 2025-01-06:16 2025-01-07:24 2025-01-08:6 2025-01-09:11 2025-01-11:6 2025-01-12:10 2025-01-13:14 2025-01-14:12 2025-01-15:12 2025-01-16:1 2025-01-17:4 2025-01-18:9 2025-01-19:8 2025-01-20:9 2025-01-21:13 2025-01-22:8 2025-01-23:8 2025-01-24:4 2025-03-13:53 2025-04-03:4 2025-04-14:6 2025-06-05:1
+
+== BIGGEST 40 BINARY FILES ==
+   56724103072  2024-09-10T11:27:33  过大的原始数据\DJMINI3ceshi\DJMINI3--43db-60db_2440m_100m_20m.iq
+   43182164382  2025-03-14T11:46:49  PublicDataset\Dataset\ValidationSet_5Drones\DJFPVCOMBO.rar
+   41294269144  2024-09-21T15:28:20  过大的原始数据\SIYI_MK32\SIYI_MK32_2440_daifei_gain80dB.iq
+   38775884830  2025-03-14T11:43:08  PublicDataset\Dataset\ValidationSet_5Drones\DIMINI4PRO.rar
+   38010587600  2024-09-21T20:19:31  过大的原始数据\FUtabaT14SG\FUtabaT14SG_2440_daifei_80dB(2).iq
+   36331302464  2024-09-21T15:17:15  过大的原始数据\SIYI_MK15\SIYI_MK15_2440_daifei_gain80dB.iq
+   35650995510  2025-03-14T11:35:10  PublicDataset\Dataset\ValidationSet_5Drones\DJMAVIC3PRO.rar
+   34953832408  2024-09-11T12:17:59  rawdata\DJFPVCOMBO\DJFPVCOMBO-41db-90db_5760m_100m_20m.iq
+   34953832408  2024-09-11T12:17:59  过大的原始数据\DJCOMBO\DJFPVCOMBO-41db-90db_5760m_100m_20m.iq
+   34511001336  2024-09-21T19:27:43  过大的原始数据\YUNZHUO-H30\YUNZHUO-H30_2440_daifei_gain80dB.iq
+   32720247592  2024-09-21T14:55:40  过大的原始数据\YUNZHUO-H16\YUNZHUO-H16_2460_daifei_gain80dB.iq
+   30864906965  2025-03-17T14:28:02  PublicDataset\Dataset\ValidationSet_5Drones\DJMINI3.rar
+   27416398928  2024-09-21T15:24:48  过大的原始数据\SIYI_MK32\SIYI_MK32_2440_duima_gain80dB.iq
+   24814144256  2024-09-21T19:12:48  过大的原始数据\YUNZHUO-H12\YUNZHUO-H12_2440_xuanting_gain80dB.iq
+   24579845064  2024-09-21T15:13:49  过大的原始数据\SIYI_MK15\SIYI_MK15_2440_duima_gain80dB.iq
+   23833083904  2024-09-10T20:50:16  过大的原始数据\DJMAVIC3PRO\DJMAVIC3PRO-11db-90db_5800m_100m_20m-lost5.iq
+   22567828800  2024-09-10T20:43:17  过大的原始数据\DJMAVIC3PRO\DJMAVIC3PRO-11db-90db_5800m_100m_10m.iq
+   21778434496  2024-09-11T12:15:49  rawdata\DJFPVCOMBO\DJFPVCOMBO-36db-90db_5760m_100m_20m.iq
+   21778434496  2024-09-11T12:15:49  过大的原始数据\DJFPVCOMBO\DJFPVCOMBO-36db-90db_5760m_100m_20m.iq
+   20435052480  2024-09-21T14:37:22  过大的原始数据\herelinkHx4\herelinkHx4_2420_duima_gain60dB.iq
+   19907841648  2024-09-10T14:15:41  rawdata\DJMINI3\DJMINI3--46db-60db_2470m_100m_20m.iq
+   19795595128  2024-09-21T20:13:41  过大的原始数据\FUtabaT14SG\FUtabaT14SG_2440_daifei_80dB.iq
+   19019991864  2024-09-11T13:31:14  rawdata\DJFPVCOMBO\DJFPVCOMBO-16db-90db_5760m_100m_10m.iq
+   19019991864  2024-09-11T13:31:14  过大的原始数据\DJFPVCOMBO\DJFPVCOMBO-16db-90db_5760m_100m_10m.iq
+   18250903158  2025-03-13T11:41:05  PublicDataset\Dataset\IMAGESET-exp\dataset_AllDrones-MatlabPipeline.rar
+   18235103676  2025-12-05T12:29:16  augmentation_exp2_allDrone\alldrone_dataset.zip
+   16510376544  2024-09-11T21:22:25  rawdata\SKYDROID-T10\SKYDROID-T10-duima-60db_2470m_100(2).iq
+   16417233880  2024-09-21T14:47:01  rawdata\YUNZHUO-H16\YUNZHUO-H16_2460_duima_gain60dB.iq
+   16247351128  2024-09-11T20:28:16  rawdata\WFLY_WFT09SII\WFLY_WFT09SII-duima-60db_2410m_100.iq
+   15847511680  2024-09-11T20:34:05  rawdata\WFLY_WFT09SII\WFLY_WFT09SII-daifei-60db_2410m_100.iq
+   15132174400  2024-09-10T14:20:33  rawdata\DJMINI3\DJMINI3--46db-60db_2470m_100m_10m.iq
+   15124577448  2024-09-11T21:12:18  rawdata\SKYDROID-H12\SKYDROID-H12-daifei-60db_2470m_100.iq
+   14998447951  2025-03-13T10:45:02  PublicDataset\Dataset\RAWDATA\DJI FPV COMBO.rar
+   14544410224  2024-09-11T21:26:50  rawdata\SKYDROID-T10\SKYDROID-T10-daifei-60db_2470m_100.iq
+   14314337856  2024-09-11T21:14:26  rawdata\SKYDROID-H12\SKYDROID-H12-duima-60db_2470m_100.iq
+   14202039488  2024-09-11T21:20:46  rawdata\SKYDROID-T10\SKYDROID-T10-duima-60db_2470m_100.iq
+   13982566616  2025-03-13T11:38:41  PublicDataset\Dataset\IMAGESET-exp\dataset_5Drones-raw+20dB_parural_usingAG.rar
+   13968510680  2024-09-10T14:52:07  rawdata\DJMINI3\DJMINI3--10db-60db_2470m_100m_10m.iq
+   13896272840  2024-09-11T13:41:06  rawdata\DJFPVCOMBO\DJFPVCOMBO-28db-90db_5760m_100m_40m.iq
+   13896272840  2024-09-11T13:41:06  过大的原始数据\DJFPVCOMBO\DJFPVCOMBO-28db-90db_5760m_100m_40m.iq

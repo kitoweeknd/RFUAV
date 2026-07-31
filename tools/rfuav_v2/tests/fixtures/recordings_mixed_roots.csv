@@ -1,0 +1,11 @@
+recording_id,artifact_class,taxonomy_id,session_id,capture_condition,source_root,source_relpath,size_bytes,delivered_duration_s,is_slice,is_uncut
+r001,recording,uav.dji.mini3,S-mini3-a,close,rawdata,rawdata/mini3/a_00.dat,800000000,1.0,0,1
+r002,recording,uav.dji.mini3,S-mini3-a,close,rawdata,rawdata/mini3/a_01.dat,800000000,1.0,1,0
+r003,recording,uav.dji.mini3,S-mini3-b,far,rawdata,rawdata/mini3/b_00.dat,800000000,1.0,0,1
+r004,recording,uav.dji.mini3,S-mini3-c,far,rawdata,rawdata/mini3/c_00_0.0_1.0s.dat,800000000,1.0,0,0
+r005,recording,uav.dji.mavic3,S-zju-a,close,浙大被预处理为IQ的数据,zju/mavic3/a.dat,400000000,,0,1
+r006,recording,uav.dji.mavic3,S-zju-b,close,浙大被预处理为IQ的数据,zju/mavic3/b.dat,400000000,,0,1
+r007,recording,uav.dji.mavic3,S-zju-c,close,浙大被预处理为IQ的数据,zju/mavic3/c.dat,400000000,,0,1
+r008,recording,uav.dji.phantom3,S-pic-a,close,.dat_pic,pic/phantom3/a.dat,200000000,,0,1
+r009,recording,uav.dji.phantom3,S-pic-b,close,.dat_pic,pic/phantom3/b.dat,200000000,,0,1
+r010,spectrogram,uav.dji.mini3,S-mini3-a,close,rawdata,rawdata/mini3/a_00.jpg,50000,,0,1

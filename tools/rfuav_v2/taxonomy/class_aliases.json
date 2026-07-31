@@ -1,0 +1,1684 @@
+{
+ "_schema": "rfuav-v2/class_aliases/1",
+ "_generated_from": "e1_inventory.csv (953 signal files, real sizes) via tools/rfuav_v2/dialect.py",
+ "_generated_on": "2026-07-31",
+ "_policy": [
+  "FILENAME IS AUTHORITATIVE OVER DIRECTORY NAME. Every conflict measured in this library resolved in favour of the filename: dir 'Air2R' holds files named 'Air2S-SNR*'; dir 'Matrice600' holds 'MATRICE_600_Pro_high_RF0.dat'; dir 'Tarains_Plus_FLY' holds 'Tarains_Plus_FLY-SNR*' (vendor typo, model still taranis_plus). Never canonicalise from the directory string alone.",
+  "A directory alias is NOT automatically a session merge. Directories carrying a state or intent suffix (*ceshi / *cheshi = test, *_FLY = in-flight, *_daifei) denote a DIFFERENT capture condition and MUST remain distinct session_ids even though they share a taxonomy_id.",
+  "is_misfiled entries are label errors, not spelling variants. rawdata\\DJMINI3\\KONG-60db_2470m_100m.iq is a background capture stored under a UAV class dir (ERRATA E-004) and must be re-homed to the kong/background class, not merged.",
+  "Alias groups are the leakage vector: the same device under N directory spellings will be split across train/test by any naive per-directory split. session_id, never class_dir, is the grouping key."
+ ],
+ "aliases": {
+  "UNRESOLVED/kong": {
+   "canonical_model": "UNRESOLVED/kong",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "DJMINI3",
+    "KONG"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "DJMINI3",
+     "n": 1,
+     "bytes": 10989652240,
+     "flags": {
+      "is_misfiled": 1
+     }
+    },
+    {
+     "root": "rawdata",
+     "class_dir": "KONG",
+     "n": 7,
+     "bytes": 10989652240,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "contains is_misfiled files -> ERRATA E-004, re-home not merge",
+    "spelling crosswalk required"
+   ]
+  },
+  "autel/evo_nano": {
+   "canonical_model": "autel/evo_nano",
+   "n_locations": 3,
+   "n_spellings": 2,
+   "spellings": [
+    "DAUTEL EVO NANO",
+    "DAUTEL_EVO Nano"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "DAUTEL EVO NANO",
+     "n": 4,
+     "bytes": 31714989088,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "DAUTEL EVO NANO",
+     "n": 13,
+     "bytes": 9624588336,
+     "flags": {
+      "is_slice": 13
+     }
+    },
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "DAUTEL_EVO Nano",
+     "n": 3,
+     "bytes": 1500000000,
+     "flags": {}
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "devention/devo_10": {
+   "canonical_model": "devention/devo_10",
+   "n_locations": 2,
+   "n_spellings": 1,
+   "spellings": [
+    "DEVENTION DEVO"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "DEVENTION DEVO",
+     "n": 3,
+     "bytes": 25012286688,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "DEVENTION DEVO",
+     "n": 6,
+     "bytes": 4800000000,
+     "flags": {
+      "is_slice": 6
+     }
+    }
+   ]
+  },
+  "dji/UNRESOLVED": {
+   "canonical_model": "dji/UNRESOLVED",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "DJi",
+    "Dji"
+   ],
+   "locations": [
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "DJi",
+     "n": 3,
+     "bytes": 1920000000,
+     "flags": {}
+    },
+    {
+     "root": ".dat_pic",
+     "class_dir": "Dji",
+     "n": 1,
+     "bytes": 640000000,
+     "flags": {}
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "dji/air2s": {
+   "canonical_model": "dji/air2s",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "Air2R",
+    "Air2S"
+   ],
+   "locations": [
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "Air2R",
+     "n": 3,
+     "bytes": 1800000000,
+     "flags": {}
+    },
+    {
+     "root": ".dat_pic",
+     "class_dir": "Air2S",
+     "n": 1,
+     "bytes": 600000000,
+     "flags": {}
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "dji/avata": {
+   "canonical_model": "dji/avata",
+   "n_locations": 2,
+   "n_spellings": 1,
+   "spellings": [
+    "AVATA"
+   ],
+   "locations": [
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "AVATA",
+     "n": 3,
+     "bytes": 1800000000,
+     "flags": {}
+    },
+    {
+     "root": ".dat_pic",
+     "class_dir": "AVATA",
+     "n": 1,
+     "bytes": 640000000,
+     "flags": {}
+    }
+   ]
+  },
+  "dji/avata2": {
+   "canonical_model": "dji/avata2",
+   "n_locations": 4,
+   "n_spellings": 2,
+   "spellings": [
+    "DJI AVATA2",
+    "DJI AVTA2"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "DJI AVATA2",
+     "n": 12,
+     "bytes": 106686960920,
+     "flags": {}
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "DJI AVATA2",
+     "n": 12,
+     "bytes": 106686960920,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "DJI AVATA2",
+     "n": 44,
+     "bytes": 33963557856,
+     "flags": {
+      "is_slice": 44
+     }
+    },
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "DJI AVTA2",
+     "n": 3,
+     "bytes": 1500000000,
+     "flags": {}
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "dji/fpv_combo": {
+   "canonical_model": "dji/fpv_combo",
+   "n_locations": 5,
+   "n_spellings": 3,
+   "spellings": [
+    "DJCOMBO",
+    "DJFPVCOMBO",
+    "DJI FPV COMBO"
+   ],
+   "locations": [
+    {
+     "root": "crop_data",
+     "class_dir": "DJFPVCOMBO",
+     "n": 87,
+     "bytes": 133801219832,
+     "flags": {
+      "is_slice": 87
+     }
+    },
+    {
+     "root": "rawdata",
+     "class_dir": "DJFPVCOMBO",
+     "n": 8,
+     "bytes": 133801219832,
+     "flags": {}
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "DJFPVCOMBO",
+     "n": 7,
+     "bytes": 98847387424,
+     "flags": {}
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "DJCOMBO",
+     "n": 1,
+     "bytes": 34953832408,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "DJI FPV COMBO",
+     "n": 38,
+     "bytes": 29852931552,
+     "flags": {
+      "is_slice": 38
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "dji/inspire2": {
+   "canonical_model": "dji/inspire2",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "Inspire2",
+    "inspire2"
+   ],
+   "locations": [
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "Inspire2",
+     "n": 3,
+     "bytes": 1800000000,
+     "flags": {}
+    },
+    {
+     "root": ".dat_pic",
+     "class_dir": "inspire2",
+     "n": 1,
+     "bytes": 640000000,
+     "flags": {}
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "dji/matrice100": {
+   "canonical_model": "dji/matrice100",
+   "n_locations": 2,
+   "n_spellings": 1,
+   "spellings": [
+    "Matrice100"
+   ],
+   "locations": [
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "Matrice100",
+     "n": 3,
+     "bytes": 1920000000,
+     "flags": {}
+    },
+    {
+     "root": ".dat_pic",
+     "class_dir": "Matrice100",
+     "n": 1,
+     "bytes": 640000000,
+     "flags": {}
+    }
+   ]
+  },
+  "dji/matrice600_pro": {
+   "canonical_model": "dji/matrice600_pro",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "Matrice600",
+    "Matrice600Pro"
+   ],
+   "locations": [
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "Matrice600Pro",
+     "n": 3,
+     "bytes": 1800000000,
+     "flags": {}
+    },
+    {
+     "root": ".dat_pic",
+     "class_dir": "Matrice600",
+     "n": 1,
+     "bytes": 640000000,
+     "flags": {}
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "dji/mavic3_pro": {
+   "canonical_model": "dji/mavic3_pro",
+   "n_locations": 4,
+   "n_spellings": 3,
+   "spellings": [
+    "DJI MAVIC3 PRO",
+    "DJMAVIC3PRO",
+    "DJMAVIC3PROcheshi"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "DJMAVIC3PRO",
+     "n": 18,
+     "bytes": 66035837448,
+     "flags": {
+      "is_slice": 14
+     }
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "DJMAVIC3PRO",
+     "n": 3,
+     "bytes": 46568741504,
+     "flags": {
+      "is_slice": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "DJI MAVIC3 PRO",
+     "n": 18,
+     "bytes": 14251187664,
+     "flags": {
+      "is_slice": 18
+     }
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "DJMAVIC3PROcheshi",
+     "n": 3,
+     "bytes": 8176418464,
+     "flags": {
+      "is_test_artifact": 3
+     }
+    }
+   ],
+   "review_notes": [
+    "has a *ceshi/*cheshi test-condition dir -> distinct session_id",
+    "spelling crosswalk required"
+   ]
+  },
+  "dji/mini3": {
+   "canonical_model": "dji/mini3",
+   "n_locations": 4,
+   "n_spellings": 3,
+   "spellings": [
+    "DJI MINI3",
+    "DJMINI3",
+    "DJMINI3ceshi"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "DJMINI3",
+     "n": 10,
+     "bytes": 126146498960,
+     "flags": {}
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "DJMINI3ceshi",
+     "n": 2,
+     "bytes": 67340639192,
+     "flags": {
+      "is_test_artifact": 2
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "DJI MINI3",
+     "n": 17,
+     "bytes": 13600000000,
+     "flags": {
+      "is_slice": 17
+     }
+    },
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "DJMINI3",
+     "n": 3,
+     "bytes": 1500000000,
+     "flags": {}
+    }
+   ],
+   "review_notes": [
+    "has a *ceshi/*cheshi test-condition dir -> distinct session_id",
+    "spelling crosswalk required"
+   ]
+  },
+  "dji/mini4_pro": {
+   "canonical_model": "dji/mini4_pro",
+   "n_locations": 5,
+   "n_spellings": 3,
+   "spellings": [
+    "DJI MINI4 PRO",
+    "DJMINI4PRO",
+    "DJMINI4PROceshi"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "DJMINI4PRO",
+     "n": 6,
+     "bytes": 61729968392,
+     "flags": {}
+    },
+    {
+     "root": "crop_data",
+     "class_dir": "DJMINI4PRO",
+     "n": 8,
+     "bytes": 12546725656,
+     "flags": {
+      "is_slice": 8
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "DJI MINI4 PRO",
+     "n": 14,
+     "bytes": 11200000000,
+     "flags": {
+      "is_slice": 14
+     }
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "DJMINI4PROceshi",
+     "n": 1,
+     "bytes": 2546867232,
+     "flags": {
+      "is_test_artifact": 1
+     }
+    },
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "DJMINI4PRO",
+     "n": 3,
+     "bytes": 1500000000,
+     "flags": {}
+    }
+   ],
+   "review_notes": [
+    "has a *ceshi/*cheshi test-condition dir -> distinct session_id",
+    "spelling crosswalk required"
+   ]
+  },
+  "dji/phantom3": {
+   "canonical_model": "dji/phantom3",
+   "n_locations": 2,
+   "n_spellings": 1,
+   "spellings": [
+    "Phantom3"
+   ],
+   "locations": [
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "Phantom3",
+     "n": 3,
+     "bytes": 1800000000,
+     "flags": {}
+    },
+    {
+     "root": ".dat_pic",
+     "class_dir": "Phantom3",
+     "n": 1,
+     "bytes": 560000000,
+     "flags": {}
+    }
+   ]
+  },
+  "dji/phantom4_pro": {
+   "canonical_model": "dji/phantom4_pro",
+   "n_locations": 2,
+   "n_spellings": 1,
+   "spellings": [
+    "Phantom4Pro"
+   ],
+   "locations": [
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "Phantom4Pro",
+     "n": 3,
+     "bytes": 1680000000,
+     "flags": {}
+    },
+    {
+     "root": ".dat_pic",
+     "class_dir": "Phantom4Pro",
+     "n": 1,
+     "bytes": 560000000,
+     "flags": {}
+    }
+   ]
+  },
+  "dji/phantom4_pro_rtk": {
+   "canonical_model": "dji/phantom4_pro_rtk",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "PhanTom4ProRTK",
+    "Phantom4ProRTK"
+   ],
+   "locations": [
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "Phantom4ProRTK",
+     "n": 3,
+     "bytes": 2520000000,
+     "flags": {}
+    },
+    {
+     "root": ".dat_pic",
+     "class_dir": "PhanTom4ProRTK",
+     "n": 1,
+     "bytes": 840000000,
+     "flags": {}
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "flysky/el18": {
+   "canonical_model": "flysky/el18",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "FLYSKY EL 18",
+    "FLYSKY_EL_18"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "FLYSKY_EL_18",
+     "n": 4,
+     "bytes": 37005131792,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "FLYSKY EL 18",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "flysky/fs_i6x": {
+   "canonical_model": "flysky/fs_i6x",
+   "n_locations": 3,
+   "n_spellings": 2,
+   "spellings": [
+    "FLYSKY FS I6X",
+    "FLYSKY_FS_I6X"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "FLYSKY_FS_I6X",
+     "n": 4,
+     "bytes": 34081070896,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "FLYSKY FS I6X",
+     "n": 6,
+     "bytes": 4800000000,
+     "flags": {
+      "is_slice": 6
+     }
+    },
+    {
+     "root": "exp3",
+     "class_dir": "FLYSKY_FS_I6X",
+     "n": 4,
+     "bytes": 800000000,
+     "flags": {
+      "is_test_artifact": 4,
+      "is_slice": 4
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "flysky/nv14": {
+   "canonical_model": "flysky/nv14",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "FLYSKY NV 14",
+    "FLYSKY_NV_14"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "FLYSKY_NV_14",
+     "n": 3,
+     "bytes": 25545154624,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "FLYSKY NV 14",
+     "n": 6,
+     "bytes": 4800000000,
+     "flags": {
+      "is_slice": 6
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "frsky/taranis_plus": {
+   "canonical_model": "frsky/taranis_plus",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "Tarains_Plus_FLY",
+    "Taranis_Plus"
+   ],
+   "locations": [
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "Tarains_Plus_FLY",
+     "n": 3,
+     "bytes": 1920000000,
+     "flags": {}
+    },
+    {
+     "root": ".dat_pic",
+     "class_dir": "Taranis_Plus",
+     "n": 1,
+     "bytes": 600000000,
+     "flags": {}
+    }
+   ],
+   "review_notes": [
+    "has a *_FLY in-flight-condition dir -> distinct session_id",
+    "spelling crosswalk required"
+   ]
+  },
+  "frsky/x14": {
+   "canonical_model": "frsky/x14",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "FRSKY X14",
+    "FRSKY-X14"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "FRSKY-X14",
+     "n": 2,
+     "bytes": 20535483200,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "FRSKY X14",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "frsky/x20r": {
+   "canonical_model": "frsky/x20r",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "FRSKY X20R",
+    "FRSKY-X20R"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "FRSKY-X20R",
+     "n": 2,
+     "bytes": 20491878848,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "FRSKY X20R",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "frsky/x9dp2019": {
+   "canonical_model": "frsky/x9dp2019",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "FRSKY X9DP2019",
+    "FRSKY-X9DP2019"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "FRSKY-X9DP2019",
+     "n": 3,
+     "bytes": 26208774440,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "FRSKY X9DP2019",
+     "n": 6,
+     "bytes": 4800000000,
+     "flags": {
+      "is_slice": 6
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "futaba/t10j": {
+   "canonical_model": "futaba/t10j",
+   "n_locations": 3,
+   "n_spellings": 2,
+   "spellings": [
+    "FUTABA T10J",
+    "FUTABA-T10J"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "FUTABA-T10J",
+     "n": 5,
+     "bytes": 40225650584,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "FUTABA T10J",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    },
+    {
+     "root": "exp3",
+     "class_dir": "FUTABA-T10J",
+     "n": 3,
+     "bytes": 560000000,
+     "flags": {
+      "is_test_artifact": 3,
+      "is_slice": 3
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "futaba/t14sg": {
+   "canonical_model": "futaba/t14sg",
+   "n_locations": 4,
+   "n_spellings": 4,
+   "spellings": [
+    "FUTABA T14SG",
+    "FUtabaT14SG",
+    "FutabaT14SG",
+    "FutabaT14SG_FLY"
+   ],
+   "locations": [
+    {
+     "root": "过大的原始数据",
+     "class_dir": "FUtabaT14SG",
+     "n": 2,
+     "bytes": 57806182728,
+     "flags": {}
+    },
+    {
+     "root": "rawdata",
+     "class_dir": "FutabaT14SG",
+     "n": 13,
+     "bytes": 38940150224,
+     "flags": {
+      "is_slice": 13,
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "FUTABA T14SG",
+     "n": 8,
+     "bytes": 6400000000,
+     "flags": {
+      "is_slice": 8
+     }
+    },
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "FutabaT14SG_FLY",
+     "n": 3,
+     "bytes": 1920000000,
+     "flags": {}
+    }
+   ],
+   "review_notes": [
+    "has a *_FLY in-flight-condition dir -> distinct session_id",
+    "spelling crosswalk required"
+   ]
+  },
+  "futaba/t16iz": {
+   "canonical_model": "futaba/t16iz",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "FUTABA T16IZ",
+    "FUTABA-T16IZ"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "FUTABA-T16IZ",
+     "n": 6,
+     "bytes": 47729757904,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "FUTABA T16IZ",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "futaba/t18sz": {
+   "canonical_model": "futaba/t18sz",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "FUTABA T18SZ",
+    "FUTABA-T18SZ"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "FUTABA-T18SZ",
+     "n": 5,
+     "bytes": 41161290240,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "FUTABA T18SZ",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "herelink/hx4": {
+   "canonical_model": "herelink/hx4",
+   "n_locations": 3,
+   "n_spellings": 2,
+   "spellings": [
+    "Herelink Hx4",
+    "herelinkHx4"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "herelinkHx4",
+     "n": 7,
+     "bytes": 20435052480,
+     "flags": {
+      "is_slice": 7
+     }
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "herelinkHx4",
+     "n": 1,
+     "bytes": 20435052480,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "Herelink Hx4",
+     "n": 8,
+     "bytes": 6400000000,
+     "flags": {
+      "is_slice": 8
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "jrpropo/xg14": {
+   "canonical_model": "jrpropo/xg14",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "JR PROPO XG14",
+    "JR PROPO_XG14"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "JR PROPO_XG14",
+     "n": 3,
+     "bytes": 29502915456,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "JR PROPO XG14",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "jrpropo/xg7": {
+   "canonical_model": "jrpropo/xg7",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "JR PROPO XG7",
+    "JR PROPO_XG7"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "JR PROPO_XG7",
+     "n": 3,
+     "bytes": 18024091968,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "JR PROPO XG7",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "jumper/t14": {
+   "canonical_model": "jumper/t14",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "JUMPER T14",
+    "JUMPER-T14"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "JUMPER-T14",
+     "n": 3,
+     "bytes": 21061658856,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "JUMPER T14",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "jumper/tpro_v2": {
+   "canonical_model": "jumper/tpro_v2",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "JUMPER TProV2",
+    "JUMPER-TProV2"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "JUMPER-TProV2",
+     "n": 2,
+     "bytes": 19906570200,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "JUMPER TProV2",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "parrot/parrot_unspecified": {
+   "canonical_model": "parrot/parrot_unspecified",
+   "n_locations": 2,
+   "n_spellings": 1,
+   "spellings": [
+    "PARROT"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "PARROT",
+     "n": 4,
+     "bytes": 26836309544,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "浙大被预处理为IQ的数据",
+     "class_dir": "PARROT",
+     "n": 3,
+     "bytes": 1500000000,
+     "flags": {}
+    }
+   ]
+  },
+  "radiolink/at10_ii": {
+   "canonical_model": "radiolink/at10_ii",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "Radiolink AT10 II",
+    "Radiolink_AT10_II"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "Radiolink_AT10_II",
+     "n": 4,
+     "bytes": 25346856232,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "Radiolink AT10 II",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "radiolink/at9s_pro": {
+   "canonical_model": "radiolink/at9s_pro",
+   "n_locations": 3,
+   "n_spellings": 2,
+   "spellings": [
+    "Radiolink AT9S Pro",
+    "Radiolink_AT9S_Pro"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "Radiolink_AT9S_Pro",
+     "n": 3,
+     "bytes": 23231659336,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "Radiolink_AT9S_Pro",
+     "n": 2,
+     "bytes": 20872363336,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "Radiolink AT9S Pro",
+     "n": 8,
+     "bytes": 6400000000,
+     "flags": {
+      "is_slice": 8
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "radiomaster/boxer": {
+   "canonical_model": "radiomaster/boxer",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "RadioMaster BOXER",
+    "Radiomaster_BOXER"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "Radiomaster_BOXER",
+     "n": 3,
+     "bytes": 20930302624,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "RadioMaster BOXER",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "radiomaster/tx16s": {
+   "canonical_model": "radiomaster/tx16s",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "RadioMaster TX16S",
+    "Radiomaster_TX16S"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "Radiomaster_TX16S",
+     "n": 3,
+     "bytes": 18426621472,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "RadioMaster TX16S",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "siyi/ft24": {
+   "canonical_model": "siyi/ft24",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "SIYI FT24",
+    "SIYI_FT24"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "SIYI_FT24",
+     "n": 3,
+     "bytes": 27866250920,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "SIYI FT24",
+     "n": 7,
+     "bytes": 5600000000,
+     "flags": {
+      "is_slice": 7
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "siyi/mk15": {
+   "canonical_model": "siyi/mk15",
+   "n_locations": 3,
+   "n_spellings": 2,
+   "spellings": [
+    "SIYI MK15",
+    "SIYI_MK15"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "SIYI_MK15",
+     "n": 28,
+     "bytes": 60911147528,
+     "flags": {
+      "is_slice": 28
+     }
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "SIYI_MK15",
+     "n": 2,
+     "bytes": 60911147528,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "SIYI MK15",
+     "n": 8,
+     "bytes": 6400000000,
+     "flags": {
+      "is_slice": 8
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "siyi/mk32": {
+   "canonical_model": "siyi/mk32",
+   "n_locations": 3,
+   "n_spellings": 2,
+   "spellings": [
+    "SIYI MK32",
+    "SIYI_MK32"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "SIYI_MK32",
+     "n": 44,
+     "bytes": 68710668072,
+     "flags": {
+      "is_slice": 44
+     }
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "SIYI_MK32",
+     "n": 2,
+     "bytes": 68710668072,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "SIYI MK32",
+     "n": 6,
+     "bytes": 4800000000,
+     "flags": {
+      "is_slice": 6
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "skydroid/h12": {
+   "canonical_model": "skydroid/h12",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "SKYDROID H12",
+    "SKYDROID-H12"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "SKYDROID-H12",
+     "n": 2,
+     "bytes": 29438915304,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "SKYDROID H12",
+     "n": 8,
+     "bytes": 6400000000,
+     "flags": {
+      "is_slice": 8
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "skydroid/t10": {
+   "canonical_model": "skydroid/t10",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "SKYDROID T10",
+    "SKYDROID-T10"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "SKYDROID-T10",
+     "n": 3,
+     "bytes": 45256826256,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "SKYDROID T10",
+     "n": 9,
+     "bytes": 7200000000,
+     "flags": {
+      "is_slice": 9
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "wfly/et10": {
+   "canonical_model": "wfly/et10",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "WFLY ET10",
+    "WFLY_ET10"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "WFLY_ET10",
+     "n": 4,
+     "bytes": 39405117816,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "WFLY ET10",
+     "n": 9,
+     "bytes": 7200000000,
+     "flags": {
+      "is_slice": 9
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "wfly/et16s": {
+   "canonical_model": "wfly/et16s",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "WFLY ET16S",
+    "WFLY_ET16S"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "WFLY_ET16S",
+     "n": 3,
+     "bytes": 27678395744,
+     "flags": {
+      "is_partial": 1
+     }
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "WFLY ET16S",
+     "n": 8,
+     "bytes": 6400000000,
+     "flags": {
+      "is_slice": 8
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "wfly/wft09sii": {
+   "canonical_model": "wfly/wft09sii",
+   "n_locations": 2,
+   "n_spellings": 2,
+   "spellings": [
+    "WFLY WFT09SII",
+    "WFLY_WFT09SII"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "WFLY_WFT09SII",
+     "n": 2,
+     "bytes": 32094862808,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "WFLY WFT09SII",
+     "n": 8,
+     "bytes": 6400000000,
+     "flags": {
+      "is_slice": 8
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "yunzhuo/h12": {
+   "canonical_model": "yunzhuo/h12",
+   "n_locations": 3,
+   "n_spellings": 2,
+   "spellings": [
+    "YUNZHUO H12",
+    "YUNZHUO-H12"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "YUNZHUO-H12",
+     "n": 16,
+     "bytes": 24814144256,
+     "flags": {
+      "is_slice": 16
+     }
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "YUNZHUO-H12",
+     "n": 1,
+     "bytes": 24814144256,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "YUNZHUO H12",
+     "n": 4,
+     "bytes": 3200000000,
+     "flags": {
+      "is_slice": 4
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "yunzhuo/h16": {
+   "canonical_model": "yunzhuo/h16",
+   "n_locations": 3,
+   "n_spellings": 2,
+   "spellings": [
+    "YUNZHUO H16",
+    "YUNZHUO-H16"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "YUNZHUO-H16",
+     "n": 22,
+     "bytes": 49137481472,
+     "flags": {
+      "is_slice": 21
+     }
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "YUNZHUO-H16",
+     "n": 1,
+     "bytes": 32720247592,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "YUNZHUO H16",
+     "n": 4,
+     "bytes": 3200000000,
+     "flags": {
+      "is_slice": 4
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  },
+  "yunzhuo/h30": {
+   "canonical_model": "yunzhuo/h30",
+   "n_locations": 3,
+   "n_spellings": 2,
+   "spellings": [
+    "YUNZHUO H30",
+    "YUNZHUO-H30"
+   ],
+   "locations": [
+    {
+     "root": "rawdata",
+     "class_dir": "YUNZHUO-H30",
+     "n": 22,
+     "bytes": 34511001336,
+     "flags": {
+      "is_slice": 22
+     }
+    },
+    {
+     "root": "过大的原始数据",
+     "class_dir": "YUNZHUO-H30",
+     "n": 1,
+     "bytes": 34511001336,
+     "flags": {}
+    },
+    {
+     "root": "PublicDataset",
+     "class_dir": "YUNZHUO H30",
+     "n": 4,
+     "bytes": 3200000000,
+     "flags": {
+      "is_slice": 4
+     }
+    }
+   ],
+   "review_notes": [
+    "spelling crosswalk required"
+   ]
+  }
+ },
+ "_stats": {
+  "devices_total": 62,
+  "devices_multi_location": 49,
+  "devices_needing_spelling_crosswalk": 43,
+  "devices_with_review_notes": 43
+ }
+}
