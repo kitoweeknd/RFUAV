@@ -185,34 +185,29 @@ def generate_images(datapack: str = None,
     # dpi=300 the PNG stays 1920×1440 — identical appearance to the old path.
     fig = Figure()
     canvas = FigureCanvasAgg(fig)
-    # Rasterise the reused canvas at `dpi_eff` so a bare Figure (6.4×4.8 in) draws
-    # at 1920×1440 for the default dpi=300 — matching the old savefig(dpi=300)
-    # pixels — and so the buffer path below can read the Agg buffer directly.
     fig.set_dpi(dpi_eff)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_axis_off()
-    im = None
 
     for frame_idx in range(0, n_frames, step):
-        # Stream one frame from disk (only ~1.6 MB for float32 at 100 MHz, 0.1 s)
         data = _complex_from_file(datapack, frame_idx * slice_point, slice_point, file_type)
 
         f, t, Zxx = STFT(data, stft_point=stft_point, fs=fs,
                          duration_time=duration_time, onside=False)
         f = np.fft.fftshift(f)
         Zxx = np.fft.fftshift(Zxx, axes=0)
-        aug = 10 * np.log10(np.abs(Zxx))
+        aug = np.abs(Zxx)
         aug = np.clip(aug, a_min=1e-10, a_max=None)
+        aug = 10 * np.log10(aug)
 
-        if im is None:
-            # `extent` is fixed across frames (depends only on fs/stft_point/
-            # slice_point), so the AxesImage is created just once.
-            extent = [t.min(), t.max(), f.min(), f.max()]
-            im = ax.imshow(aug, extent=extent, aspect='auto',
-                           origin='lower', cmap='jet')
-        else:
-            im.set_data(aug)
-            im.autoscale()  # re-derive clim per frame, matching per-frame imshow
+        # Clear and re-draw every frame: set_data() on a reused AxesImage is
+        # unreliable on the Agg backend (the renderer cache can survive both
+        # set_data+autoscale and canvas.draw, producing pixel-identical output
+        # across distinct STFT frames).  Clearing the axes forces a fresh draw.
+        ax.cla()
+        ax.set_axis_off()
+        extent = [t.min(), t.max(), f.min(), f.max()]
+        ax.imshow(aug, extent=extent, aspect='auto', origin='lower', cmap='jet')
 
         if location == 'buffer':
             # Read the RGBA raster straight off the Agg canvas instead of encoding
@@ -229,7 +224,8 @@ def generate_images(datapack: str = None,
                                   (pack + '/' if pack else ''))
             os.makedirs(subdir, exist_ok=True)
             fname = os.path.join(subdir, f'{file} ({frame_count}).jpg')
-            fig.savefig(fname, dpi=dpi_eff)
+            canvas.draw()
+            Image.fromarray(np.array(canvas.buffer_rgba())).convert('RGB').save(fname, 'JPEG', quality=95)
 
         frame_count += 1
 
@@ -802,6 +798,50 @@ def waterfall_spectrogram(datapack, fft_size, fs, location, time_scale,
 # ----------------------------------------------------------------------
 # CLI
 # ----------------------------------------------------------------------
+def _iq_dtype_module():
+    """Import the shared datatype vocabulary, lazily.
+
+    The import is deliberately NOT at module scope.  This file is both a CLI and
+    a library -- ``STFT``, ``generate_images``, ``frames_to_video`` and
+    ``waterfall_spectrogram_optimized`` are imported from it by ``utils/``,
+    ``tools/`` and the test suite -- and application code must never acquire a
+    dependency on ``tools/``.  Deferring the import to CLI-construction time
+    keeps that direction of the layering intact: only ``_add_dtype_arg`` and
+    ``_dtype_from_str`` (both CLI-only) ever reach into ``tools/rfuav_v2``.
+
+    There is no fallback copy of the token list.  A second list that agrees
+    today is a list that disagrees after the next edit, and that divergence
+    between the manifest's vocabulary and its consumers' is precisely defect D9
+    (see memoria/investigaciones/.../verificacion-empirica-06-d9-dtype-consumo.md).
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pkg = os.path.join(root, 'tools', 'rfuav_v2')
+    if pkg not in sys.path:
+        sys.path.insert(0, pkg)
+    import iq_dtype
+    return iq_dtype
+
+
+def _add_dtype_arg(parser: argparse.ArgumentParser) -> None:
+    """Attach ``--dtype`` with the manifest's own vocabulary.
+
+    One helper rather than four copies.  The flag previously appeared verbatim in
+    all four subparsers as ``choices=['float32','float64','complex64']``, which
+    cannot name the ``ci16_le`` of 93 files / 53.43 GB of the library -- the same
+    defect class as D9-4, in a second CLI.  Four copies of a flag is also four
+    places to forget when a token is added.
+    """
+    iq_dtype = _iq_dtype_module()
+    parser.add_argument('--dtype',
+                        choices=sorted(iq_dtype.VOCAB) + sorted(iq_dtype.ALIASES),
+                        default='cf32_le', metavar='TOKEN',
+                        help='On-disk sample datatype, as the manifest spells it '
+                             '(default cf32_le -- byte-identical to the former '
+                             'float32 default). Canonical: %s. Also accepted: %s.'
+                             % (', '.join(sorted(iq_dtype.VOCAB)),
+                                ', '.join(sorted(iq_dtype.ALIASES))))
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog='RawDataProcessor',
@@ -822,9 +862,7 @@ def _build_parser() -> argparse.ArgumentParser:
                          help='STFT window size (default 2048)')
     p_spec.add_argument('--duration', type=float, default=0.1,
                          help='Single-frame duration in seconds (default 0.1)')
-    p_spec.add_argument('--dtype', default='float32',
-                         choices=['float32', 'float64', 'complex64'],
-                         help='Data file type (default float32)')
+    _add_dtype_arg(p_spec)
 
     # ── video ────────────────────────────────────────────────────────
     p_vid = subparsers.add_parser('video', help='Convert raw data into video')
@@ -840,9 +878,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         help='Single-frame duration in seconds (default 0.1)')
     p_vid.add_argument('--fps', type=int, default=5,
                         help='Video frame rate (default 5)')
-    p_vid.add_argument('--dtype', default='float32',
-                        choices=['float32', 'float64', 'complex64'],
-                        help='Data file type (default float32)')
+    _add_dtype_arg(p_vid)
 
     # ── show ─────────────────────────────────────────────────────────
     p_show = subparsers.add_parser('show', help='Interactively display spectrogram')
@@ -861,9 +897,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_show.add_argument('--save', '-s', default=None,
                          help='Save the figure to this path instead of displaying '
                               '(useful in headless environments)')
-    p_show.add_argument('--dtype', default='float32',
-                         choices=['float32', 'float64', 'complex64'],
-                         help='Data file type (default float32)')
+    _add_dtype_arg(p_show)
 
     # ── waterfall ───────────────────────────────────────────────────
     p_wf = subparsers.add_parser('waterfall', help='Generate scrolling spectrogram (waterfall)')
@@ -883,15 +917,27 @@ def _build_parser() -> argparse.ArgumentParser:
                       help='Number of parallel workers (default: CPU count)')
     p_wf.add_argument('--chunk-size', type=int, default=50_000_000,
                       help='Max complex samples held in RAM at once (default 50M, ~400 MB)')
-    p_wf.add_argument('--dtype', default='float32',
-                      choices=['float32', 'float64', 'complex64'],
-                      help='Data file type (default float32)')
+    _add_dtype_arg(p_wf)
 
     return parser
 
 
 def _dtype_from_str(name: str):
-    return {'float32': np.float32, 'float64': np.float64, 'complex64': np.complex64}[name]
+    """Resolve a ``--dtype`` token to the *component* dtype the readers expect.
+
+    ``graphic/io_utils.py`` takes a component dtype (float32, int16, ...) and
+    derives bytes-per-sample from its itemsize, which is why it already handles
+    ci16_le correctly and only this CLI's vocabulary was ever the limitation.
+
+    Returning the component rather than a complex dtype is not a behaviour
+    change for the two tokens that overlap with the old flag: a native
+    ``complex64`` array on disk is byte-identical to interleaved float32 pairs,
+    so ``cf32_le`` -> float32 sends the reader down its interleaved branch and
+    yields the same samples (8 B/sample either way, and both branches floor a
+    truncated tail identically).  The native-complex branch of the reader stays
+    reachable for library callers, who pass ``np.complex64`` directly.
+    """
+    return _iq_dtype_module().from_manifest_token(name).component
 
 
 def main():

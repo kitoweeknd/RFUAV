@@ -128,6 +128,20 @@ def show_image(image):
 
 def split_images(input_path, output_path, train_ratio=0.8):
 
+    """LEAKY / LEGACY -- do not use for any reported evaluation.
+
+    This shuffles the .jpg files of each class directory and cuts at
+    ``int(len * train_ratio)``.  Frames of the SAME recording therefore land on
+    both sides of the split (ERRATA E-013: measured 12,080 / 12,080 held-out
+    frames had a train twin -- 100 % leakage).  Any accuracy from a split built
+    this way is an upper bound on memorization, not on generalization.
+
+    Use ``tools/rfuav_v2/split_images_grouped.py`` instead: it carries the
+    session-grouped, leakage-clean split from ``split_grouped.py make`` down to
+    the images.  This function is kept only so historical runs remain
+    reproducible.
+    """
+
     print('starting split')
 
     if not os.path.exists(output_path):
