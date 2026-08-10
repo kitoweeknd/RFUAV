@@ -37,7 +37,7 @@ def check_cfg(cfg: str):
         )
     if not isinstance(opt['num_classes'], int):
         raise ValueError("The number of classes must be an integer")
-    if opt['weights'] is None or not os.path.exists(opt['weights']):
+    if not opt.get('weights') or not os.path.exists(opt['weights']):
         logging.info("No fine-tune checkpoint specified; backbone init follows the `pretrained` flag")
     if opt['device'] != 'cpu' and not torch.cuda.is_available():
         logging.info("CUDA is not available, using CPU instead")

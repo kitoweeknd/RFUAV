@@ -353,7 +353,7 @@ class Basetrainer:
         if os.path.exists(weight_path):
             self.logger.log_with_color(f"Loading pretrained weights from: {weight_path}")
             state_dict = torch.load(weight_path, map_location=self.device, weights_only=True)
-            self.model.load_state_dict(state_dict)
+            self.model.load_state_dict(state_dict, strict=False)
             self.logger.success(f"Successfully loaded pretrained weights from: {weight_path}")
         else:
             self.logger.warning(f"Pretrained weights file not found at: {weight_path}. Skipping weight loading.")
@@ -379,7 +379,7 @@ def model_init_(model_name, num_class, pretrained=True, image_size=None):
     """
     name = str(model_name).strip()
     kwargs = dict(pretrained=pretrained, num_classes=num_class)
-    if image_size:
+    if image_size and "swin" not in name.lower() and "vit" not in name.lower():
         try:
             return timm.create_model(name, img_size=int(image_size), **kwargs)
         except TypeError:

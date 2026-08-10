@@ -1,0 +1,9 @@
+import torch
+print("torch", torch.__version__)
+print("CUDA", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("GPU", torch.cuda.get_device_name(0))
+import timm
+print("timm", timm.__version__)
+import cv2
+print("cv2 ok")
