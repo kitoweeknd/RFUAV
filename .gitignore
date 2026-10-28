@@ -133,3 +133,9 @@ Desktop.ini
 *.temp
 *.bak
 *.orig
+
+# Server-local experiment artifacts (venv / wheels / run logs)
+.venv_p0/
+*.whl
+tools/*.txt
+
